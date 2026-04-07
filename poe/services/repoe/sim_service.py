@@ -22,6 +22,7 @@ from poe.services.build.xml.parser import parse_build_file
 from poe.services.ninja.client import NinjaClient
 from poe.services.ninja.discovery import DiscoveryService
 from poe.services.ninja.economy import EconomyService
+from poe.services.ninja.errors import NinjaError
 from poe.services.repoe.constants import (
     DEFAULT_ILVL,
     DEFAULT_ITERATIONS,
@@ -469,7 +470,9 @@ class SimService:
                     "cost_per_attempt": sim.cost_per_attempt,
                 }
             )
-        results.sort(key=lambda x: x["avg_cost_chaos"])
+        results.sort(
+            key=lambda x: x["avg_cost_chaos"] if x["avg_cost_chaos"] is not None else float("inf")
+        )
         return results
 
     def suggest_craft(self, mod_names: list[str]) -> list[dict]:
@@ -547,5 +550,5 @@ class SimService:
                 result = crafting.model_dump()
                 result["league"] = resolved
                 return result
-        except (OSError, ValueError, KeyError, RuntimeError):
+        except NinjaError:
             return self._data.get_prices(league=league)

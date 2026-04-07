@@ -6,6 +6,7 @@ import pytest
 
 from poe.exceptions import SimDataError
 from poe.models.ninja.economy import CraftingPrices
+from poe.services.ninja.errors import NetworkError
 from poe.services.repoe.sim_service import SimService
 from tests.conftest import make_repoe_data
 
@@ -90,7 +91,7 @@ class TestGetPrices:
     def test_falls_back_to_stub_on_error(self, sim_service):
         with patch(
             _NINJA_CLIENT,
-            side_effect=ConnectionError("offline"),
+            side_effect=NetworkError("offline"),
         ):
             result = sim_service.get_prices(league="current")
 

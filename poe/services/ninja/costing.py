@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from poe.models.ninja.analysis import BuildCost, SlotCost, UpgradeSuggestion
 
 if TYPE_CHECKING:
-    from poe.models.ninja.builds import CharacterItem, CharacterResponse
+    from poe.models.ninja.builds import CharacterItem, CharacterJewel, CharacterResponse
     from poe.services.ninja.economy import EconomyService
 
 
@@ -17,7 +17,7 @@ def _item_type_line(item: CharacterItem) -> str:
     return item.item_data.get("typeLine", "")
 
 
-def _item_rarity(item: CharacterItem) -> str:
+def _item_rarity(item: CharacterItem | CharacterJewel) -> str:
     frame = item.item_data.get("frameType", 0)
     return {0: "normal", 1: "magic", 2: "rare", 3: "unique"}.get(frame, "")
 
@@ -72,7 +72,7 @@ def cost_build(
                 slot="Jewel",
                 item_name=name,
                 chaos_value=price,
-                is_unique=True,
+                is_unique=_item_rarity(jewel) == "unique",
             ),
         )
 

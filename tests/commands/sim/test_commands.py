@@ -5,6 +5,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from poe.app import app as cli
+from poe.services.ninja.errors import NetworkError
 from poe.services.repoe.sim import BestTier, ModPoolEntry
 from tests.conftest import invoke_cli
 
@@ -852,7 +853,7 @@ class TestCraftPrices:
         cd = _mock_repoe_data(get_prices=SAMPLE_PRICES)
         with (
             patch(_PATCH_CD, return_value=cd),
-            patch(_PATCH_NINJA, side_effect=ConnectionError("offline")),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
         ):
             result = invoke_cli(cli, ["sim", "prices", "--json"])
         assert result.exit_code == 0
@@ -863,7 +864,7 @@ class TestCraftPrices:
         cd = _mock_repoe_data(get_prices=SAMPLE_PRICES)
         with (
             patch(_PATCH_CD, return_value=cd),
-            patch(_PATCH_NINJA, side_effect=ConnectionError("offline")),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
         ):
             result = invoke_cli(cli, ["sim", "prices", "--league", "Settlers", "--json"])
         assert result.exit_code == 0
@@ -875,7 +876,7 @@ class TestCraftPrices:
         cd.get_prices.side_effect = RuntimeError("no prices")
         with (
             patch(_PATCH_CD, return_value=cd),
-            patch(_PATCH_NINJA, side_effect=ConnectionError("offline")),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
         ):
             result = invoke_cli(cli, ["sim", "prices"])
         assert result.exit_code != 0
@@ -884,7 +885,7 @@ class TestCraftPrices:
         cd = _mock_repoe_data(get_prices=SAMPLE_PRICES)
         with (
             patch(_PATCH_CD, return_value=cd),
-            patch(_PATCH_NINJA, side_effect=ConnectionError("offline")),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
         ):
             result = invoke_cli(cli, ["sim", "prices"])
         assert result.exit_code == 0

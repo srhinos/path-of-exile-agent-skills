@@ -577,7 +577,7 @@ class CraftingEngine:
             group=f"Metamod{metamod_type}",
             weight=0,
             chance=1.0,
-            tier={},
+            tier=BestTier(ilvl=0, values=(), weight=0),
             rolls=[],
             is_crafted=True,
         )
@@ -829,7 +829,7 @@ class CraftingEngine:
                     group="CorruptionImplicit",
                     weight=0,
                     chance=1.0,
-                    tier={},
+                    tier=BestTier(ilvl=0, values=(), weight=0),
                     rolls=[],
                 )
             )
@@ -1092,12 +1092,13 @@ class CraftingEngine:
         engine = CraftingEngine(data, rng=random.Random(seed))
         attempts_on_hit: list[int] = []
         item = engine.create_item(base, ilvl, influences)
+        pinned_pool_entries: list[ModPoolEntry] = []
         if existing_mods:
             pool = engine._build_mod_pool(item)
             for mod_name in existing_mods:
                 for m in pool:
                     if m.group.casefold() == mod_name.casefold():
-                        engine._add_mod(item, m)
+                        pinned_pool_entries.append(m)
                         break
 
         for _ in range(chunk_size):
@@ -1109,6 +1110,8 @@ class CraftingEngine:
                     blocked_tags,
                     essence_name,
                 )
+                for pinned in pinned_pool_entries:
+                    engine._add_mod(item, pinned)
 
                 if match_mode == "all":
                     hit = all(
@@ -1283,16 +1286,23 @@ class CraftingEngine:
     def _resolve_pinned_groups(
         existing_mods: list[str] | None,
         groups: list[str],
-    ) -> set[str]:
+        is_prefix: list[bool] | None = None,
+    ) -> tuple[set[str], int, int]:
         pinned: set[str] = set()
+        n_pinned_prefix = 0
+        n_pinned_suffix = 0
         if existing_mods:
             for mod_name in existing_mods:
                 mcf = mod_name.casefold()
-                for g in groups:
+                for i, g in enumerate(groups):
                     if g == mcf:
                         pinned.add(g)
+                        if is_prefix is not None and is_prefix[i]:
+                            n_pinned_prefix += 1
+                        elif is_prefix is not None:
+                            n_pinned_suffix += 1
                         break
-        return pinned
+        return pinned, n_pinned_prefix, n_pinned_suffix
 
     @staticmethod
     def _run_chunk_fast(
@@ -1352,7 +1362,10 @@ class CraftingEngine:
         max_s = 1 if is_alt else 3
         min_both = CraftingEngine._MIN_MODS_FOR_BOTH_AFFIXES
 
-        pinned_groups = CraftingEngine._resolve_pinned_groups(existing_mods, groups)
+        pinned_groups, pinned_prefixes, pinned_suffixes = CraftingEngine._resolve_pinned_groups(
+            existing_mods, groups, is_prefix
+        )
+        n_pinned = len(pinned_groups)
         match_all = match_mode == "all"
         attempts_on_hit: list[int] = []
         append = attempts_on_hit.append
@@ -1368,10 +1381,11 @@ class CraftingEngine:
                         k=1,
                     )[0]
                 )
+                new_mods = max(0, num_mods - n_pinned)
 
                 rolled_groups: set[str] = set(pinned_groups)
-                n_prefix = 0
-                n_suffix = 0
+                n_prefix = pinned_prefixes
+                n_suffix = pinned_suffixes
 
                 fast_pick = CraftingEngine._fast_pick
                 pick_args = (
@@ -1386,7 +1400,7 @@ class CraftingEngine:
                     total_prefix_w,
                     total_suffix_w,
                 )
-                for _ in range(num_mods):
+                for _ in range(new_mods):
                     idx = fast_pick(
                         *pick_args,
                         rolled_groups,
