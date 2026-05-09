@@ -81,9 +81,8 @@ class GemsService:
             )
         removed = build_obj.skill_groups.pop(index)
         if build_obj.skill_sets:
-            for sid_groups in build_obj.skill_sets.values():
-                if removed in sid_groups:
-                    sid_groups.remove(removed)
+            for sid, sid_groups in build_obj.skill_sets.items():
+                build_obj.skill_sets[sid] = [g for g in sid_groups if g is not removed]
         self._build.save(build_obj, path)
         return MutationResult(
             removed_index=index,

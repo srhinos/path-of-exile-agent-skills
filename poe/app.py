@@ -56,8 +56,10 @@ def run() -> None:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         raise SystemExit(1) from None
     except ValidationError as e:
-        message = "; ".join(
-            f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()
-        )
+        parts = []
+        for err in e.errors():
+            loc = ".".join(str(p) for p in err["loc"])
+            parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
+        message = "; ".join(parts)
         print(json.dumps({"error": f"Invalid data: {message}"}), file=sys.stderr)
         raise SystemExit(1) from None

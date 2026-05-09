@@ -5,11 +5,11 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 from poe.models.build.tree import TreeSocket
 from poe.types import Influence, Rarity
 
-VALID_INFLUENCES = frozenset(Influence)
-VALID_RARITIES = frozenset(Rarity)
+VALID_INFLUENCES: frozenset[str] = frozenset(i.value for i in Influence)
+VALID_RARITIES: frozenset[str] = frozenset(r.value for r in Rarity)
 
-_INFLUENCE_BY_CASEFOLD = {i.value.casefold(): i.value for i in Influence}
-_RARITY_BY_CASEFOLD = {r.value.casefold(): r.value for r in Rarity}
+_INFLUENCE_BY_CASEFOLD: dict[str, str] = {i.value.casefold(): i.value for i in Influence}
+_RARITY_BY_CASEFOLD: dict[str, str] = {r.value.casefold(): r.value for r in Rarity}
 
 
 def _normalize_rarity(v: str) -> str:
