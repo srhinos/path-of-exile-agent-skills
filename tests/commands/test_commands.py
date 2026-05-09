@@ -282,3 +282,56 @@ class TestUninstallFlow:
 
         result = invoke_cli(cli, ["install-skill", "--uninstall"])
         assert result.exit_code != 0
+
+
+# ── install-skill JSON output structure invariants ──────────────────────────
+
+
+class TestInstallSkillJSONOutput:
+    def test_install_output_has_action_field(self, tmp_path, monkeypatch):
+        source_dir = tmp_path / "source"
+        source_dir.mkdir(parents=True)
+        (source_dir / "SKILL.md").write_text("# skill")
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
+        monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
+
+        result = invoke_cli(cli, ["install-skill"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert "action" in data
+        assert isinstance(data["action"], str)
+
+    def test_uninstall_output_has_action_field(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        target = home / ".claude" / "skills" / "poe"
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text("# skill")
+
+        monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
+
+        result = invoke_cli(cli, ["install-skill", "--uninstall"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert data["action"] == "uninstalled"
+
+
+class TestInstallSkillIdempotence:
+    def test_install_then_force_install_succeeds(self, tmp_path, monkeypatch):
+        source_dir = tmp_path / "source"
+        source_dir.mkdir(parents=True)
+        (source_dir / "SKILL.md").write_text("# v1")
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
+        monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
+
+        result1 = invoke_cli(cli, ["install-skill"])
+        assert result1.exit_code == 0
+
+        (source_dir / "SKILL.md").write_text("# v2")
+        result2 = invoke_cli(cli, ["install-skill", "--force"])
+        assert result2.exit_code == 0
+        target = home / ".claude" / "skills" / "poe"
+        assert (target / "SKILL.md").read_text() == "# v2"

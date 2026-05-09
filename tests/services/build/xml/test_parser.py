@@ -801,3 +801,393 @@ class TestMagicItemBaseType:
         item = build.items[0]
         assert item.name == "Doom Crown"
         assert item.base_type == "Hubris Circlet"
+
+
+# ── _parse_affix_slot sentinel pattern ───────────────────────────────────────
+
+
+class TestParseAffixSlotSentinel:
+    """AFFIX_NO_MATCH must be distinguishable from None and from real mod IDs."""
+
+    def test_affix_no_match_is_distinct_object(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH
+
+        assert AFFIX_NO_MATCH is not None
+        assert AFFIX_NO_MATCH != ""
+        assert AFFIX_NO_MATCH is not False
+
+    def test_non_affix_line_returns_sentinel(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("+50 to maximum Life", PREFIX_RE)
+        assert result is AFFIX_NO_MATCH
+
+    def test_prefix_line_with_none_returns_python_none(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: None", PREFIX_RE)
+        assert result is None
+        assert result is not AFFIX_NO_MATCH
+
+    def test_prefix_with_mod_id_returns_string(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: IncreasedLife6", PREFIX_RE)
+        assert result == "IncreasedLife6"
+        assert result is not AFFIX_NO_MATCH
+
+    def test_prefix_with_range_marker_strips_range(self):
+        from poe.services.build.constants import PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: {range:0.5}IncreasedLife6", PREFIX_RE)
+        assert result == "IncreasedLife6"
+
+    def test_suffix_line_with_none_returns_python_none(self):
+        from poe.services.build.constants import SUFFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Suffix: None", SUFFIX_RE)
+        assert result is None
+
+    def test_suffix_pattern_does_not_match_prefix_line(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, SUFFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: IncreasedLife6", SUFFIX_RE)
+        assert result is AFFIX_NO_MATCH
+
+    def test_sentinel_distinguishable_in_filtered_list(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        lines = ["Prefix: IncreasedLife6", "Prefix: None", "Random text"]
+        results = [_parse_affix_slot(line, PREFIX_RE) for line in lines]
+        # Filter sentinel out
+        prefixes = [r for r in results if r is not AFFIX_NO_MATCH]
+        assert len(prefixes) == 2
+        assert "IncreasedLife6" in prefixes
+        assert None in prefixes
+
+
+# ── _assign_affix_metadata keyword matching ──────────────────────────────────
+
+
+class TestAssignAffixMetadata:
+    """Test the keyword-based prefix/suffix assignment using slot mod IDs."""
+
+    def _make_xml(self, item_text: str) -> str:
+        return textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+{item_text}
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+
+    def test_prefix_count_invariant(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: ColdResistance5\n"
+            "+50 to maximum Life\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        # Invariant: number of prefix-tagged mods must not exceed filled prefix slots
+        prefix_tagged = sum(1 for m in item.explicits if m.is_prefix)
+        suffix_tagged = sum(1 for m in item.explicits if m.is_suffix)
+        assert prefix_tagged <= item.filled_prefixes
+        assert suffix_tagged <= item.filled_suffixes
+
+    def test_assigned_explicits_have_mod_ids(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: ColdResistance5\n"
+            "+50 to maximum Life\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        for m in item.explicits:
+            if m.is_prefix:
+                assert m.mod_id != ""
+            if m.is_suffix:
+                assert m.mod_id != ""
+
+    def test_no_slots_no_affix_assignment(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        for m in item.explicits:
+            assert not m.is_prefix
+            assert not m.is_suffix
+            assert m.mod_id == ""
+
+    def test_crafted_mods_excluded_from_assignment(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: None\n"
+            "+50 to maximum Life\n"
+            "{crafted}+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        crafted = [m for m in item.explicits if m.is_crafted]
+        # Crafted should not be tagged as prefix/suffix or get mod_id from slot
+        for m in crafted:
+            assert m.mod_id == ""
+
+    def test_mod_index_claim_uniqueness(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Prefix: SpellDamage3\n"
+            "Suffix: ColdResistance5\n"
+            "+50 to maximum Life\n"
+            "Adds 30 to 50 Spell Damage\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assigned_ids = [m.mod_id for m in item.explicits if m.mod_id]
+        # No duplicate mod_ids should be claimed
+        assert len(assigned_ids) == len(set(assigned_ids))
+
+
+# ── Bandit field None handling ──────────────────────────────────────────────
+
+
+class TestBanditField:
+    def test_bandit_none_string_becomes_python_none(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="" bandit="None"/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.bandit is None
+
+    def test_bandit_empty_string_becomes_python_none(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="" bandit=""/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.bandit is None
+
+    @pytest.mark.parametrize("bandit", ["Alira", "Kraityn", "Oak"])
+    def test_bandit_named_choice_preserved(self, tmp_path, bandit):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="" bandit="{bandit}"/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.bandit == bandit
+
+
+# ── Level bounds parsing ─────────────────────────────────────────────────────
+
+
+class TestLevelParsing:
+    @pytest.mark.parametrize("level", [1, 50, 90, 100])
+    def test_level_within_bounds_preserved(self, tmp_path, level):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="{level}" className="Witch" ascendClassName=""/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == level
+
+    def test_level_zero_preserved_as_invariant_check(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="0" className="Witch" ascendClassName=""/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == 0
+
+
+# ── Influence enum coverage ──────────────────────────────────────────────────
+
+
+class TestInfluenceEnumCoverage:
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("Shaper Item", "Shaper"),
+            ("Elder Item", "Elder"),
+            ("Crusader Item", "Crusader"),
+            ("Hunter Item", "Hunter"),
+            ("Redeemer Item", "Redeemer"),
+            ("Warlord Item", "Warlord"),
+            ("Searing Exarch Item", "Searing Exarch"),
+            ("Eater of Worlds Item", "Eater of Worlds"),
+        ],
+    )
+    def test_each_influence_parsed(self, tmp_path, line, expected):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test Crown
+Hubris Circlet
+{line}
+Implicits: 0
++50 to maximum Life
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert expected in build.items[0].influences
+
+
+# ── Rarity enum coverage ─────────────────────────────────────────────────────
+
+
+class TestRarityEnumCoverage:
+    @pytest.mark.parametrize("rarity", ["NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"])
+    def test_each_rarity_parsed(self, tmp_path, rarity):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: {rarity}
+Test Item
+Hubris Circlet
+Implicits: 0
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].rarity == rarity
+
+
+# ── Empty/invalid XML negative paths ─────────────────────────────────────────
+
+
+class TestParserNegativePaths:
+    def test_invalid_xml_raises(self, tmp_path):
+        from defusedxml.common import EntitiesForbidden  # noqa: F401
+
+        p = tmp_path / "bad.xml"
+        p.write_text("not valid xml at all <<<>>>", encoding="utf-8")
+        with pytest.raises(Exception):  # noqa: B017
+            parse_build_file(p)
+
+    def test_truly_empty_file_raises(self, tmp_path):
+        p = tmp_path / "empty.xml"
+        p.write_text("", encoding="utf-8")
+        with pytest.raises(Exception):  # noqa: B017
+            parse_build_file(p)
+
+
+# ── Item state lines (negative tests for _parse_header_line) ─────────────────
+
+
+class TestItemStateLines:
+    @pytest.mark.parametrize(
+        ("line", "field"),
+        [
+            ("Synthesised Item", "is_synthesised"),
+            ("Fractured Item", "is_fractured"),
+            ("Crafted: true", "is_crafted"),
+            ("Corrupted", "is_corrupted"),
+            ("Mirrored", "is_mirrored"),
+            ("Split", "is_split"),
+            ("Has Veiled Prefix", "has_veiled_prefix"),
+            ("Has Veiled Suffix", "has_veiled_suffix"),
+        ],
+    )
+    def test_each_state_line_sets_field(self, tmp_path, line, field):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test Item
+Hubris Circlet
+{line}
+Implicits: 0
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert getattr(build.items[0], field) is True
+
+
+# ── prefix_slots + open_prefixes invariants ─────────────────────────────────
+
+
+class TestPrefixSuffixSlotInvariants:
+    def _make_xml(self, item_text: str) -> str:
+        return textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+{item_text}
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+
+    def test_open_plus_filled_equals_total(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Item\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Prefix: None\n"
+            "Prefix: None\n"
+            "Suffix: ColdResistance5\n"
+            "Suffix: None\n"
+            "+50 to maximum Life\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.open_prefixes + item.filled_prefixes == len(item.prefix_slots)
+        assert item.open_suffixes + item.filled_suffixes == len(item.suffix_slots)
+
+    def test_filled_count_matches_non_none_entries(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Item\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: None\n"
+            "+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.filled_prefixes == sum(1 for s in item.prefix_slots if s is not None)
+        assert item.open_suffixes == sum(1 for s in item.suffix_slots if s is None)

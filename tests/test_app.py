@@ -125,3 +125,63 @@ class TestRun:
         with patch("poe.app.app", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
                 run()
+
+
+# ── Error handler structure invariants (Pattern 4) ──────────────────────────
+
+
+class TestRunErrorHandlerSerialization:
+    def test_run_serializes_poe_error_as_json(self, capsys, monkeypatch):
+        import json as _json
+
+        monkeypatch.setattr("poe.app._check_skill_version", lambda: None)
+        with patch("poe.app.app", side_effect=PoeError("formatted error")):
+            with pytest.raises(SystemExit):
+                run()
+        captured = capsys.readouterr()
+        parsed = _json.loads(captured.err.strip())
+        assert parsed == {"error": "formatted error"}
+
+    @pytest.mark.parametrize(
+        "exc_class_name",
+        [
+            "PoeError",
+            "BuildNotFoundError",
+            "SlotError",
+            "SimDataError",
+            "BuildValidationError",
+            "CodecError",
+            "EngineNotAvailableError",
+        ],
+    )
+    def test_each_poe_error_subclass_caught(self, exc_class_name, capsys, monkeypatch):
+        import poe.exceptions as exc_mod
+
+        monkeypatch.setattr("poe.app._check_skill_version", lambda: None)
+        exc_class = getattr(exc_mod, exc_class_name)
+        with patch("poe.app.app", side_effect=exc_class("test message")):
+            with pytest.raises(SystemExit) as exc_info:
+                run()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert '"error"' in captured.err
+
+    def test_run_exit_code_is_1_for_poe_error(self):
+        with patch("poe.app.app", side_effect=PoeError("x")):
+            with pytest.raises(SystemExit) as exc_info:
+                run()
+        assert exc_info.value.code == 1
+
+
+class TestAppHelp:
+    @pytest.mark.parametrize(
+        "subcommand",
+        ["build", "dev", "sim", "ninja", "install-skill"],
+    )
+    def test_subcommand_help_succeeds(self, subcommand):
+        result = invoke_cli(app, [subcommand, "--help"])
+        assert result.exit_code == 0
+
+    def test_no_args_shows_help_or_error(self):
+        result = invoke_cli(app, [])
+        assert result.exit_code is not None

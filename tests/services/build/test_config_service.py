@@ -205,6 +205,129 @@ class TestMultipleConfigSets:
         assert active[0]["id"] == "2"
 
 
+class TestConfigSetParametrized:
+    @pytest.mark.parametrize("value", ["true", "false", "True", "False", "TRUE", "FALSE"])
+    def test_boolean_case_insensitive(self, rich_build, value):
+        svc = ConfigService()
+        result = svc.set(
+            "ignored",
+            boolean=[f"buffFortify={value}"],
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    @pytest.mark.parametrize("value", ["yes", "no", "1", "0", "on", "off", ""])
+    def test_boolean_invalid_value(self, rich_build, value):
+        svc = ConfigService()
+        with pytest.raises(BuildValidationError, match="boolean"):
+            svc.set(
+                "ignored",
+                boolean=[f"key={value}"],
+                file_path=str(rich_build),
+            )
+
+    @pytest.mark.parametrize("value", ["84", "84.0", "0", "-5", "1e3", "3.14"])
+    def test_number_parses(self, rich_build, value):
+        svc = ConfigService()
+        result = svc.set(
+            "ignored",
+            number=[f"enemyLevel={value}"],
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    @pytest.mark.parametrize("value", ["abc", "12abc", "", "  "])
+    def test_number_invalid(self, rich_build, value):
+        svc = ConfigService()
+        with pytest.raises(BuildValidationError, match="number"):
+            svc.set(
+                "ignored",
+                number=[f"enemyLevel={value}"],
+                file_path=str(rich_build),
+            )
+
+
+class TestApplyPresetCoverage:
+    @pytest.mark.parametrize("preset", ["mapping", "boss", "sirus", "shaper"])
+    def test_each_preset_applies(self, rich_build, preset):
+        svc = ConfigService()
+        result = svc.apply_preset("ignored", preset, file_path=str(rich_build))
+        assert result.status == "ok"
+        assert result.preset == preset
+
+
+class TestSetRemove:
+    def test_remove_unknown_key_is_silent(self, rich_build):
+        svc = ConfigService()
+        result = svc.set(
+            "ignored",
+            remove=["totally_not_a_key"],
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    def test_remove_actually_removes_existing(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ConfigService()
+        svc.set(
+            "ignored",
+            boolean=["temp_key=true"],
+            file_path=str(rich_build),
+        )
+        svc.set(
+            "ignored",
+            remove=["temp_key"],
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        cfg = build.get_active_config()
+        assert all(inp.name != "temp_key" for inp in cfg.inputs)
+
+
+class TestSwitchSetInvariant:
+    def test_switch_to_same_set(self, rich_build):
+        svc = ConfigService()
+        result = svc.switch_set("ignored", "1", file_path=str(rich_build))
+        assert result.status == "ok"
+
+    def test_remove_active_set_switches_active(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ConfigService()
+        svc.add_set("ignored", title="Alt", file_path=str(rich_build))
+        svc.switch_set("ignored", "2", file_path=str(rich_build))
+        svc.remove_set("ignored", "2", file_path=str(rich_build))
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        existing = {cs.id for cs in build.config_sets}
+        assert build.active_config_set in existing
+
+
+class TestAddSetInvariant:
+    def test_added_config_set_has_unique_id(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ConfigService()
+        svc.add_set("ignored", title="A", file_path=str(rich_build))
+        svc.add_set("ignored", title="B", file_path=str(rich_build))
+        svc.add_set("ignored", title="C", file_path=str(rich_build))
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        ids = [cs.id for cs in build.config_sets]
+        assert len(ids) == len(set(ids))
+
+
+class TestSetParseKvFormatErrors:
+    @pytest.mark.parametrize("kv", ["nokey", "key", " "])
+    def test_invalid_format_raises(self, rich_build, kv):
+        svc = ConfigService()
+        with pytest.raises(BuildValidationError, match="key=value"):
+            svc.set(
+                "ignored",
+                boolean=[kv],
+                file_path=str(rich_build),
+            )
+
+
 class TestLegacyConfig:
     def test_legacy_config_without_configset(self, tmp_path):
         xml = """\

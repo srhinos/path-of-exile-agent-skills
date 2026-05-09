@@ -184,3 +184,113 @@ class TestToolsCli:
 
         result = invoke_cli(app, ["ninja", "price", "craft"])
         assert result.exit_code == 0
+
+
+# ── Added tests below ────────────────────────────────────────────────────────
+
+
+class TestDiffSnapshotsInvariants:
+    def test_added_have_zero_old_value(self):
+        old = _make_results({"A": 50.0})
+        new = _make_results({"A": 50.0, "B": 30.0})
+        diff = diff_snapshots(old, new)
+        for c in diff.added:
+            assert c.old_pct == 0.0
+            assert c.new_pct > 0.0
+
+    def test_removed_have_zero_new_value(self):
+        old = _make_results({"A": 50.0, "B": 30.0})
+        new = _make_results({"A": 50.0})
+        diff = diff_snapshots(old, new)
+        for c in diff.removed:
+            assert c.new_pct == 0.0
+            assert c.old_pct > 0.0
+
+    def test_change_type_matches_delta_sign(self):
+        old = _make_results({"A": 50.0, "B": 30.0})
+        new = _make_results({"A": 55.0, "B": 25.0})
+        diff = diff_snapshots(old, new)
+        for c in diff.changed:
+            if c.delta_pct > 0:
+                assert c.change_type == "increased"
+            elif c.delta_pct < 0:
+                assert c.change_type == "decreased"
+
+
+class TestFindBuildImpactInvariants:
+    def test_returned_only_in_search_set(self):
+        old = _make_results({"A": 50.0, "B": 30.0, "C": 20.0})
+        new = _make_results({"A": 55.0, "B": 20.0})
+        diff = diff_snapshots(old, new)
+
+        impacted = find_build_impact(diff, {"B"})
+        for entry in impacted:
+            assert entry.name == "B"
+
+    def test_impact_empty_set(self):
+        old = _make_results({"A": 50.0})
+        new = _make_results({"A": 60.0})
+        diff = diff_snapshots(old, new)
+        assert find_build_impact(diff, set()) == []
+
+
+class TestTooltipCliHumanOutput:
+    @patch("poe.commands.ninja.commands.NinjaClient")
+    def test_tooltip_default_human(self, mock_cls):
+        from poe.models.ninja.builds import TooltipMod, TooltipResponse
+
+        client = MagicMock(no_cache=False)
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch("poe.commands.ninja.commands.BuildsService") as mock_builds_cls:
+            mock_svc = MagicMock()
+            mock_svc.get_generic_tooltip.return_value = TooltipResponse(
+                name="Whispers of Doom",
+                implicit_mods=[],
+                explicit_mods=[
+                    TooltipMod(text="You can apply an additional Curse", optional=False),
+                ],
+                mutated_mods=[],
+            )
+            mock_builds_cls.return_value = mock_svc
+            result = invoke_cli(app, ["ninja", "tooltip", "Whispers of Doom"])
+
+        assert result.exit_code == 0
+        assert "Whispers of Doom" in result.output
+        try:
+            json.loads(result.output)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            is_json = False
+        assert not is_json
+
+
+class TestPriceCraftHumanOutput:
+    @patch("poe.commands.ninja.price.commands.NinjaClient")
+    def test_price_craft_default_human(self, mock_cls):
+        client = MagicMock(no_cache=False)
+
+        def get_json(path, **_kwargs):
+            if "index-state" in path:
+                return {
+                    "economyLeagues": [{"name": "Mirage", "url": "mirage"}],
+                    "oldEconomyLeagues": [],
+                    "snapshotVersions": [],
+                    "buildLeagues": [],
+                    "oldBuildLeagues": [],
+                }
+            return {"lines": [], "currencyDetails": []}
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "price", "craft"])
+        assert result.exit_code == 0
+        try:
+            json.loads(result.output)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            is_json = False
+        assert not is_json

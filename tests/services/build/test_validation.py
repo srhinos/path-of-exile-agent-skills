@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from poe.models.build import BuildDocument, Item, ItemSet, ItemSlot, StatEntry
 from poe.services.build.validation import validate_build
 
@@ -406,3 +408,155 @@ class TestMovementSpeed:
         issues = validate_build(build)
         move_issues = [i for i in issues if i.category == "movement"]
         assert move_issues == []
+
+
+class TestEachAilmentValidation:
+    @pytest.mark.parametrize("ailment", ["Freeze", "Ignite", "Shock"])
+    def test_partial_avoidance_warns(self, ailment):
+        build = _build_with_stats(Life=5000, **{f"Avoid{ailment}": 60})
+        issues = validate_build(build)
+        ailment_issues = [i for i in issues if ailment in i.message]
+        assert len(ailment_issues) == 1
+        assert ailment_issues[0].severity == "medium"
+
+    @pytest.mark.parametrize("ailment", ["Freeze", "Ignite", "Shock"])
+    def test_full_avoidance_clean(self, ailment):
+        build = _build_with_stats(Life=5000, **{f"Avoid{ailment}": 100})
+        issues = validate_build(build)
+        ailment_issues = [i for i in issues if ailment in i.message]
+        assert ailment_issues == []
+
+    @pytest.mark.parametrize("ailment", ["Freeze", "Ignite", "Shock"])
+    def test_zero_avoidance_no_warning(self, ailment):
+        build = _build_with_stats(Life=5000, **{f"Avoid{ailment}": 0})
+        issues = validate_build(build)
+        ailment_issues = [i for i in issues if ailment in i.message]
+        assert ailment_issues == []
+
+
+class TestEachResistanceParametrized:
+    @pytest.mark.parametrize("res", ["Fire", "Cold", "Lightning"])
+    def test_each_resist_uncapped_critical(self, res):
+        kwargs = {"Life": 5000, f"{res}Resist": 70}
+        for other in {"Fire", "Cold", "Lightning"} - {res}:
+            kwargs[f"{other}Resist"] = 75
+        build = _build_with_stats(**kwargs)
+        issues = validate_build(build)
+        matching = [i for i in issues if res in i.message and "overcapped" not in i.message]
+        assert len(matching) == 1
+        assert matching[0].severity == "critical"
+
+    @pytest.mark.parametrize("res", ["Fire", "Cold", "Lightning"])
+    def test_each_resist_overcapped_medium(self, res):
+        kwargs = {"Life": 5000}
+        for other in ("Fire", "Cold", "Lightning"):
+            kwargs[f"{other}Resist"] = 75
+        kwargs[f"{res}ResistOverCap"] = 120
+        build = _build_with_stats(**kwargs)
+        issues = validate_build(build)
+        overcap_issues = [i for i in issues if "overcapped" in i.message and res in i.message]
+        assert len(overcap_issues) == 1
+        assert overcap_issues[0].severity == "medium"
+
+
+class TestEachAttributeValidation:
+    @pytest.mark.parametrize(
+        ("attr", "req_attr"),
+        [("Str", "ReqStr"), ("Dex", "ReqDex"), ("Int", "ReqInt")],
+    )
+    def test_each_attribute_insufficient(self, attr, req_attr):
+        build = _build_with_stats(Life=5000, **{attr: 100, req_attr: 200})
+        issues = validate_build(build)
+        attr_issues = [i for i in issues if attr in i.message]
+        assert len(attr_issues) == 1
+        assert attr_issues[0].severity == "critical"
+
+
+class TestNoLifeFlaskWarning:
+    def test_no_life_flask_warns(self):
+        items = [
+            Item(id=1, text="", base_type="Diamond Flask", rarity="MAGIC"),
+            Item(id=2, text="", base_type="Quicksilver Flask", rarity="MAGIC"),
+        ]
+        slots = [
+            ItemSlot(name="Flask 1", item_id=1),
+            ItemSlot(name="Flask 2", item_id=2),
+        ]
+        build = BuildDocument(
+            player_stats=[StatEntry(stat="Life", value=5000)],
+            items=items,
+            item_sets=[ItemSet(id="1", slots=slots)],
+            active_item_set="1",
+        )
+        issues = validate_build(build)
+        flask_issues = [i for i in issues if "Life Flask" in i.message]
+        assert len(flask_issues) == 1
+        assert flask_issues[0].severity == "medium"
+
+
+class TestFewerThanFiveFlasksWarning:
+    def test_fewer_than_5_flasks(self):
+        items = [
+            Item(id=1, text="", base_type="Eternal Life Flask", rarity="MAGIC"),
+            Item(id=2, text="", base_type="Diamond Flask", rarity="MAGIC"),
+        ]
+        slots = [
+            ItemSlot(name="Flask 1", item_id=1),
+            ItemSlot(name="Flask 2", item_id=2),
+        ]
+        build = BuildDocument(
+            player_stats=[StatEntry(stat="Life", value=5000)],
+            items=items,
+            item_sets=[ItemSet(id="1", slots=slots)],
+            active_item_set="1",
+        )
+        issues = validate_build(build)
+        flask_count_issues = [i for i in issues if "Fewer than 5 flasks" in i.message]
+        assert len(flask_count_issues) == 1
+
+
+class TestStunAvoidance:
+    def test_partial_stun_avoidance_warns(self):
+        build = _build_with_stats(Life=5000, StunAvoidChance=30)
+        issues = validate_build(build)
+        stun = [i for i in issues if "Stun" in i.message]
+        assert len(stun) == 1
+        assert stun[0].severity == "medium"
+
+    def test_full_stun_avoidance_no_warn(self):
+        # threshold is 50; >=50 not warned
+        build = _build_with_stats(Life=5000, StunAvoidChance=50)
+        issues = validate_build(build)
+        stun = [i for i in issues if "Stun" in i.message]
+        assert stun == []
+
+
+class TestZeroValuesNoSpuriousWarnings:
+    def test_zero_block_no_warn(self):
+        build = _build_with_stats(Life=5000, EffectiveBlockChance=0)
+        issues = validate_build(build)
+        block_issues = [i for i in issues if "block" in i.message.lower()]
+        assert block_issues == []
+
+    def test_zero_hit_chance_warns(self):
+        build = _build_with_stats(Life=5000, HitChance=0)
+        issues = validate_build(build)
+        acc_issues = [i for i in issues if i.category == "accuracy"]
+        assert len(acc_issues) == 1
+
+
+class TestValidationIssueSeverityValues:
+    def test_severity_categories_known(self):
+        build = _build_with_stats(
+            FireResist=50,
+            ColdResist=50,
+            LightningResist=50,
+            ChaosResist=-30,
+            Life=1500,
+            EnergyShield=0,
+        )
+        issues = validate_build(build)
+        for i in issues:
+            assert i.severity in {"critical", "high", "medium", "low"}
+            assert i.category
+            assert i.message

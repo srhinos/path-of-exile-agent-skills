@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from poe.app import app
 from poe.models.ninja.builds import (
     CharacterResponse,
@@ -763,3 +765,348 @@ class TestBuildsSuggestUpgradeSuccess:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert isinstance(data, list)
+
+
+# ── Added tests below ────────────────────────────────────────────────────────
+
+
+class TestBuildsInspectHumanOutput:
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_default_human_output(self, mock_cls):
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": POE1_CHARACTER},
+        )
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "builds", "inspect", "TestAccount", "TestChar"])
+        assert result.exit_code == 0
+        try:
+            json.loads(result.output)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            is_json = False
+        assert not is_json
+        assert "TestChar" in result.output
+
+
+class TestBuildsInspectNoCacheFlag:
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_no_cache_propagated(self, mock_cls):
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": POE1_CHARACTER},
+        )
+        client.no_cache = True
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(
+            app,
+            ["ninja", "builds", "inspect", "TestAccount", "TestChar", "--no-cache", "--json"],
+        )
+        assert result.exit_code == 0
+        _, kwargs = mock_cls.call_args
+        assert kwargs.get("no_cache") is True
+
+
+class TestBuildsInspect404:
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_inspect_character_returning_none(self, mock_cls):
+        client = MagicMock(no_cache=False)
+
+        def get_json(path, **_kwargs):
+            if "index-state" in path:
+                return INDEX_STATE
+            from poe.services.ninja.errors import NinjaError
+
+            raise NinjaError("404")
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "builds", "inspect", "Account", "Ghost", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "error" in data
+        assert "Ghost" in data["error"]
+
+
+class TestBuildsImportInvalidName:
+    @pytest.mark.parametrize(
+        "bad_class_name",
+        ["Bad/Class", "Bad\\Class", 'Bad"Class', "Bad:Class", "Bad|Class", "Bad*Class"],
+    )
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_invalid_chars_in_class_name_rejected(self, mock_cls, bad_class_name, tmp_path):
+        from poe.exceptions import BuildValidationError
+
+        bad_char = {**POE1_CHARACTER, "class": bad_class_name}
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": bad_char},
+        )
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "poe.commands.ninja.builds.commands.get_claude_builds_path", return_value=tmp_path
+        ):
+            result = invoke_cli(
+                app,
+                ["ninja", "builds", "import", "TestAccount", "TestChar", "--json"],
+            )
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, BuildValidationError)
+
+
+class TestBuildsImportPathTraversalName:
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_dot_dot_in_class_name_rejected(self, mock_cls, tmp_path):
+        from poe.exceptions import BuildValidationError
+
+        traversal_char = {**POE1_CHARACTER, "class": "..Pathfinder"}
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": traversal_char},
+        )
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "poe.commands.ninja.builds.commands.get_claude_builds_path", return_value=tmp_path
+        ):
+            result = invoke_cli(
+                app,
+                ["ninja", "builds", "import", "TestAccount", "TestChar", "--json"],
+            )
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, BuildValidationError)
+
+
+class TestBuildsImportNoPobExport:
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_missing_pob_export_returns_error(self, mock_cls, tmp_path):
+        no_export_char = {**POE1_CHARACTER, "pathOfBuildingExport": ""}
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": no_export_char},
+        )
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "poe.commands.ninja.builds.commands.get_claude_builds_path", return_value=tmp_path
+        ):
+            result = invoke_cli(
+                app,
+                ["ninja", "builds", "import", "TestAccount", "TestChar", "--json"],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "error" in data
+
+
+class TestBuildsImportSuccessFile:
+    @patch("poe.commands.ninja.builds.commands.decode_build")
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_writes_xml_to_claude_dir(self, mock_cls, mock_decode, tmp_path):
+        mock_decode.return_value = "<PathOfBuilding/>"
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": POE1_CHARACTER},
+        )
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        target_dir = tmp_path / "claude_builds"
+        target_dir.mkdir()
+        with patch(
+            "poe.commands.ninja.builds.commands.get_claude_builds_path", return_value=target_dir
+        ):
+            result = invoke_cli(
+                app,
+                ["ninja", "builds", "import", "TestAccount", "TestChar", "--json"],
+            )
+        assert result.exit_code == 0
+        xml_files = list(target_dir.glob("*.xml"))
+        assert len(xml_files) == 1
+        assert xml_files[0].read_text(encoding="utf-8") == "<PathOfBuilding/>"
+
+
+class TestBuildsImportNoCacheFlag:
+    @patch("poe.commands.ninja.builds.commands.decode_build")
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_no_cache_propagated(self, mock_cls, mock_decode, tmp_path):
+        mock_decode.return_value = "<PathOfBuilding/>"
+        client = _builds_client(
+            {"index-state": INDEX_STATE, "/character": POE1_CHARACTER},
+        )
+        client.no_cache = True
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "poe.commands.ninja.builds.commands.get_claude_builds_path", return_value=tmp_path
+        ):
+            result = invoke_cli(
+                app,
+                ["ninja", "builds", "import", "Acc", "Char", "--no-cache", "--json"],
+            )
+        assert result.exit_code == 0
+        _, kwargs = mock_cls.call_args
+        assert kwargs.get("no_cache") is True
+
+
+class TestMetaSummaryHumanOutput:
+    @patch("poe.commands.ninja.meta.commands.NinjaClient")
+    def test_meta_summary_default_human(self, mock_cls):
+        client = MagicMock(no_cache=False)
+
+        def get_json(path, **_kwargs):
+            if "build-index-state" in path:
+                return BUILD_INDEX_STATE
+            msg = f"Unmocked: {path}"
+            raise ValueError(msg)
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "meta", "summary"])
+        assert result.exit_code == 0
+        try:
+            json.loads(result.output)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            is_json = False
+        assert not is_json
+
+
+class TestMetaSummaryNoCache:
+    @patch("poe.commands.ninja.meta.commands.NinjaClient")
+    def test_meta_summary_no_cache(self, mock_cls):
+        client = MagicMock(no_cache=True)
+
+        def get_json(path, **_kwargs):
+            if "build-index-state" in path:
+                return BUILD_INDEX_STATE
+            msg = f"Unmocked: {path}"
+            raise ValueError(msg)
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "meta", "summary", "--no-cache", "--json"])
+        assert result.exit_code == 0
+        _, kwargs = mock_cls.call_args
+        assert kwargs.get("no_cache") is True
+
+
+class TestMetaTrendInvariants:
+    @patch("poe.commands.ninja.meta.commands.NinjaClient")
+    def test_trend_keys_consistent(self, mock_cls):
+        client = MagicMock(no_cache=False)
+
+        def get_json(path, **_kwargs):
+            if "build-index-state" in path:
+                return BUILD_INDEX_STATE
+            msg = f"Unmocked: {path}"
+            raise ValueError(msg)
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "meta", "trend", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        for entry in data:
+            assert {"league", "total", "status", "top"} <= set(entry.keys())
+            for top in entry["top"]:
+                assert {"class", "skill", "percentage", "trend"} <= set(top.keys())
+
+
+class TestMetaSummaryGameRouting:
+    @patch("poe.commands.ninja.meta.commands.NinjaClient")
+    def test_poe1_default_routing(self, mock_cls):
+        client = MagicMock(no_cache=False)
+        seen = []
+
+        def get_json(path, **_kwargs):
+            seen.append(path)
+            return BUILD_INDEX_STATE
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "meta", "summary", "--game", "poe1", "--json"])
+        assert result.exit_code == 0
+        assert any("/poe1/" in p for p in seen)
+
+    @patch("poe.commands.ninja.meta.commands.NinjaClient")
+    def test_poe2_routing(self, mock_cls):
+        client = MagicMock(no_cache=False)
+        seen = []
+
+        def get_json(path, **_kwargs):
+            seen.append(path)
+            return BUILD_INDEX_STATE
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "meta", "summary", "--game", "poe2", "--json"])
+        assert result.exit_code == 0
+        assert any("/poe2/" in p for p in seen)
+        assert not any("/poe1/" in p for p in seen)
+
+
+class TestMetaSummaryInvariants:
+    @patch("poe.commands.ninja.meta.commands.NinjaClient")
+    def test_rising_and_declining_partition_top(self, mock_cls):
+        client = MagicMock(no_cache=False)
+
+        def get_json(path, **_kwargs):
+            if "build-index-state" in path:
+                return BUILD_INDEX_STATE
+            msg = f"Unmocked: {path}"
+            raise ValueError(msg)
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "meta", "summary", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        rising_set = {b["class"] for b in data["rising"]}
+        declining_set = {b["class"] for b in data["declining"]}
+        assert rising_set.isdisjoint(declining_set)
+        assert data["total_builds"] >= 0
+
+
+class TestBuildsHeatmapHumanOutput:
+    @patch("poe.commands.ninja.builds.commands.AtlasService")
+    @patch("poe.commands.ninja.builds.commands.BuildsService")
+    @patch("poe.commands.ninja.builds.commands.NinjaClient")
+    def test_heatmap_default_human(self, mock_ninja_cls, mock_builds_cls, mock_atlas_cls):
+        mock_atlas = MagicMock()
+        mock_atlas.get_heatmap.return_value = [
+            {"name": "Life Node", "count": 80, "percentage": 80.0, "zone": "mandatory"},
+        ]
+        mock_atlas_cls.return_value = mock_atlas
+
+        client = MagicMock(no_cache=False)
+        mock_ninja_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_ninja_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "builds", "heatmap"])
+        assert result.exit_code == 0
+        try:
+            json.loads(result.output)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            is_json = False
+        assert not is_json

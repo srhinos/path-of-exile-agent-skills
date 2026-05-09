@@ -436,3 +436,114 @@ class TestUnicodeBuildNames:
         svc = BuildService()
         result = svc.create("über-build", file_path=str(claude_dir / "über-build.xml"))
         assert result.status == "ok"
+
+
+class TestBuildNameValidationCharByChar:
+    @pytest.mark.parametrize("char", ["<", ">", ":", '"', "|", "?", "*"])
+    def test_each_windows_invalid_char_rejected(self, char):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(f"build{char}name")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        ],
+    )
+    def test_each_reserved_name_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError, match="reserved"):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["con", "Con", "cOn", "nul", "com1", "lpt9"],
+    )
+    def test_reserved_names_case_insensitive(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError, match="reserved"):
+            validate_build_name(name)
+
+    def test_reserved_with_xml_extension_still_rejected(self):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError, match="reserved"):
+            validate_build_name("CON.xml")
+
+    @pytest.mark.parametrize(
+        "name",
+        ["..", "../foo", "foo/..", "..\\foo"],
+    )
+    def test_path_traversal_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["sub/dir", "/abs", "a/b/c"],
+    )
+    def test_forward_slash_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["sub\\dir", "\\abs", "a\\b\\c"],
+    )
+    def test_backslash_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize("name", ["", "   ", "\t", "\n"])
+    def test_empty_or_whitespace_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["MyBuild", "My Build With Spaces", "build-v2", "build_v2", "über-build", "build123"],
+    )
+    def test_valid_names_accepted(self, name):
+        from poe.paths import validate_build_name
+
+        validate_build_name(name)
+
+    def test_reserved_substring_allowed(self):
+        from poe.paths import validate_build_name
+
+        validate_build_name("CONqueror")
+        validate_build_name("PRNter")
+        validate_build_name("MyAUXBuild")

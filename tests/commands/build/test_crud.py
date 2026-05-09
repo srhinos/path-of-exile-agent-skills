@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from poe.app import app as cli
 from poe.services.build.xml.parser import parse_build_file
 from tests.conftest import invoke_cli
@@ -1689,3 +1691,461 @@ class TestConfigPreset:
             ["build", "config", "preset", "test", "--preset", "boss", "--file", str(build_file)],
         )
         assert result.exit_code == 0
+
+
+# ── builds create: every Class enum value ─────────────────────────────────────
+
+
+class TestBuildsCreateFullClassEnum:
+    @pytest.mark.parametrize(
+        "cls",
+        ["Scion", "Marauder", "Ranger", "Witch", "Duelist", "Templar", "Shadow"],
+    )
+    def test_create_with_every_class(self, cls, tmp_path):
+        out = tmp_path / f"{cls}.xml"
+        result = invoke_cli(
+            cli,
+            ["build", "create", cls, "--class", cls, "--file", str(out)],
+        )
+        assert result.exit_code == 0
+        build = parse_build_file(out)
+        assert build.class_name == cls
+
+    def test_create_unknown_class_rejected(self, tmp_path):
+        out = tmp_path / "nope.xml"
+        result = invoke_cli(
+            cli, ["build", "create", "nope", "--class", "Wizard", "--file", str(out)]
+        )
+        from poe.exceptions import BuildValidationError
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildValidationError)
+
+    def test_create_class_ascendancy_mismatch_rejected(self, tmp_path):
+        out = tmp_path / "nope.xml"
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "create",
+                "nope",
+                "--class",
+                "Witch",
+                "--ascendancy",
+                "Slayer",
+                "--file",
+                str(out),
+            ],
+        )
+        from poe.exceptions import BuildValidationError
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildValidationError)
+
+    def test_create_level_below_one_rejected(self, tmp_path):
+        out = tmp_path / "nope.xml"
+        result = invoke_cli(
+            cli,
+            ["build", "create", "nope", "--level", "0", "--file", str(out)],
+        )
+        from poe.exceptions import BuildValidationError
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildValidationError)
+
+    def test_create_level_above_max_rejected(self, tmp_path):
+        out = tmp_path / "nope.xml"
+        result = invoke_cli(
+            cli,
+            ["build", "create", "nope", "--level", "200", "--file", str(out)],
+        )
+        from poe.exceptions import BuildValidationError
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildValidationError)
+
+    def test_create_invalid_name_rejected(self, tmp_path):
+        out = tmp_path / "nope.xml"
+        result = invoke_cli(
+            cli,
+            ["build", "create", "../escape", "--file", str(out)],
+        )
+        from poe.exceptions import BuildValidationError
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildValidationError)
+
+
+# ── items add invariants ──────────────────────────────────────────────────────
+
+
+class TestItemsAddInvariants:
+    def test_add_unknown_slot_raises_slot_error(self, build_file):
+        from poe.exceptions import SlotError
+
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "items",
+                "add",
+                "test",
+                "--slot",
+                "Backpack",
+                "--base",
+                "Vaal Regalia",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+        assert isinstance(result.exception, SlotError)
+
+    def test_add_item_id_is_unique_and_increasing(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "items",
+                "add",
+                "test",
+                "--slot",
+                "Ring 1",
+                "--base",
+                "Diamond Ring",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code == 0
+        build = parse_build_file(build_file)
+        ids = [i.id for i in build.items]
+        assert len(ids) == len(set(ids))
+        assert ids == sorted(ids)
+
+
+# ── items edit rarity: enum + negative ───────────────────────────────────────
+
+
+class TestItemsEditRarityEnum:
+    @pytest.mark.parametrize("rarity", ["NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"])
+    def test_set_rarity_accepts_every_valid_rarity(self, rarity, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "items",
+                "edit",
+                "test",
+                "--slot",
+                "Helmet",
+                "--set-rarity",
+                rarity,
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code == 0
+
+    def test_set_rarity_rejects_invalid(self, build_file):
+        from poe.exceptions import BuildValidationError
+
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "items",
+                "edit",
+                "test",
+                "--slot",
+                "Helmet",
+                "--set-rarity",
+                "LEGENDARY",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildValidationError)
+
+
+# ── items remove negative ─────────────────────────────────────────────────────
+
+
+class TestItemsRemoveSlotError:
+    def test_remove_unknown_slot_raises(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "items",
+                "remove",
+                "test",
+                "--slot",
+                "Backpack",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── items move negative: same source and dest ────────────────────────────────
+
+
+class TestItemsMoveNegative:
+    def test_move_from_empty_slot_raises(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "items",
+                "move",
+                "test",
+                "--from",
+                "Belt",
+                "--to",
+                "Body Armour",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── config preset full enum ──────────────────────────────────────────────────
+
+
+class TestConfigPresetFullEnum:
+    @pytest.mark.parametrize("preset", ["mapping", "boss", "sirus", "shaper"])
+    def test_every_preset_applies(self, preset, build_file):
+        result = invoke_cli(
+            cli,
+            ["build", "config", "preset", "test", "--preset", preset, "--file", str(build_file)],
+        )
+        assert result.exit_code == 0
+
+    def test_unknown_preset_rejected(self, build_file):
+        result = invoke_cli(
+            cli,
+            ["build", "config", "preset", "test", "--preset", "atlas", "--file", str(build_file)],
+        )
+        assert result.exit_code != 0
+
+
+# ── tree set: spec selection bounds ──────────────────────────────────────────
+
+
+class TestTreeSetNegative:
+    def test_tree_set_invalid_spec_index_raises(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "tree",
+                "set",
+                "test",
+                "--add-nodes",
+                "999",
+                "--spec",
+                "999",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── tree set-active negative ─────────────────────────────────────────────────
+
+
+class TestTreeSetActiveNegative:
+    def test_tree_set_active_out_of_range(self, build_file):
+        result = invoke_cli(
+            cli,
+            ["build", "tree", "set-active", "test", "--spec", "999", "--file", str(build_file)],
+        )
+        assert result.exit_code != 0
+
+
+# ── tree remove-spec: cannot remove last ─────────────────────────────────────
+
+
+class TestTreeRemoveSpecNegative:
+    def test_tree_remove_only_spec(self, build_file):
+        result = invoke_cli(
+            cli,
+            ["build", "tree", "remove-spec", "test", "--spec", "1", "--file", str(build_file)],
+        )
+        assert result.exit_code != 0
+
+
+# ── flasks add negative: invalid slot ────────────────────────────────────────
+
+
+class TestFlasksAddNegative:
+    def test_flasks_add_invalid_slot_raises(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "flasks",
+                "add",
+                "test",
+                "--base",
+                "Granite Flask",
+                "--slot",
+                "Flask 99",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── jewels add negative: invalid base ────────────────────────────────────────
+
+
+class TestJewelsAddNegative:
+    @pytest.mark.xfail(strict=True, reason="jewels add does not validate base type")
+    def test_jewels_add_invalid_base_raises(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "jewels",
+                "add",
+                "test",
+                "--base",
+                "NotAJewel",
+                "--slot",
+                "Jewel 1",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── gems remove negative: skill set bounds ───────────────────────────────────
+
+
+class TestGemsRemoveSetNegative:
+    def test_gems_remove_unknown_set(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "gems",
+                "remove-set",
+                "test",
+                "--skill-set",
+                "999",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── config switch-set negative ───────────────────────────────────────────────
+
+
+class TestConfigSwitchSetNegative:
+    def test_switch_to_unknown_set(self, build_file):
+        result = invoke_cli(
+            cli,
+            [
+                "build",
+                "config",
+                "switch-set",
+                "test",
+                "--config-set",
+                "999",
+                "--file",
+                str(build_file),
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ── notes invariants: empty round-trip ───────────────────────────────────────
+
+
+class TestNotesRoundTrip:
+    def test_set_then_get_preserves_text(self, build_file):
+        text = "multi-line\nnotes with special: chars"
+        invoke_cli(
+            cli,
+            ["build", "notes", "test", "--set", text, "--file", str(build_file)],
+        )
+        result = invoke_cli(
+            cli,
+            ["build", "notes", "test", "--file", str(build_file), "--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["notes"].strip() == text.strip()
+
+    def test_set_empty_notes(self, build_file):
+        result = invoke_cli(
+            cli,
+            ["build", "notes", "test", "--set", "", "--file", str(build_file)],
+        )
+        assert result.exit_code == 0
+        build = parse_build_file(build_file)
+        assert build.notes.strip() == ""
+
+
+# ── build name prefix matching via real builds_path ──────────────────────────
+
+
+_PATCH_BUILDS = "poe.paths.get_builds_path"
+
+
+class TestPrefixMatchingAnalyze:
+    def test_unique_prefix_resolves_silently(self, tmp_path):
+        from tests.conftest import MINIMAL_BUILD_XML
+
+        (tmp_path / "lightning_strike.xml").write_text(MINIMAL_BUILD_XML, encoding="utf-8")
+        with patch(_PATCH_BUILDS, return_value=tmp_path):
+            result = invoke_cli(cli, ["build", "analyze", "lightning", "--json"])
+        assert result.exit_code == 0
+
+    def test_exact_name_wins_over_prefix(self, tmp_path):
+        from tests.conftest import MINIMAL_BUILD_XML
+
+        (tmp_path / "fire.xml").write_text(MINIMAL_BUILD_XML, encoding="utf-8")
+        (tmp_path / "fireball.xml").write_text(MINIMAL_BUILD_XML, encoding="utf-8")
+        (tmp_path / "firewall.xml").write_text(MINIMAL_BUILD_XML, encoding="utf-8")
+        with patch(_PATCH_BUILDS, return_value=tmp_path):
+            result = invoke_cli(cli, ["build", "analyze", "fire", "--json"])
+        assert result.exit_code == 0
+
+    def test_ambiguous_prefix_lists_matches(self, tmp_path):
+        from poe.exceptions import BuildNotFoundError
+        from tests.conftest import MINIMAL_BUILD_XML
+
+        (tmp_path / "fireball.xml").write_text(MINIMAL_BUILD_XML, encoding="utf-8")
+        (tmp_path / "firewall.xml").write_text(MINIMAL_BUILD_XML, encoding="utf-8")
+        with patch(_PATCH_BUILDS, return_value=tmp_path):
+            result = invoke_cli(cli, ["build", "analyze", "fire"])
+        assert result.exit_code != 0
+        assert isinstance(result.exception, BuildNotFoundError)
+        msg = str(result.exception)
+        assert "Ambiguous prefix" in msg
+        assert "fireball" in msg and "firewall" in msg
+
+
+# ── List builds invariants ───────────────────────────────────────────────────
+
+
+class TestBuildsListInvariants:
+    def test_list_returns_array(self):
+        mock_svc = MagicMock()
+        mock_svc.list_builds.return_value = []
+        with patch("poe.commands.build.commands._svc", return_value=mock_svc):
+            result = invoke_cli(cli, ["build", "list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)

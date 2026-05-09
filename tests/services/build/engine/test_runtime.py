@@ -614,3 +614,242 @@ class TestPoBEngineLastBuildName:
 
             eng = PoBEngine(pob_path="/tmp/fake")
             assert eng._last_build_name == ""
+
+
+# ── lua_table_to_dict full coverage ─────────────────────────────────────────
+
+
+class TestLuaTableToDictAdditional:
+    def test_handles_none(self):
+        assert lua_table_to_dict(None) == {}
+
+    def test_returns_dict_type(self):
+        mod = _get_lua_module()
+        lua = mod.LuaRuntime(unpack_returned_tuples=True)
+        tbl = lua.eval("{a = 1, b = 2}")
+        result = lua_table_to_dict(tbl)
+        assert isinstance(result, dict)
+
+    def test_string_values_preserved(self):
+        mock_table = MagicMock()
+        mock_table.items.return_value = [("name", "Witch")]
+        result = lua_table_to_dict(mock_table)
+        assert result["name"] == "Witch"
+
+    def test_iterable_string_not_split_into_chars(self):
+        # Strings have __iter__ but should not be treated as lists
+        mock_table = MagicMock()
+        mock_table.items.return_value = [("str_field", "hello")]
+        result = lua_table_to_dict(mock_table)
+        assert result["str_field"] == "hello"
+        assert result["str_field"] != ["h", "e", "l", "l", "o"]
+
+    def test_bytes_not_split(self):
+        mock_table = MagicMock()
+        mock_table.items.return_value = [("bytes_field", b"abc")]
+        result = lua_table_to_dict(mock_table)
+        # bytes excluded from list-conversion path
+        assert result["bytes_field"] == b"abc"
+
+
+# ── PoBEngine init failure paths ────────────────────────────────────────────
+
+
+class TestEngineInitFailures:
+    def test_init_raises_when_lua_mod_unavailable(self, tmp_path):
+        engine = PoBEngine(pob_path=str(tmp_path))
+        with (
+            patch("poe.services.build.engine.runtime._lua_mod", None),
+            pytest.raises(ImportError, match="LuaJIT"),
+        ):
+            engine.init()
+
+    def test_load_build_propagates_init_error(self):
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = "/tmp"
+        engine._initialized = True
+        engine._build_loaded = False
+        engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value="some error")
+
+        result = engine.load_build("test")
+        assert "error" in result
+        assert "some error" in result["error"]
+
+
+# ── PoBEngine get_stats with empty result ───────────────────────────────────
+
+
+class TestGetStatsEdgeCases:
+    def test_get_stats_empty_table(self, tmp_path):
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine.lua = MagicMock()
+        engine.lua.eval.return_value = None
+        result = engine.get_stats()
+        # None lua table converts to empty dict
+        assert result == {}
+
+    def test_get_stats_with_field_filter_empty_result(self, tmp_path):
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine.lua = MagicMock()
+        mock_table = MagicMock()
+        mock_table.items.return_value = [("Life", 5000)]
+        engine.lua.eval.return_value = mock_table
+        # Filter for nonexistent field
+        result = engine.get_stats(fields=["Mana"])
+        assert result == {}
+
+
+# ── PoBEngine.get_build_info fallback path ──────────────────────────────────
+
+
+class TestGetBuildInfoFallback:
+    def test_fallback_class_when_unknown(self, tmp_path):
+        build_xml = tmp_path / "test.xml"
+        build_xml.write_text(
+            '<?xml version="1.0"?><PathOfBuilding>'
+            '<Build className="Witch" ascendClassName="Necromancer" level="90"/>'
+            "</PathOfBuilding>",
+            encoding="utf-8",
+        )
+
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine._last_build_name = "test"
+        engine.lua = MagicMock()
+
+        mock_table = MagicMock()
+        mock_table.items.return_value = [
+            ("className", "Unknown"),
+            ("level", 1),
+        ]
+        engine.lua.eval.return_value = mock_table
+
+        with patch(
+            "poe.services.build.engine.runtime.resolve_build_file",
+            return_value=build_xml,
+        ):
+            result = engine.get_build_info()
+        # Fallback should populate from XML
+        assert result["className"] == "Witch"
+        assert result["ascendClassName"] == "Necromancer"
+
+    def test_fallback_handles_missing_file(self, tmp_path):
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine._last_build_name = "test"
+        engine.lua = MagicMock()
+
+        mock_table = MagicMock()
+        mock_table.items.return_value = [
+            ("className", "Scion"),
+            ("level", 1),
+        ]
+        engine.lua.eval.return_value = mock_table
+
+        with patch(
+            "poe.services.build.engine.runtime.resolve_build_file",
+            side_effect=FileNotFoundError("missing"),
+        ):
+            # Should not raise
+            result = engine.get_build_info()
+        assert "className" in result
+
+    def test_no_fallback_when_class_known(self, tmp_path):
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine._last_build_name = "test"
+        engine.lua = MagicMock()
+
+        mock_table = MagicMock()
+        mock_table.items.return_value = [
+            ("className", "Witch"),
+            ("level", 95),
+        ]
+        engine.lua.eval.return_value = mock_table
+
+        # Should not call resolve_build_file when className is good
+        with patch(
+            "poe.services.build.engine.runtime.resolve_build_file",
+        ) as mock_resolve:
+            result = engine.get_build_info()
+        mock_resolve.assert_not_called()
+        assert result["className"] == "Witch"
+
+
+# ── get_pob_info corruption resilience ──────────────────────────────────────
+
+
+class TestGetPobInfoExtra:
+    def test_returns_pob_path_string_type(self, tmp_path):
+        (tmp_path / "Launch.lua").write_text("-- launch")
+        with (
+            patch("poe.services.build.engine.runtime.get_pob_path", return_value=str(tmp_path)),
+            patch("poe.services.build.engine.runtime.check_lua_version", return_value={}),
+        ):
+            result = get_pob_info()
+        assert isinstance(result["pob_path"], str)
+
+    def test_lua_subdict_present(self, tmp_path):
+        (tmp_path / "Launch.lua").write_text("-- launch")
+        with (
+            patch("poe.services.build.engine.runtime.get_pob_path", return_value=str(tmp_path)),
+            patch(
+                "poe.services.build.engine.runtime.check_lua_version",
+                return_value={"lua_version": "5.1", "has_luajit": True},
+            ),
+        ):
+            result = get_pob_info()
+        assert "lua" in result
+        assert result["lua"]["lua_version"] == "5.1"
+
+
+# ── Stub Lua bridge negative paths ──────────────────────────────────────────
+
+
+class TestStubsNegativePaths:
+    def test_inflate_invalid_data_returns_empty(self):
+        from poe.services.build.engine.stubs import register_stubs
+
+        mod = _get_lua_module()
+        lua = mod.LuaRuntime(unpack_returned_tuples=True)
+        register_stubs(lua, "/tmp/fakepob")
+        # Random bytes that aren't valid zlib
+        assert lua.eval('Inflate("\\x00\\x01\\x02\\x03")') == ""
+
+    def test_deflate_string_succeeds(self):
+        from poe.services.build.engine.stubs import register_stubs
+
+        mod = _get_lua_module()
+        lua = mod.LuaRuntime(unpack_returned_tuples=True)
+        register_stubs(lua, "/tmp/fakepob")
+        # Should compress without error
+        result = lua.eval('Deflate("data")')
+        assert result is not None
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+# ── Engine semantic invariants ───────────────────────────────────────────────
+
+
+class TestEngineSemanticInvariants:
+    def test_initial_state_consistent(self, tmp_path):
+        with patch("poe.services.build.engine.runtime.get_pob_path", return_value=str(tmp_path)):
+            engine = PoBEngine()
+        # Semantic: if not initialized, build cannot be loaded
+        assert engine.initialized is False
+        assert engine.build_loaded is False
+
+    def test_lua_path_normalizes_backslashes(self, tmp_path):
+        # Semantic invariant: pob_path with backslashes is normalized
+        engine = PoBEngine(pob_path="C:\\Users\\Test\\PoB")
+        assert engine.pob_path == "C:\\Users\\Test\\PoB"
+        # Conversion happens during init

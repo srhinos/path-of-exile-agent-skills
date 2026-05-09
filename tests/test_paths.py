@@ -189,3 +189,97 @@ class TestPrefixMatching:
         (tmp_path / "BuildExtra.xml").write_text("<PathOfBuilding/>")
         result = resolve_build_file("Build")
         assert result.name == "Build.xml"
+
+
+# ── Parametrized validation negatives ────────────────────────────────────────
+
+
+class TestValidateBuildNameInvalidChars:
+    @pytest.mark.parametrize("ch", list(':*?"<>|'))
+    def test_each_windows_invalid_char_rejected(self, ch):
+        with pytest.raises(BuildValidationError, match="invalid characters"):
+            validate_build_name(f"name{ch}foo")
+
+    @pytest.mark.parametrize(
+        "reserved",
+        [
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM0",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT0",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        ],
+    )
+    def test_each_reserved_name_rejected(self, reserved):
+        with pytest.raises(BuildValidationError, match="reserved word"):
+            validate_build_name(reserved)
+
+    @pytest.mark.parametrize(
+        "reserved_lower",
+        ["con", "prn", "aux", "nul", "com1", "lpt9"],
+    )
+    def test_reserved_names_case_insensitive(self, reserved_lower):
+        with pytest.raises(BuildValidationError, match="reserved word"):
+            validate_build_name(reserved_lower)
+
+    @pytest.mark.parametrize(
+        "reserved_with_xml",
+        ["CON.xml", "NUL.xml", "COM1.xml", "LPT5.xml"],
+    )
+    def test_reserved_names_with_xml_extension_rejected(self, reserved_with_xml):
+        with pytest.raises(BuildValidationError, match="reserved word"):
+            validate_build_name(reserved_with_xml)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../foo",
+            "..\\foo",
+            "foo/../bar",
+            "foo\\..\\bar",
+            "../../etc/passwd",
+            "foo/bar",
+            "foo\\bar",
+            "..",
+        ],
+    )
+    def test_path_traversal_variants_rejected(self, name):
+        with pytest.raises(BuildValidationError, match="Invalid build name"):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize("name", ["", " ", "\t", "\n", "   ", " \t\n "])
+    def test_empty_or_whitespace_rejected(self, name):
+        with pytest.raises(BuildValidationError, match="Invalid build name"):
+            validate_build_name(name)
+
+
+class TestResolveBuildFileExtensions:
+    def test_resolve_appends_xml_extension(self, tmp_builds_dir, monkeypatch):
+        monkeypatch.setenv("POB_BUILDS_PATH", str(tmp_builds_dir))
+        result = resolve_build_file("BuildA")
+        assert result.suffix == ".xml"
+
+    def test_resolve_does_not_double_append_xml(self, tmp_builds_dir, monkeypatch):
+        monkeypatch.setenv("POB_BUILDS_PATH", str(tmp_builds_dir))
+        result = resolve_build_file("BuildA.xml")
+        assert result.name == "BuildA.xml"
+        assert not result.name.endswith(".xml.xml")

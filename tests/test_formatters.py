@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from poe.formatters import register_formatters
 from poe.models.build.build import (
     BuildComparison,
@@ -350,3 +352,99 @@ class TestBuildConfigFormatter:
         human = _format_human(c)
         assert "Default" in human
         assert "(no inputs)" in human
+
+
+# ── Formatter structural invariants (Pattern 1) ─────────────────────────────
+
+
+class TestFormatterStructureStable:
+    def test_register_formatters_idempotent(self):
+        register_formatters()
+        register_formatters()
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            BuildMetadata(name="Test", class_name="Witch", level=90),
+            StatBlock(category="all", stats={"Life": 5000.0}),
+            MutationResult(status="ok", path="/x.xml"),
+            ValidationResult(build="x"),
+            BuildComparison(build1=BuildMetadata(name="A"), build2=BuildMetadata(name="B")),
+            JewelListResult(),
+            TreeSpecList(active_spec=1),
+            BuildConfig(id="1", title="x"),
+            PriceResult(name="Divine", chaos_value=200.0),
+        ],
+    )
+    def test_human_output_is_string(self, model):
+        out = _format_human(model)
+        assert isinstance(out, str)
+        assert out
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            BuildMetadata(name="Test", class_name="Witch", level=90),
+            StatBlock(category="all", stats={"Life": 5000.0}),
+            MutationResult(status="ok", path="/x.xml"),
+            ValidationResult(build="x"),
+        ],
+    )
+    def test_human_differs_from_json(self, model):
+        human = _format_human(model)
+        json_out = _format_json(model)
+        assert human != json_out
+
+
+class TestEquippedItemFormatterEdge:
+    def test_armour_only(self):
+        item = EquippedItem(
+            slot="Body Armour",
+            id=1,
+            text="",
+            rarity="RARE",
+            armour=2000,
+        )
+        human = _format_human(item)
+        assert "armour=2000" in human
+
+    def test_evasion_and_ward(self):
+        item = EquippedItem(
+            slot="Body Armour",
+            id=1,
+            text="",
+            rarity="RARE",
+            evasion=1500,
+            ward=300,
+        )
+        human = _format_human(item)
+        assert "evasion=1500" in human
+        assert "ward=300" in human
+
+    def test_no_defenses_section_when_zero(self):
+        item = EquippedItem(
+            slot="Belt",
+            id=1,
+            text="",
+            rarity="RARE",
+            name="Plain Belt",
+        )
+        human = _format_human(item)
+        assert "defenses:" not in human
+
+
+class TestPriceResultFormatterEdge:
+    def test_chaos_value_exactly_one(self):
+        p = PriceResult(name="x", chaos_value=1.0)
+        out = _format_human(p)
+        assert "1.0" in out
+
+    def test_chaos_value_below_one_uses_4_decimal(self):
+        p = PriceResult(name="x", chaos_value=0.001)
+        out = _format_human(p)
+        assert "0.0010" in out
+
+    def test_listing_count_zero_shown(self):
+        p = PriceResult(name="x", chaos_value=1.0, listing_count=0)
+        out = _format_human(p)
+        assert "Listings: 0" in out

@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from poe.models.build import (
     BuildComparison,
     BuildConfig,
@@ -39,6 +43,7 @@ from poe.models.sim import (
     Mod,
     ModTier,
     ModWeight,
+    SimulationResult,
 )
 
 # --- Tree models ---
@@ -400,3 +405,226 @@ class TestReExports:
         from poe.models.build import __all__
 
         assert len(__all__) >= 40
+
+
+# ── Pydantic semantic invariants for sim models (Pattern 5) ─────────────────
+#
+# These tests assert constraints that should hold for sim model fields.
+# Many use xfail(strict=True) — these document gaps where model_validators
+# do not yet exist in production code. Production should NOT be modified.
+
+
+class TestSimulationResultInvariants:
+    def test_minimum_construction(self):
+        r = SimulationResult(base="Hubris Circlet", ilvl=84, method="chaos", targets=["Life"])
+        assert r.base == "Hubris Circlet"
+
+    @pytest.mark.xfail(strict=True, reason="No validator: avg_attempts accepts NaN")
+    def test_avg_attempts_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_attempts=float("nan"),
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: avg_attempts accepts +inf")
+    def test_avg_attempts_rejects_inf(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_attempts=float("inf"),
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: avg_attempts accepts negatives")
+    def test_avg_attempts_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_attempts=-5.0,
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: cost_per_attempt accepts NaN")
+    def test_cost_per_attempt_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                cost_per_attempt=float("nan"),
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: avg_cost_chaos accepts NaN")
+    def test_avg_cost_chaos_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_cost_chaos=float("nan"),
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: iterations accepts negatives")
+    def test_iterations_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                iterations=-1,
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: ilvl accepts negatives")
+    def test_ilvl_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(base="Hubris Circlet", ilvl=-5, method="chaos", targets=["Life"])
+
+    @pytest.mark.xfail(strict=True, reason="No validator: ilvl bounded by item rules (1-100)")
+    def test_ilvl_rejects_above_100(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(base="Hubris Circlet", ilvl=999, method="chaos", targets=["Life"])
+
+    @pytest.mark.xfail(strict=True, reason="No validator: method should map to CraftMethod")
+    def test_method_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="bogus_method_does_not_exist",
+                targets=["Life"],
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: hit_rate should match \\d+(\\.\\d+)?%")
+    def test_hit_rate_rejects_arbitrary_string(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                hit_rate="not a percentage",
+            )
+
+    @pytest.mark.xfail(strict=True, reason="No validator: match_mode should be MatchMode")
+    def test_match_mode_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                match_mode="impossible_mode",
+            )
+
+    def test_currently_silently_accepts_nan_documenting_bug(self):
+        r = SimulationResult(
+            base="Hubris Circlet",
+            ilvl=84,
+            method="chaos",
+            targets=["Life"],
+            avg_attempts=float("nan"),
+        )
+        assert math.isnan(r.avg_attempts)
+
+
+class TestModInvariants:
+    def test_minimal_construction(self):
+        m = Mod(mod_id="x", name="x", affix="prefix", group="g", weight=100)
+        assert m.weight == 100
+
+    @pytest.mark.xfail(strict=True, reason="No validator: weight accepts negatives")
+    def test_weight_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Mod(mod_id="x", name="x", affix="prefix", group="g", weight=-100)
+
+    @pytest.mark.xfail(strict=True, reason="No validator: affix should be 'prefix'|'suffix'")
+    def test_affix_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            Mod(mod_id="x", name="x", affix="not-an-affix", group="g", weight=100)
+
+    def test_zero_weight_currently_accepted(self):
+        m = Mod(mod_id="x", name="x", affix="prefix", group="g", weight=0)
+        assert m.weight == 0
+
+
+class TestModTierInvariants:
+    @pytest.mark.xfail(strict=True, reason="No validator: tier should be >= 1")
+    def test_tier_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModTier(tier=0, ilvl=84)
+
+    @pytest.mark.xfail(strict=True, reason="No validator: weight rejects negative")
+    def test_weight_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModTier(tier=1, ilvl=84, weight=-1)
+
+    @pytest.mark.xfail(strict=True, reason="No validator: ilvl 1-100")
+    def test_ilvl_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModTier(tier=1, ilvl=-1)
+
+
+class TestModWeightInvariants:
+    @pytest.mark.xfail(strict=True, reason="No validator: multiplier rejects NaN")
+    def test_multiplier_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModWeight(tag="fire", multiplier=float("nan"))
+
+    @pytest.mark.xfail(strict=True, reason="No validator: multiplier rejects -inf")
+    def test_multiplier_rejects_neg_inf(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModWeight(tag="fire", multiplier=float("-inf"))
+
+    @pytest.mark.xfail(strict=True, reason="No validator: tag rejects empty string")
+    def test_tag_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModWeight(tag="", multiplier=1.0)
+
+
+class TestFossilInvariants:
+    @pytest.mark.xfail(strict=True, reason="No validator: name rejects empty string")
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Fossil(name="")
+
+    @pytest.mark.xfail(strict=True, reason="No validator: mod_weights values reject NaN")
+    def test_mod_weights_value_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            Fossil(name="Pristine", mod_weights={"life": float("nan")})
+
+
+class TestEssenceInvariants:
+    @pytest.mark.xfail(strict=True, reason="No validator: name rejects empty")
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Essence(name="")
+
+
+class TestBenchCraftInvariants:
+    @pytest.mark.xfail(strict=True, reason="No validator: name rejects empty")
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            BenchCraft(name="")
+
+
+class TestIdentifiedModInvariants:
+    @pytest.mark.xfail(strict=True, reason="No validator: tier should be >= 0")
+    def test_tier_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            IdentifiedMod(text="+50 Life", tier=-1)
+
+    @pytest.mark.xfail(strict=True, reason="No validator: affix in {'', 'prefix', 'suffix'}")
+    def test_affix_rejects_unknown_when_set(self):
+        with pytest.raises((ValueError, TypeError)):
+            IdentifiedMod(text="+50 Life", affix="weird")

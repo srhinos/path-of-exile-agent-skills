@@ -4,6 +4,8 @@ import contextlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from poe.app import app as cli
 from poe.services.ninja.errors import NetworkError
 from poe.services.repoe.sim import BestTier, ModPoolEntry
@@ -1139,3 +1141,307 @@ class TestGetTiersDefault:
         cd.get_mod_tiers.assert_called_once()
         call_kwargs = cd.get_mod_tiers.call_args
         assert call_kwargs.kwargs.get("ilvl") == 84
+
+
+# ── Sim CLI flag handling: --existing-mod, --workers, --match ──────────────
+
+
+class TestSimulateWorkersFlag:
+    def test_workers_passed_to_engine(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                    "--workers",
+                    "4",
+                ],
+            )
+        assert result.exit_code == 0
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("workers") == 4
+
+    def test_workers_not_provided_passes_none(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                ],
+            )
+        assert result.exit_code == 0
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("workers") is None
+
+
+class TestSimulateMatchFlag:
+    @pytest.mark.parametrize("mode", ["all", "any"])
+    def test_match_mode_passed(self, mode):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                    "--match",
+                    mode,
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["match_mode"] == mode
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("match_mode") == mode
+
+    def test_match_default_is_all(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                ],
+            )
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("match_mode") == "all"
+
+
+class TestSimulateExistingModMultiple:
+    def test_multiple_existing_mods_passed(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                    "--existing-mod",
+                    "ColdResistance",
+                    "--existing-mod",
+                    "IncreasedLife",
+                ],
+            )
+        assert result.exit_code == 0
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("existing_mods") == ["ColdResistance", "IncreasedLife"]
+
+    def test_existing_mod_default_is_none(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                ],
+            )
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("existing_mods") is None
+
+
+class TestSimulateMethodCaseVariants:
+    @pytest.mark.parametrize("method_arg", ["chaos", "alt", "fossil"])
+    def test_lowercase_methods_accepted(self, method_arg):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result(method=method_arg))
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            args = [
+                "sim",
+                "simulate",
+                "Hubris Circlet",
+                "--method",
+                method_arg,
+                "--target",
+                "IncreasedLife",
+            ]
+            if method_arg == "fossil":
+                args += ["--fossils", "Pristine Fossil"]
+            result = invoke_cli(cli, args)
+        assert result.exit_code == 0
+
+
+class TestSimulateMultistepCraftMethods:
+    @pytest.mark.parametrize(
+        "step_method",
+        [
+            "chaos",
+            "alchemy",
+            "transmutation",
+            "annul",
+            "scour",
+            "divine",
+            "blessed",
+        ],
+    )
+    def test_each_first_step_method_accepted(self, step_method):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.create_item.return_value = MagicMock(all_mods=[])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate-multistep",
+                    "Hubris Circlet",
+                    "--step",
+                    step_method,
+                    "--target",
+                    "IncreasedLife",
+                    "--iterations",
+                    "5",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+
+    def test_transmute_to_augment_chain(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.create_item.return_value = MagicMock(all_mods=[])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate-multistep",
+                    "Hubris Circlet",
+                    "--step",
+                    "transmutation",
+                    "--step",
+                    "augmentation",
+                    "--target",
+                    "IncreasedLife",
+                    "--iterations",
+                    "5",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["steps"] == ["transmutation", "augmentation"]
+
+    def test_alchemy_to_exalt_chain(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.create_item.return_value = MagicMock(all_mods=[])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate-multistep",
+                    "Hubris Circlet",
+                    "--step",
+                    "alchemy",
+                    "--step",
+                    "exalt",
+                    "--target",
+                    "IncreasedLife",
+                    "--iterations",
+                    "5",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+
+
+class TestCraftFossilsFilterCaseVariants:
+    @pytest.mark.parametrize("variant", ["life", "LIFE", "Life", "lIfE"])
+    def test_filter_passes_through_unchanged(self, variant):
+        cd = _mock_repoe_data(get_fossils=SAMPLE_FOSSILS)
+        with patch(_PATCH_CD, return_value=cd):
+            result = invoke_cli(cli, ["sim", "fossils", "--filter", variant, "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["filter"] == variant
+
+
+class TestCraftSearchEmptyQuery:
+    def test_empty_string_query(self):
+        cd = _mock_repoe_data(search_base_items=[])
+        with patch(_PATCH_CD, return_value=cd):
+            result = invoke_cli(cli, ["sim", "search", "x", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["query"] == "x"

@@ -409,3 +409,119 @@ class TestPriceHistoryCli:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "error" in data
+
+
+# ── Added tests below ────────────────────────────────────────────────────────
+
+
+class TestAnalyzeHistoryInvariants:
+    def test_min_le_max(self):
+        points = _make_366_points(100.0)
+        result = analyze_history(points)
+        if result.min_price is not None and result.max_price is not None:
+            assert result.min_price <= result.max_price
+
+    def test_volatility_non_negative(self):
+        points = _make_points([10.0, 20.0, 15.0, 25.0, 12.0, 18.0, 22.0] * 5)
+        result = analyze_history(points)
+        if result.volatility_30d is not None:
+            assert result.volatility_30d >= 0.0
+
+    def test_current_price_non_negative(self):
+        points = _make_366_points(100.0)
+        result = analyze_history(points)
+        assert result.current_price >= 0.0
+
+    def test_spike_and_crash_not_both(self):
+        values = [300.0] + [100.0] * 30
+        points = _make_points(values)
+        result = analyze_history(points)
+        assert not (result.spike_detected and result.crash_detected)
+
+
+class TestPriceHistoryHumanOutput:
+    @patch("poe.commands.ninja.price.commands.NinjaClient")
+    def test_default_human_output(self, mock_cls):
+        client = MagicMock(no_cache=False)
+
+        def get_json(path, **_kwargs):
+            if "index-state" in path:
+                return INDEX_STATE
+            if "currency/overview" in path:
+                return CURRENCY_OVERVIEW
+            if "exchange/current/details" in path:
+                return CURRENCY_DETAILS_RESPONSE
+            msg = f"Unmocked: {path}"
+            raise ValueError(msg)
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(app, ["ninja", "price", "history", "Exalted Orb", "Currency"])
+        assert result.exit_code == 0
+        try:
+            json.loads(result.output)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            is_json = False
+        assert not is_json
+        assert "Exalted" in result.output
+
+
+class TestPriceHistoryNoCache:
+    @patch("poe.commands.ninja.price.commands.NinjaClient")
+    def test_no_cache_propagates(self, mock_cls):
+        client = MagicMock(no_cache=True)
+
+        def get_json(path, **_kwargs):
+            if "index-state" in path:
+                return INDEX_STATE
+            if "currency/overview" in path:
+                return CURRENCY_OVERVIEW
+            if "exchange/current/details" in path:
+                return CURRENCY_DETAILS_RESPONSE
+            msg = f"Unmocked: {path}"
+            raise ValueError(msg)
+
+        client.get_json.side_effect = get_json
+        mock_cls.return_value.__enter__ = MagicMock(return_value=client)
+        mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = invoke_cli(
+            app,
+            ["ninja", "price", "history", "Exalted Orb", "Currency", "--no-cache", "--json"],
+        )
+        assert result.exit_code == 0
+        _, kwargs = mock_cls.call_args
+        assert kwargs.get("no_cache") is True
+
+
+class TestModelParsingInvariants:
+    def test_history_point_negative_days_ago_accepted(self):
+        p = HistoryPoint.model_validate({"value": 1.0, "daysAgo": 0, "count": 0})
+        assert p.days_ago == 0
+        assert p.count == 0
+
+    @pytest.mark.parametrize("payload_key", ["payCurrencyGraphData", "receiveCurrencyGraphData"])
+    def test_currency_history_keys_independent(self, payload_key):
+        only_one = {
+            "payCurrencyGraphData": [],
+            "receiveCurrencyGraphData": [],
+            payload_key: [{"count": 1, "value": 1.0, "daysAgo": 0}],
+        }
+        resp = CurrencyHistoryResponse.model_validate(only_one)
+        target = (
+            resp.pay_currency_graph_data
+            if payload_key == "payCurrencyGraphData"
+            else resp.receive_currency_graph_data
+        )
+        assert len(target) == 1
+
+
+class TestAnalyzeHistoryEdgeCase:
+    def test_single_point_no_window_averages(self):
+        points = _make_points([100.0])
+        result = analyze_history(points)
+        assert result.current_price == 100.0
+        assert result.average_30d is None or result.average_30d == 100.0

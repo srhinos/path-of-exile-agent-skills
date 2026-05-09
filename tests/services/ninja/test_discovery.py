@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from poe.models.ninja.discovery import (
     AtlasTreeIndexState,
     BuildIndexState,
@@ -348,3 +350,159 @@ class TestExtraFieldsIgnored:
         svc = _make_service(tmp_path, {"/poe1/api/data/index-state": fixture})
         state = svc.get_poe1_index_state()
         assert isinstance(state, Poe1IndexState)
+
+
+class TestValidateLeagueNegativeCases:
+    def test_unknown_league_returns_false(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        assert svc.validate_league("DefinitelyNotALeague", game="poe1") is False
+
+    def test_empty_league_name_returns_false(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        # Empty name shouldn't match any league name or url.
+        assert svc.validate_league("", game="poe1") is False
+
+    def test_whitespace_only_league_returns_false(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        assert svc.validate_league("   ", game="poe1") is False
+
+    def test_unknown_in_poe2_returns_false(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe2/api/data/index-state": POE2_INDEX_STATE_FIXTURE})
+        assert svc.validate_league("Mirage", game="poe2") is False
+
+    def test_substring_match_does_not_validate(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        # "Mira" is a substring of "Mirage" but should NOT validate.
+        assert svc.validate_league("Mira", game="poe1") is False
+
+
+class TestSemanticPydanticInvariants:
+    def test_poe1_index_state_economy_leagues_have_non_empty_names(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        state = svc.get_poe1_index_state()
+        assert len(state.economy_leagues) > 0
+        for league in state.economy_leagues:
+            assert league.name
+            assert league.url
+
+    def test_poe2_index_state_has_at_least_one_league(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe2/api/data/index-state": POE2_INDEX_STATE_FIXTURE})
+        state = svc.get_poe2_index_state()
+        assert len(state.economy_leagues) > 0
+
+    def test_snapshot_url_non_empty(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        state = svc.get_poe1_index_state()
+        for snap in state.snapshot_versions:
+            assert snap.url
+            assert snap.version
+            assert snap.snapshot_name
+
+    def test_build_index_state_percentages_in_range(self, tmp_path):
+        svc = _make_service(
+            tmp_path,
+            {"/poe1/api/data/build-index-state": BUILD_INDEX_STATE_FIXTURE},
+        )
+        state = svc.get_build_index_state(game="poe1")
+        for lb in state.league_builds:
+            assert lb.total >= 0
+            for stat in lb.statistics:
+                assert 0.0 <= stat.percentage <= 100.0
+                assert stat.skill or stat.class_name
+
+    def test_atlas_tree_index_state_leagues_have_names(self, tmp_path):
+        svc = _make_service(
+            tmp_path,
+            {"/poe1/api/data/atlas-tree-index-state": ATLAS_TREE_INDEX_STATE_FIXTURE},
+        )
+        state = svc.get_atlas_tree_index_state()
+        for lg in state.leagues:
+            assert lg.league_name
+            assert lg.league_url
+
+    def test_default_field_values_for_missing_data(self, tmp_path):
+        # Snapshots with no time machine labels default to empty list.
+        fixture = {
+            "economyLeagues": [{"name": "X", "url": "x"}],
+            "oldEconomyLeagues": [],
+            "snapshotVersions": [
+                {
+                    "url": "x",
+                    "type": "exp",
+                    "name": "X",
+                    "version": "v1",
+                    "snapshotName": "x",
+                },
+            ],
+            "buildLeagues": [],
+            "oldBuildLeagues": [],
+        }
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": fixture})
+        state = svc.get_poe1_index_state()
+        snap = state.snapshot_versions[0]
+        assert snap.time_machine_labels == []
+        assert snap.passive_tree == ""
+
+
+class TestDiscoveryCachingInvariants:
+    def test_no_cache_skips_cache_read(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        svc.get_poe1_index_state()
+        assert svc._client.get_json.call_count == 1
+        # Flip no_cache and expect another fetch.
+        svc._client.no_cache = True
+        svc.get_poe1_index_state()
+        assert svc._client.get_json.call_count == 2
+
+    def test_cache_persists_to_disk(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        svc.get_poe1_index_state()
+        # Cache file written by fetch.
+        from poe.services.ninja import cache as ninja_cache
+
+        cached = ninja_cache.read_cache(tmp_path, "poe1_index_state")
+        assert cached is not None
+
+    def test_force_refetches_after_cache_invalidation(self, tmp_path):
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})
+        svc.get_poe1_index_state()
+        # Force should clear the cache directory and re-fetch.
+        svc.get_poe1_index_state(force=True)
+        assert svc._client.get_json.call_count == 2
+
+
+class TestCamelToSnakeCoverage:
+    @pytest.mark.parametrize(
+        ("inp", "expected"),
+        [
+            ("a", "a"),
+            ("A", "a"),
+            ("aB", "a_b"),
+            ("ABC", "a_b_c"),
+            ("snake_case", "snake_case"),
+            ("camelCase", "camel_case"),
+            ("PascalCase", "pascal_case"),
+            ("nameURL", "name_u_r_l"),
+            ("", ""),
+        ],
+    )
+    def test_various_forms(self, inp, expected):
+        assert _camel_to_snake(inp) == expected
+
+
+class TestConvertKeysCoverage:
+    def test_handles_empty_dict(self):
+        assert _convert_keys({}) == {}
+
+    def test_handles_empty_list(self):
+        assert _convert_keys([]) == []
+
+    def test_handles_none(self):
+        assert _convert_keys(None) is None
+
+    def test_handles_bool(self):
+        assert _convert_keys(True) is True
+
+    def test_deeply_nested(self):
+        result = _convert_keys({"outerKey": [{"innerKey": [{"deepKey": 1}]}]})
+        assert result == {"outer_key": [{"inner_key": [{"deep_key": 1}]}]}

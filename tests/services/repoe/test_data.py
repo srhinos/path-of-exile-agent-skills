@@ -1,9 +1,48 @@
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from poe.exceptions import SimDataError
+from poe.services.repoe.constants import (
+    ESSENCE_TIER_PREFIXES,
+    INFLUENCE_TAG_MAP,
+)
 from poe.services.repoe.data import RepoEData
+from poe.types import Influence
+from tests.conftest import REPOE_DATA, make_repoe_data
+
+
+def _multi_influence_fixture() -> dict:
+    data = copy.deepcopy(REPOE_DATA)
+    base_id = data["base_items"]["Hubris Circlet"]["id"]
+    influence_mod_pairs = [
+        ("Shaper", "shaper"),
+        ("Elder", "elder"),
+        ("Crusader", "crusader"),
+        ("Warlord", "adjudicator"),
+        ("Hunter", "basilisk"),
+        ("Redeemer", "eyrie"),
+    ]
+    for display, codename in influence_mod_pairs:
+        mod_id = f"{display}TestLife1"
+        data["mods"][mod_id] = {
+            "name": f"{display} Life",
+            "group": f"{display}Life",
+            "affix": "prefix",
+            "required_level": 68,
+            "implicit_tags": ["resource", "life"],
+            "stats": [{"id": "base_maximum_life", "min": 5, "max": 10}],
+            "spawn_weights": [
+                {"tag": f"helmet_{codename}", "weight": 300},
+                {"tag": "default", "weight": 0},
+            ],
+            "influence": display,
+            "is_essence_only": False,
+        }
+        data["mod_pool"][base_id].append(mod_id)
+    return data
 
 
 class TestBaseItemQueries:
@@ -227,3 +266,191 @@ class TestDataCaching:
         result1 = repoe_data._load("mods")
         result2 = repoe_data._load("mods")
         assert result1 is result2
+
+
+class TestInfluenceLookupCoverage:
+    @pytest.mark.parametrize(
+        "input_value",
+        [
+            "Shaper",
+            "shaper",
+            "SHAPER",
+            "ShApEr",
+        ],
+    )
+    def test_shaper_case_variants_resolve_same(self, input_value):
+        data = make_repoe_data(data=_multi_influence_fixture())
+        canonical = data.get_mod_pool("Hubris Circlet", influences=["Shaper"])
+        canonical_ids = {m.mod_id for m in canonical if m.influence}
+        result = data.get_mod_pool("Hubris Circlet", influences=[input_value])
+        result_ids = {m.mod_id for m in result if m.influence}
+        assert result_ids == canonical_ids
+        assert len(result_ids) > 0
+
+    @pytest.mark.parametrize(
+        ("input_value", "expected_display"),
+        [
+            ("shaper", "Shaper"),
+            ("SHAPER", "Shaper"),
+            ("elder", "Elder"),
+            ("Elder", "Elder"),
+            ("crusader", "Crusader"),
+            ("CRUSADER", "Crusader"),
+            ("adjudicator", "Warlord"),
+            ("Warlord", "Warlord"),
+            ("WARLORD", "Warlord"),
+            ("basilisk", "Hunter"),
+            ("Hunter", "Hunter"),
+            ("HUNTER", "Hunter"),
+            ("eyrie", "Redeemer"),
+            ("Redeemer", "Redeemer"),
+            ("REDEEMER", "Redeemer"),
+        ],
+    )
+    def test_codename_and_display_variants_resolve_to_correct_mod(
+        self, input_value, expected_display
+    ):
+        data = make_repoe_data(data=_multi_influence_fixture())
+        result = data.get_mod_pool("Hubris Circlet", influences=[input_value])
+        influence_mods = [m for m in result if m.influence == expected_display]
+        assert len(influence_mods) > 0, (
+            f"Expected at least one {expected_display}-influenced mod for input "
+            f"{input_value!r}, got influences: {[m.influence for m in result]}"
+        )
+
+    @pytest.mark.parametrize(
+        ("codename", "display"),
+        sorted(INFLUENCE_TAG_MAP.items()),
+    )
+    def test_every_influence_in_tag_map_resolves(self, codename, display):
+        data = make_repoe_data(data=_multi_influence_fixture())
+        result = data.get_mod_pool("Hubris Circlet", influences=[codename])
+        matching = [m for m in result if m.influence == display]
+        assert len(matching) > 0, f"codename {codename!r} did not surface {display} mods"
+
+
+class TestModPoolNoInfluenceExcludesAll:
+    @pytest.mark.parametrize("influence", [i.value for i in Influence])
+    def test_unselected_influence_mods_excluded(self, influence):
+        data = make_repoe_data(data=_multi_influence_fixture())
+        no_inf = data.get_mod_pool("Hubris Circlet")
+        for mod in no_inf:
+            assert mod.influence is None
+
+
+class TestEssencesNonexistentBaseRaises:
+    def test_raises_with_descriptive_message(self, repoe_data):
+        with pytest.raises(SimDataError, match=r"Nonexistent.*not found"):
+            repoe_data.get_essences("Nonexistent Base")
+
+
+class TestEssenceTierFullCoverage:
+    @pytest.mark.parametrize(
+        ("prefix", "expected_num"),
+        sorted(ESSENCE_TIER_PREFIXES.items()),
+    )
+    def test_every_tier_prefix_resolves(self, prefix, expected_num):
+        name = prefix.title() + " Essence of Greed"
+        tier_name, tier_num = RepoEData._extract_essence_tier(name)
+        assert tier_num == expected_num
+        assert tier_name == prefix.title()
+
+    @pytest.mark.parametrize(
+        "case_variant",
+        ["DEAFENING", "deafening", "DeAfEnInG"],
+    )
+    def test_case_insensitive_tier_extraction(self, case_variant):
+        _, tier_num = RepoEData._extract_essence_tier(case_variant)
+        assert tier_num == ESSENCE_TIER_PREFIXES["deafening"]
+
+
+class TestModPoolEntryInvariants:
+    def test_weights_are_positive(self, repoe_data):
+        mods = repoe_data.get_mod_pool("Hubris Circlet")
+        assert len(mods) > 0
+        for m in mods:
+            assert m.weight > 0
+
+    def test_results_sorted_by_weight_desc(self, repoe_data):
+        mods = repoe_data.get_mod_pool("Hubris Circlet")
+        weights = [m.weight for m in mods]
+        assert weights == sorted(weights, reverse=True)
+
+    def test_best_tier_values_are_pairs(self, repoe_data):
+        mods = repoe_data.get_mod_pool("Hubris Circlet")
+        for m in mods:
+            for pair in m.best_tier.values:
+                assert len(pair) == 2
+                lo, hi = pair
+                assert lo <= hi
+
+    def test_tier_count_matches_pool(self, repoe_data):
+        mods = repoe_data.get_mod_pool("Hubris Circlet")
+        life_mods = [m for m in mods if m.group == "IncreasedLife"]
+        assert len(life_mods) > 0
+        for m in life_mods:
+            assert m.tier_count == 4
+
+
+class TestModTiersInvariants:
+    def test_tier_numbers_are_contiguous(self, repoe_data):
+        tiers = repoe_data.get_mod_tiers("IncreasedLife4", "Hubris Circlet")
+        tier_nums = [t["tier"] for t in tiers]
+        assert tier_nums == list(range(1, len(tiers) + 1))
+
+    def test_value_ranges_are_pairs(self, repoe_data):
+        tiers = repoe_data.get_mod_tiers("IncreasedLife4", "Hubris Circlet")
+        for t in tiers:
+            for pair in t["values"]:
+                assert len(pair) == 2
+
+    def test_ilvl_filter_matches_available(self, repoe_data):
+        ilvl = 50
+        tiers = repoe_data.get_mod_tiers("IncreasedLife4", "Hubris Circlet", ilvl=ilvl)
+        for t in tiers:
+            assert t["available"] == (t["ilvl"] <= ilvl)
+
+
+class TestSearchBasesInvariants:
+    @pytest.mark.parametrize(
+        "query",
+        ["circlet", "CIRCLET", "Circlet", "CiRcLeT"],
+    )
+    def test_search_case_insensitive(self, repoe_data, query):
+        results = repoe_data.search_base_items(query)
+        names = {r["name"] for r in results}
+        assert "Hubris Circlet" in names
+
+    def test_search_returns_each_match_once(self, repoe_data):
+        results = repoe_data.search_base_items("")
+        names = [r["name"] for r in results]
+        assert len(names) == len(set(names))
+
+
+class TestGetCraftCostFullKeyCoverage:
+    @pytest.mark.parametrize(
+        "method",
+        ["chaos", "alt", "regal", "exalt", "annul", "divine", "scour"],
+    )
+    def test_every_simple_method_returns_finite_cost(self, repoe_data, method):
+        cost = repoe_data.get_craft_cost(method)
+        assert isinstance(cost, float)
+        assert cost > 0
+
+    def test_fossil_cost_includes_resonator(self, repoe_data):
+        prices = {
+            "currency": {},
+            "fossils": {"Pristine Fossil": 3.0},
+            "resonators": {"Primitive Alchemical Resonator": 2.0},
+            "essences": {},
+        }
+        cost = repoe_data.get_craft_cost(
+            "fossil",
+            prices=prices,
+            fossils=["Pristine Fossil"],
+        )
+        assert cost == 5.0
+
+    def test_unknown_method_returns_default(self, repoe_data):
+        cost = repoe_data.get_craft_cost("zzz_not_a_method")
+        assert cost == 1.0

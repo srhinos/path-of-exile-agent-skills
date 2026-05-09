@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from poe.models.build import (
     BuildConfig,
     BuildDocument,
@@ -1132,3 +1134,423 @@ class TestPassthroughRoundtrip:
         build.passthrough_sections["TradeSearchWeights"] = '<TradeSearchWeights weight1="100" />'
         rt = _roundtrip(build, tmp_path)
         assert "TradeSearchWeights" in rt.passthrough_sections
+
+
+# ── Bandit None roundtrip preservation ───────────────────────────────────────
+
+
+class TestBanditNoneRoundtrip:
+    def test_bandit_none_preserved(self, tmp_path):
+        build = BuildDocument(bandit=None)
+        rt = _roundtrip(build, tmp_path)
+        assert rt.bandit is None
+
+    @pytest.mark.parametrize("bandit", ["Alira", "Kraityn", "Oak"])
+    def test_named_bandit_preserved(self, tmp_path, bandit):
+        build = BuildDocument(bandit=bandit)
+        rt = _roundtrip(build, tmp_path)
+        assert rt.bandit == bandit
+
+    def test_bandit_none_roundtrips_through_xml_string(self, tmp_path):
+        build = BuildDocument(bandit=None)
+        # Round-trip twice to ensure stability
+        rt1 = _roundtrip(build, tmp_path)
+        assert rt1.bandit is None
+        out2 = tmp_path / "rt2.xml"
+        write_build_file(rt1, out2)
+        rt2 = parse_build_file(out2)
+        assert rt2.bandit is None
+
+
+# ── Diverse fixture roundtrip preservation ───────────────────────────────────
+
+
+from poe.services.build.constants import GEAR_SLOTS  # noqa: E402
+
+
+class TestEmptyBuildRoundtrip:
+    def test_completely_empty_build(self, tmp_path):
+        build = BuildDocument()
+        rt = _roundtrip(build, tmp_path)
+        assert rt.level == build.level
+        assert rt.class_name == build.class_name
+        assert rt.bandit == build.bandit
+        assert rt.notes == build.notes
+        assert rt.items == build.items
+        assert rt.specs == build.specs
+
+
+class TestCorruptedRoundtrip:
+    def test_corrupted_item_invariant(self, tmp_path):
+        build = BuildDocument()
+        build.items.append(
+            Item(
+                id=1,
+                text="",
+                rarity="UNIQUE",
+                name="Test Unique",
+                base_type="Hubris Circlet",
+                is_corrupted=True,
+                implicits=[],
+                explicits=[ItemMod(text="+50 to maximum Life")],
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert rt.items[0].is_corrupted is True
+
+
+class TestMirroredFracturedSynthesisedRoundtrip:
+    @pytest.mark.parametrize(
+        ("flag_name", "kwargs"),
+        [
+            ("is_mirrored", {"is_mirrored": True}),
+            ("is_fractured", {"is_fractured": True}),
+            ("is_synthesised", {"is_synthesised": True}),
+            ("is_corrupted", {"is_corrupted": True}),
+            ("is_split", {"is_split": True}),
+        ],
+    )
+    def test_each_flag_preserved(self, tmp_path, flag_name, kwargs):
+        build = BuildDocument()
+        build.items.append(
+            Item(
+                id=1,
+                text="",
+                rarity="RARE",
+                name="Test Item",
+                base_type="Hubris Circlet",
+                implicits=[],
+                explicits=[ItemMod(text="+50 to maximum Life")],
+                **kwargs,
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert getattr(rt.items[0], flag_name) is True
+
+
+class TestMultiSpecRoundtrip:
+    def test_multiple_specs_preserved(self, tmp_path):
+        build = BuildDocument(active_spec=2)
+        build.specs.append(TreeSpec(title="Leveling", tree_version="3_25", nodes=[1, 2, 3]))
+        build.specs.append(TreeSpec(title="Mapping", tree_version="3_25", nodes=[4, 5, 6, 7]))
+        build.specs.append(TreeSpec(title="Bossing", tree_version="3_25", nodes=[8, 9]))
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.specs) == 3
+        assert rt.active_spec == 2
+        titles = [s.title for s in rt.specs]
+        assert titles == ["Leveling", "Mapping", "Bossing"]
+        # Invariant: nodes preserved per spec
+        for orig, rtspec in zip(build.specs, rt.specs, strict=True):
+            assert rtspec.nodes == orig.nodes
+
+
+class TestMultiItemSetRoundtrip:
+    def test_multiple_item_sets_preserved(self, tmp_path):
+        build = BuildDocument(active_item_set="2")
+        build.items.append(
+            Item(
+                id=1,
+                text="Rarity: RARE\nTest Helm 1\nHubris Circlet\nImplicits: 0",
+            )
+        )
+        build.items.append(
+            Item(
+                id=2,
+                text="Rarity: RARE\nTest Helm 2\nHubris Circlet\nImplicits: 0",
+            )
+        )
+        build.item_sets.append(
+            ItemSet(id="1", title="Mapping", slots=[ItemSlot(name="Helmet", item_id=1)])
+        )
+        build.item_sets.append(
+            ItemSet(id="2", title="Bossing", slots=[ItemSlot(name="Helmet", item_id=2)])
+        )
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.item_sets) == 2
+        assert rt.active_item_set == "2"
+        assert rt.item_sets[0].title == "Mapping"
+        assert rt.item_sets[1].title == "Bossing"
+
+
+# ── Round-trip across all GEAR_SLOTS ─────────────────────────────────────────
+
+
+class TestRoundtripAcrossGearSlots:
+    @pytest.mark.parametrize("slot", GEAR_SLOTS)
+    def test_slot_roundtrips(self, tmp_path, slot):
+        build = BuildDocument()
+        build.items.append(
+            Item(
+                id=1,
+                text="Rarity: RARE\nTest Item\nHubris Circlet\nImplicits: 0\n+50 to Life",
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name=slot, item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.item_sets[0].slots) == 1
+        assert rt.item_sets[0].slots[0].name == slot
+        assert rt.item_sets[0].slots[0].item_id == 1
+
+
+# ── Round-trip preserves all rarities ───────────────────────────────────────
+
+
+class TestRarityRoundtrip:
+    @pytest.mark.parametrize("rarity", ["NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"])
+    def test_each_rarity_preserved(self, tmp_path, rarity):
+        build = BuildDocument()
+        # Use varied names per rarity to satisfy parsing rules
+        if rarity == "NORMAL":
+            text = "Rarity: NORMAL\nHubris Circlet\nImplicits: 0"
+        elif rarity == "MAGIC":
+            text = "Rarity: MAGIC\nFancy Hubris Circlet of Hardiness\nImplicits: 0"
+        else:
+            text = f"Rarity: {rarity}\nTest Crown\nHubris Circlet\nImplicits: 0\n+50 to Life"
+        build.items.append(Item(id=1, text=text))
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert rt.items[0].rarity == rarity
+
+
+# ── Item count preservation invariant ────────────────────────────────────────
+
+
+class TestItemCountInvariant:
+    def test_implicit_count_preserved(self, tmp_path):
+        build = BuildDocument()
+        build.items.append(
+            Item(
+                id=1,
+                text="",
+                rarity="RARE",
+                name="Multi Implicit",
+                base_type="Hubris Circlet",
+                implicits=[
+                    ItemMod(text="+10 to Strength"),
+                    ItemMod(text="+10 to Dexterity"),
+                    ItemMod(text="+10 to Intelligence"),
+                ],
+                explicits=[],
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.items[0].implicits) == 3
+
+    def test_explicit_count_preserved(self, tmp_path):
+        build = BuildDocument()
+        build.items.append(
+            Item(
+                id=1,
+                text="",
+                rarity="RARE",
+                name="Multi Mod",
+                base_type="Hubris Circlet",
+                implicits=[],
+                explicits=[
+                    ItemMod(text="+50 to maximum Life"),
+                    ItemMod(text="+30% to Fire Resistance"),
+                    ItemMod(text="+30% to Cold Resistance"),
+                    ItemMod(text="+30% to Lightning Resistance"),
+                ],
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.items[0].explicits) == 4
+
+
+# ── Engine class import safety ──────────────────────────────────────────────
+
+
+class TestModelImportInvariants:
+    def test_build_document_default_bandit_is_none(self):
+        # Semantic invariant: bandit defaults to Python None, not "None" string
+        build = BuildDocument()
+        assert build.bandit is None
+        assert build.bandit != "None"
+
+
+# ── Influence enum coverage roundtrip ───────────────────────────────────────
+
+
+class TestInfluenceRoundtripCoverage:
+    @pytest.mark.parametrize(
+        "influence",
+        [
+            "Shaper",
+            "Elder",
+            "Crusader",
+            "Hunter",
+            "Redeemer",
+            "Warlord",
+            "Searing Exarch",
+            "Eater of Worlds",
+        ],
+    )
+    def test_each_influence_roundtrips(self, tmp_path, influence):
+        build = BuildDocument()
+        build.items.append(
+            Item(
+                id=1,
+                text="",
+                rarity="RARE",
+                name="Influenced Helm",
+                base_type="Hubris Circlet",
+                influences=[influence],
+                implicits=[],
+                explicits=[ItemMod(text="+50 to Life")],
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert influence in rt.items[0].influences
+
+
+# ── Veiled flag roundtrip ───────────────────────────────────────────────────
+
+
+class TestVeiledFlagRoundtrip:
+    @pytest.mark.parametrize(
+        ("flag", "value"),
+        [
+            ("has_veiled_prefix", True),
+            ("has_veiled_suffix", True),
+        ],
+    )
+    def test_veiled_flag_preserved(self, tmp_path, flag, value):
+        build = BuildDocument()
+        kwargs = {flag: value}
+        build.items.append(
+            Item(
+                id=1,
+                text="",
+                rarity="RARE",
+                name="Veiled Item",
+                base_type="Hubris Circlet",
+                implicits=[],
+                explicits=[ItemMod(text="+50 to maximum Life")],
+                **kwargs,
+            )
+        )
+        build.item_sets.append(ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=1)]))
+        rt = _roundtrip(build, tmp_path)
+        assert getattr(rt.items[0], flag) is value
+
+
+# ── _fmt_number/_fmt_range full coverage ─────────────────────────────────────
+
+
+class TestFmtNumberFullCoverage:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (0, "0"),
+            (1, "1"),
+            (-1, "-1"),
+            (100, "100"),
+            (1.0, "1"),
+            (1.5, "1.5"),
+            (0.5, "0.5"),
+            (-1.5, "-1.5"),
+            (100.0, "100"),
+        ],
+    )
+    def test_fmt_number_finite_values(self, value, expected):
+        from poe.services.build.xml.writer import _fmt_number
+
+        assert _fmt_number(value) == expected
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (float("inf"), "0"),
+            (float("-inf"), "0"),
+            (float("nan"), "0"),
+        ],
+    )
+    def test_fmt_number_non_finite_values(self, value, expected):
+        from poe.services.build.xml.writer import _fmt_number
+
+        assert _fmt_number(value) == expected
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (0.5, "0.5"),
+            (1.0, "1"),
+            (0.75, "0.75"),
+        ],
+    )
+    def test_fmt_range_finite_values(self, value, expected):
+        from poe.services.build.xml.writer import _fmt_range
+
+        assert _fmt_range(value) == expected
+
+    def test_fmt_range_inf_returns_zero(self):
+        from poe.services.build.xml.writer import _fmt_range
+
+        assert _fmt_range(float("inf")) == "0"
+
+    def test_fmt_range_nan_returns_zero(self):
+        from poe.services.build.xml.writer import _fmt_range
+
+        assert _fmt_range(float("nan")) == "0"
+
+
+# ── Structure roundtrip invariants ──────────────────────────────────────────
+
+
+class TestStructureInvariants:
+    def test_player_stats_count_preserved(self, tmp_path):
+        build = BuildDocument()
+        for i in range(20):
+            build.player_stats.append(StatEntry(stat=f"Stat{i}", value=float(i)))
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.player_stats) == len(build.player_stats)
+
+    def test_full_dps_skills_count_preserved(self, tmp_path):
+        build = BuildDocument()
+        build.full_dps_skills = [
+            {"name": "Fireball", "value": "100"},
+            {"name": "Arc", "value": "200"},
+        ]
+        rt = _roundtrip(build, tmp_path)
+        assert len(rt.full_dps_skills) == len(build.full_dps_skills)
+
+    def test_pantheon_pair_preserved(self, tmp_path):
+        build = BuildDocument(pantheon_major="Solaris", pantheon_minor="Yugul")
+        rt = _roundtrip(build, tmp_path)
+        assert rt.pantheon_major == "Solaris"
+        assert rt.pantheon_minor == "Yugul"
+
+
+# ── Atomic write — failure preserves original ───────────────────────────────
+
+
+class TestAtomicWriteFailureSafety:
+    def test_failure_during_write_does_not_corrupt_target(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        p = tmp_path / "target.xml"
+        p.write_text("<original/>", encoding="utf-8")
+        build = BuildDocument()
+
+        def boom(*_args, **_kwargs):
+            raise OSError("simulated write failure")
+
+        # Patch ElementTree.write to fail
+        from xml.etree import ElementTree as ET
+
+        with (
+            patch.object(ET.ElementTree, "write", boom),
+            pytest.raises(OSError, match="simulated write failure"),
+        ):
+            write_build_file(build, p)
+
+        # Original file content must be preserved as backup
+        bak1 = p.with_suffix(".xml.bak.1")
+        assert bak1.exists()
+        assert bak1.read_text(encoding="utf-8") == "<original/>"

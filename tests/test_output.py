@@ -5,6 +5,10 @@ from pydantic import BaseModel
 from poe.output import _format_dict_human, _format_human, _format_json, human_formatter, render
 
 
+class _UnregModel(BaseModel):
+    name: str
+
+
 class SampleModel(BaseModel):
     name: str
     value: int
@@ -143,3 +147,63 @@ class TestRender:
         captured = capsys.readouterr()
         assert "Mórrigan" in captured.out
         assert "küsst" in captured.out
+
+
+# ── render() invariants: structure stable across runs ───────────────────────
+
+
+class TestRenderStructureInvariants:
+    def test_same_model_produces_same_output(self, capsys):
+        a = SampleModel(name="x", value=42)
+        b = SampleModel(name="x", value=42)
+        render(a, json_mode=True)
+        out_a = capsys.readouterr().out
+        render(b, json_mode=True)
+        out_b = capsys.readouterr().out
+        assert out_a == out_b
+
+    def test_json_mode_outputs_parseable_json(self, capsys):
+        render(SampleModel(name="x", value=1), json_mode=True)
+        out = capsys.readouterr().out
+        parsed = json.loads(out)
+        assert parsed["name"] == "x"
+        assert parsed["value"] == 1
+
+    def test_human_mode_is_not_json_for_dict(self, capsys):
+        render({"only_field": 42}, json_mode=False)
+        out = capsys.readouterr().out.strip()
+        assert "only_field: 42" in out
+
+    def test_render_writes_trailing_newline(self, capsys):
+        render({"x": 1}, json_mode=True)
+        out = capsys.readouterr().out
+        assert out.endswith("\n")
+
+    def test_json_mode_excludes_none_for_model(self, capsys):
+        render(SampleModel(name="x", value=1, optional=None), json_mode=True)
+        out = capsys.readouterr().out
+        assert "optional" not in out
+
+    def test_list_of_models_json_mode(self, capsys):
+        items = [SampleModel(name="a", value=1), SampleModel(name="b", value=2)]
+        render(items, json_mode=True)
+        out = capsys.readouterr().out
+        parsed = json.loads(out)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 2
+
+    def test_list_of_models_human_mode_unregistered_uses_dict_fallback(self, capsys):
+        render([_UnregModel(name="a"), _UnregModel(name="b")], json_mode=False)
+        out = capsys.readouterr().out
+        assert "a" in out
+        assert "b" in out
+
+    def test_empty_dict_renders_empty_string_with_newline(self, capsys):
+        render({}, json_mode=False)
+        out = capsys.readouterr().out
+        assert out == "\n"
+
+    def test_empty_list_json_mode(self, capsys):
+        render([], json_mode=True)
+        out = capsys.readouterr().out
+        assert json.loads(out) == []
