@@ -69,6 +69,7 @@ def items_add(
     fractured_mod: list[str] | None = None,
     synthesised: bool = False,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Add an item to a build.
 
@@ -131,7 +132,7 @@ def items_add(
         synthesised=synthesised,
         file_path=file,
     )
-    _output(result, json_mode=True)
+    _output(result, json_mode=json)
 
 
 @items_app.command(name="remove")
@@ -177,6 +178,7 @@ def items_edit(
     set_evasion: int | None = None,
     set_energy_shield: int | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Edit an existing item in a build.
 
@@ -223,7 +225,7 @@ def items_edit(
         set_energy_shield=set_energy_shield,
         file_path=file,
     )
-    _output(result, json_mode=True)
+    _output(result, json_mode=json)
 
 
 @items_app.command(name="set-active")

@@ -73,6 +73,7 @@ def tree_set(
     tree_version: str | None = None,
     spec: int | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Set or modify tree allocation for a spec.
 
@@ -113,7 +114,7 @@ def tree_set(
         spec_index=spec,
         file_path=file,
     )
-    _output(result, json_mode=True)
+    _output(result, json_mode=json)
 
 
 @tree_app.command(name="search")

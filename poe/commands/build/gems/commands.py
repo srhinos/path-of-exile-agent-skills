@@ -53,6 +53,7 @@ def gems_add(
     quality_id: str = "Default",
     include_full_dps: bool = False,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Add a skill group with gems to a build.
 
@@ -85,7 +86,7 @@ def gems_add(
         include_full_dps=include_full_dps,
         file_path=file,
     )
-    _output(result, json_mode=True)
+    _output(result, json_mode=json)
 
 
 @gems_app.command(name="remove")
@@ -116,6 +117,7 @@ def gems_edit(
     toggle: list[str] | None = None,
     set_slot: str | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Edit a skill group's gems in a build.
 
@@ -149,7 +151,7 @@ def gems_edit(
         set_slot=set_slot,
         file_path=file,
     )
-    _output(result, json_mode=True)
+    _output(result, json_mode=json)
 
 
 @gems_app.command(name="add-to-group")

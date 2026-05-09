@@ -131,6 +131,7 @@ def config_set_values(
     string: list[str] | None = None,
     remove: list[str] | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Set configuration values on a build.
 
@@ -157,4 +158,4 @@ def config_set_values(
         remove=remove,
         file_path=file,
     )
-    _output(result, json_mode=True)
+    _output(result, json_mode=json)

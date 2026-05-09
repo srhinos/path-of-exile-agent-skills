@@ -100,6 +100,7 @@ class TestItemsAdd:
                 "400",
                 "--file",
                 str(build_file),
+                "--json",
             ],
         )
         assert result.exit_code == 0

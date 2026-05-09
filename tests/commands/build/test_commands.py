@@ -871,7 +871,6 @@ class TestHardcodedJsonModeBugs:
     JSON when --json is set. These tests document the gap.
     """
 
-    @pytest.mark.xfail(strict=True, reason="tree set hardcodes json_mode=True")
     def test_tree_set_outputs_human_by_default(self, tmp_path):
         f = tmp_path / "test.xml"
         f.write_text(MINIMAL_BUILD_XML, encoding="utf-8")
@@ -883,7 +882,6 @@ class TestHardcodedJsonModeBugs:
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
 
-    @pytest.mark.xfail(strict=True, reason="items add hardcodes json_mode=True")
     def test_items_add_outputs_human_by_default(self, tmp_path):
         f = tmp_path / "test.xml"
         f.write_text(MINIMAL_BUILD_XML, encoding="utf-8")
@@ -906,7 +904,6 @@ class TestHardcodedJsonModeBugs:
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
 
-    @pytest.mark.xfail(strict=True, reason="items edit hardcodes json_mode=True")
     def test_items_edit_outputs_human_by_default(self, tmp_path):
         f = tmp_path / "test.xml"
         f.write_text(MINIMAL_BUILD_XML, encoding="utf-8")
@@ -929,7 +926,6 @@ class TestHardcodedJsonModeBugs:
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
 
-    @pytest.mark.xfail(strict=True, reason="gems add hardcodes json_mode=True")
     def test_gems_add_outputs_human_by_default(self, tmp_path):
         f = tmp_path / "test.xml"
         f.write_text(MINIMAL_BUILD_XML, encoding="utf-8")
@@ -950,7 +946,6 @@ class TestHardcodedJsonModeBugs:
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
 
-    @pytest.mark.xfail(strict=True, reason="gems edit hardcodes json_mode=True")
     def test_gems_edit_outputs_human_by_default(self, tmp_path):
         f = tmp_path / "test.xml"
         f.write_text(MINIMAL_BUILD_XML, encoding="utf-8")
@@ -973,7 +968,6 @@ class TestHardcodedJsonModeBugs:
         with pytest.raises(json.JSONDecodeError):
             json.loads(result.output)
 
-    @pytest.mark.xfail(strict=True, reason="config set hardcodes json_mode=True")
     def test_config_set_outputs_human_by_default(self, tmp_path):
         f = tmp_path / "test.xml"
         f.write_text(MINIMAL_BUILD_XML, encoding="utf-8")
