@@ -1,13 +1,35 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import re
+from math import isfinite
+
+from pydantic import BaseModel, Field, field_validator
+
+from poe.types import CraftMethod, MatchMode
+
+_VALID_AFFIXES = {"prefix", "suffix"}
+_VALID_AFFIXES_OR_EMPTY = {"", "prefix", "suffix", "implicit"}
+_HIT_RATE_PATTERN = re.compile(r"^\d+(\.\d+)?%$")
+_VALID_METHODS = {m.value for m in CraftMethod}
+_VALID_MATCH_MODES = {m.value for m in MatchMode}
+
+
+def _ensure_finite(v: float) -> float:
+    if not isfinite(v):
+        raise ValueError("value must be finite (not NaN or +/-inf)")
+    return v
 
 
 class ModWeight(BaseModel):
     """A fossil or essence modifier that scales a mod's spawn weight."""
 
-    tag: str
+    tag: str = Field(min_length=1)
     multiplier: float
+
+    @field_validator("multiplier")
+    @classmethod
+    def _validate_multiplier(cls, v: float) -> float:
+        return _ensure_finite(v)
 
 
 class Mod(BaseModel):
@@ -20,17 +42,24 @@ class Mod(BaseModel):
     name: str
     affix: str
     group: str
-    weight: int
+    weight: int = Field(ge=0)
     tags: list[str] = []
+
+    @field_validator("affix")
+    @classmethod
+    def _validate_affix(cls, v: str) -> str:
+        if v not in _VALID_AFFIXES:
+            raise ValueError(f"affix must be 'prefix' or 'suffix', got {v!r}")
+        return v
 
 
 class ModTier(BaseModel):
     """A specific tier of a mod, showing ilvl requirement and stat ranges."""
 
-    tier: int
-    ilvl: int
+    tier: int = Field(ge=1)
+    ilvl: int = Field(ge=0, le=100)
     values: list = []
-    weight: int = 0
+    weight: int = Field(default=0, ge=0)
     available: bool = True
 
 
@@ -40,9 +69,17 @@ class Fossil(BaseModel):
     Returned inside FossilListResult from SimService.get_fossils().
     """
 
-    name: str
+    name: str = Field(min_length=1)
     mod_weights: dict[str, float] = {}
     blocked: list[str] = []
+
+    @field_validator("mod_weights")
+    @classmethod
+    def _validate_weights_finite(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, val in v.items():
+            if not isfinite(val):
+                raise ValueError(f"mod_weights[{k!r}] must be finite, got {val!r}")
+        return v
 
 
 class Essence(BaseModel):
@@ -51,7 +88,7 @@ class Essence(BaseModel):
     Returned inside EssenceListResult from SimService.get_essences().
     """
 
-    name: str
+    name: str = Field(min_length=1)
     tier: str = ""
     mods: list[dict] = []
 
@@ -59,7 +96,7 @@ class Essence(BaseModel):
 class BenchCraft(BaseModel):
     """A crafting bench option available for a base item."""
 
-    name: str
+    name: str = Field(min_length=1)
     mod: str = ""
     cost: str = ""
 
@@ -77,8 +114,15 @@ class IdentifiedMod(BaseModel):
 
     text: str
     mod_id: str = ""
-    tier: int = 0
+    tier: int = Field(default=0, ge=0)
     affix: str = ""
+
+    @field_validator("affix")
+    @classmethod
+    def _validate_affix(cls, v: str) -> str:
+        if v not in _VALID_AFFIXES_OR_EMPTY:
+            raise ValueError(f"affix must be one of {sorted(_VALID_AFFIXES_OR_EMPTY)}, got {v!r}")
+        return v
 
 
 # --- Service response models ---
@@ -140,18 +184,50 @@ class SimulationResult(BaseModel):
     """Response from SimService.simulate() — full simulation with context."""
 
     base: str
-    ilvl: int
+    ilvl: int = Field(ge=0, le=100)
     method: str
     targets: list[str]
     fossils: list[str] | None = None
     essence: str | None = None
     match_mode: str = "all"
-    iterations: int = 0
+    iterations: int = Field(default=0, ge=0)
     hit_rate: str = ""
     avg_attempts: float | None = 0.0
     cost_per_attempt: float | None = 0.0
     avg_cost_chaos: float | None = 0.0
     percentiles: dict[str, int] = {}
+
+    @field_validator("method")
+    @classmethod
+    def _validate_method(cls, v: str) -> str:
+        if v not in _VALID_METHODS:
+            raise ValueError(f"method must be a valid CraftMethod, got {v!r}")
+        return v
+
+    @field_validator("match_mode")
+    @classmethod
+    def _validate_match_mode(cls, v: str) -> str:
+        if v not in _VALID_MATCH_MODES:
+            raise ValueError(f"match_mode must be one of {sorted(_VALID_MATCH_MODES)}, got {v!r}")
+        return v
+
+    @field_validator("hit_rate")
+    @classmethod
+    def _validate_hit_rate(cls, v: str) -> str:
+        if v and not _HIT_RATE_PATTERN.match(v):
+            raise ValueError(f"hit_rate must match pattern N% or N.N% (e.g. '12.5%'), got {v!r}")
+        return v
+
+    @field_validator("avg_attempts", "cost_per_attempt", "avg_cost_chaos")
+    @classmethod
+    def _validate_finite_optional(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not isfinite(v):
+            raise ValueError("value must be finite or None")
+        if v < 0:
+            raise ValueError("value must be non-negative")
+        return v
 
 
 class ItemAnalysisResult(BaseModel):
