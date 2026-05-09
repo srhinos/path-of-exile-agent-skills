@@ -67,7 +67,7 @@ class Item(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    id: int = Field(ge=0)
+    id: int = Field(gt=0)
     text: str
     variant: str = ""
     variant_alt: str = ""
@@ -88,10 +88,10 @@ class Item(BaseModel):
     is_split: bool = False
     has_veiled_prefix: bool = False
     has_veiled_suffix: bool = False
-    quality: int = Field(default=0, ge=0)
+    quality: int = Field(default=0, ge=0, le=30)
     sockets: str = ""
     level_req: int = Field(default=0, ge=0)
-    item_level: int = Field(default=0, ge=0)
+    item_level: int = Field(default=0, ge=0, le=100)
     armour: int = Field(default=0, ge=0)
     evasion: int = Field(default=0, ge=0)
     energy_shield: int = Field(default=0, ge=0)
@@ -200,7 +200,7 @@ class ItemSummary(BaseModel):
     rarity: str
     influences: list[str] = []
     sockets: str = ""
-    quality: int = Field(default=0, ge=0)
+    quality: int = Field(default=0, ge=0, le=30)
 
     @field_validator("rarity", mode="before")
     @classmethod

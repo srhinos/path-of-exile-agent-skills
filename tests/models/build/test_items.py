@@ -157,6 +157,10 @@ class TestItemSemanticInvariants:
         with pytest.raises((ValueError, TypeError)):
             Item(id=1, text="", quality=-5)
 
+    def test_quality_rejects_above_30(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", quality=999)
+
     def test_armour_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             Item(id=1, text="", armour=-100)
@@ -172,6 +176,14 @@ class TestItemSemanticInvariants:
     def test_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             Item(id=-1, text="")
+
+    def test_id_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=0, text="")
+
+    def test_item_level_rejects_above_100(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", item_level=999)
 
     def test_level_req_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):

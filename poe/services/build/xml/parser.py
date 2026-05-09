@@ -351,7 +351,8 @@ def _parse_items_section(root: Element, build: BuildDocument) -> None:
 
     for item_el in items_el.findall("Item"):
         item = _parse_item_element(item_el)
-        build.items.append(item)
+        if item is not None:
+            build.items.append(item)
 
     for set_el in items_el.findall("ItemSet"):
         raw_id = set_el.get("id", "1")
@@ -396,9 +397,12 @@ _VARIANT_ALT_FIELDS = (
 )
 
 
-def _parse_item_element(item_el: Element) -> Item:
-    """Parse a single <Item> XML element into an Item model."""
-    item_id = int(item_el.get("id", "0"))
+def _parse_item_element(item_el: Element) -> Item | None:
+    """Parse one <Item>. Returns None + warns when 'id' is missing or non-positive."""
+    item_id = _safe_int(item_el.get("id", "0"), 0)
+    if item_id <= 0:
+        _logger.warning("item element has missing or non-positive id=%d, skipping", item_id)
+        return None
     text = (item_el.text or "").strip()
     variant = item_el.get("variant", "")
 
@@ -433,6 +437,21 @@ def _parse_affix_slot(line: str, pattern: re.Pattern[str]) -> str | None | objec
     return slot_mod.group(2) if slot_mod else slot_val
 
 
+_ITEM_INT_FIELD_BOUNDS: dict[str, tuple[int, int | None]] = {
+    "armour": (0, None),
+    "evasion": (0, None),
+    "energy_shield": (0, None),
+    "ward": (0, None),
+    "quality": (0, 30),
+    "level_req": (0, None),
+    "item_level": (0, 100),
+    "catalyst_quality": (0, None),
+    "talisman_tier": (0, None),
+    "cluster_jewel_node_count": (0, None),
+    "limited_to": (0, None),
+}
+
+
 def _parse_metadata_line(item: Item, line: str) -> bool:
     """Parse a single metadata line (defenses, quality, sockets, etc.). Returns True if handled."""
     int_fields = {
@@ -450,7 +469,12 @@ def _parse_metadata_line(item: Item, line: str) -> bool:
     }
     for prefix, field in int_fields.items():
         if line.startswith(prefix):
-            setattr(item, field, _safe_int(line.split(prefix, 1)[1]))
+            raw = _safe_int(line.split(prefix, 1)[1])
+            bounds = _ITEM_INT_FIELD_BOUNDS.get(field)
+            if bounds is not None:
+                lo, hi = bounds
+                raw = _clamp_int(raw, lo=lo, hi=hi, field=field, context=f"item id={item.id}")
+            setattr(item, field, raw)
             return True
 
     str_fields = {

@@ -1074,6 +1074,72 @@ class TestParseStatBoundary:
         assert any("missing 'stat'" in r.message for r in caplog.records)
 
 
+class TestParseItemBoundary:
+    def test_item_with_zero_id_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="0">
+Rarity: RARE
+Test
+Hubris Circlet
+                    </Item>
+                    <Item id="2">
+Rarity: RARE
+Real
+Hubris Circlet
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [i.id for i in build.items] == [2]
+        assert any("non-positive id" in r.message for r in caplog.records)
+
+    def test_item_quality_above_30_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+Quality: 99
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].quality == 30
+        assert any("quality=99" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_item_level_above_100_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+Item Level: 200
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].item_level == 100
+        assert any("item_level=200" in r.message and "maximum" in r.message for r in caplog.records)
+
+
 class TestParseItemSetBoundary:
     def test_item_set_with_empty_id_is_defaulted_with_warning(self, tmp_path, caplog):
         xml = textwrap.dedent("""\
