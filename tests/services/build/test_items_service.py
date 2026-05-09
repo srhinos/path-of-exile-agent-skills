@@ -441,10 +441,6 @@ class TestEditItemRarityCoverage:
                 file_path=str(rich_build),
             )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="empty set_rarity skipped by truthiness check; should be rejected explicitly",
-    )
     def test_edit_set_rarity_empty_string_should_fail(self, rich_build):
         svc = ItemsService()
         with pytest.raises(BuildValidationError):

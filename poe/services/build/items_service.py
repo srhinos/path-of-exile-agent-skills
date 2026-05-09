@@ -234,7 +234,7 @@ class ItemsService:
         remove_explicit = remove_explicit or []
         add_implicit = add_implicit or []
         remove_implicit = remove_implicit or []
-        if set_rarity and set_rarity not in VALID_RARITIES:
+        if set_rarity is not None and set_rarity not in VALID_RARITIES:
             raise BuildValidationError(
                 f"Invalid rarity: {set_rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
             )

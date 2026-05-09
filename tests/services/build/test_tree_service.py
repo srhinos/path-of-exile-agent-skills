@@ -213,10 +213,6 @@ class TestNodeIdUniqueness:
         assert 500 in spec.nodes
         assert 600 in spec.nodes
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="set_tree(nodes=) does not deduplicate; node-id uniqueness should be invariant",
-    )
     def test_replace_nodes_should_dedupe(self, rich_build):
         from poe.services.build.build_service import BuildService
 
@@ -242,10 +238,6 @@ class TestMasteryUniqueness:
         count = sum(1 for m in spec.mastery_effects if m.node_id == 111 and m.effect_id == 222)
         assert count == 1
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="set_tree should enforce 1-effect-per-node mastery rule",
-    )
     def test_one_effect_per_mastery_node(self, rich_build):
         from poe.services.build.build_service import BuildService
 

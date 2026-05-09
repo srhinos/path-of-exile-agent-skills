@@ -121,7 +121,7 @@ class TreeService:
             raise BuildValidationError("Spec index out of range")
         active_spec = build_obj.specs[idx]
         if nodes is not None:
-            active_spec.nodes = [int(n) for n in nodes.split(",") if n.strip()]
+            active_spec.nodes = sorted({int(n) for n in nodes.split(",") if n.strip()})
         if add_nodes:
             existing = set(active_spec.nodes)
             for raw in add_nodes.split(","):
@@ -161,18 +161,21 @@ class TreeService:
         remove_mastery: list[str] | None,
     ) -> None:
         if mastery:
+            seen_nodes: set[int] = set()
             spec.mastery_effects = []
             for m in mastery:
                 nid, eid = m.split(":", 1)
-                spec.mastery_effects.append(MasteryMapping(node_id=int(nid), effect_id=int(eid)))
+                node_id = int(nid)
+                if node_id in seen_nodes:
+                    continue
+                seen_nodes.add(node_id)
+                spec.mastery_effects.append(MasteryMapping(node_id=node_id, effect_id=int(eid)))
         if add_mastery:
-            existing = {(m.node_id, m.effect_id) for m in spec.mastery_effects}
             for m in add_mastery:
                 nid, eid = m.split(":", 1)
-                pair = (int(nid), int(eid))
-                if pair not in existing:
-                    spec.mastery_effects.append(MasteryMapping(node_id=pair[0], effect_id=pair[1]))
-                    existing.add(pair)
+                node_id, effect_id = int(nid), int(eid)
+                spec.mastery_effects = [me for me in spec.mastery_effects if me.node_id != node_id]
+                spec.mastery_effects.append(MasteryMapping(node_id=node_id, effect_id=effect_id))
         if remove_mastery:
             to_remove = {
                 (int(nid), int(eid)) for m in remove_mastery for nid, eid in [m.split(":", 1)]

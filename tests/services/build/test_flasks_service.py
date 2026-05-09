@@ -133,10 +133,6 @@ class TestFlasksSlotEnumCoverage:
                 file_path=str(rich_build),
             )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="empty string slot bypasses validation due to truthiness check",
-    )
     def test_empty_slot_should_be_rejected(self, rich_build):
         from poe.exceptions import SlotError
 

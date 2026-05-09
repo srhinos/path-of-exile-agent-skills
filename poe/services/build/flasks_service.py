@@ -37,7 +37,7 @@ class FlasksService:
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         equipped = build_obj.get_equipped_items()
         occupied = {s for s, _ in equipped if s.startswith("Flask")}
-        if slot:
+        if slot is not None:
             if slot not in FLASK_SLOT_NAMES:
                 raise SlotError(f"Invalid flask slot: {slot!r}")
             target_slot = slot
