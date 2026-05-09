@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from datetime import UTC, datetime
@@ -14,6 +15,8 @@ from poe.services.ninja.constants import (
     NINJA_TTL_HISTORY,
     NINJA_TTL_INDEX_STATE,
 )
+
+_logger = logging.getLogger("poe.ninja.cache")
 
 TTL_BY_CATEGORY: dict[str, int] = {
     "index": NINJA_TTL_INDEX_STATE,
@@ -112,6 +115,13 @@ def get_freshness(base_dir: Path, key: str, category: str) -> dict[str, Any]:
         info = json.loads(mf.read_text())
         fetched = datetime.fromisoformat(info["fetched_at"])
         age = (datetime.now(UTC) - fetched).total_seconds()
+        if age < 0:
+            _logger.warning(
+                "cache age for key=%r is negative (%.1fs), clamping to 0 (clock skew?)",
+                key,
+                age,
+            )
+            age = 0.0
         ttl = ttl_for_category(category)
         is_stale = age >= ttl if ttl > 0 else False
         return {

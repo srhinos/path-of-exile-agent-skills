@@ -444,6 +444,119 @@ class TestSemanticPydanticInvariants:
         assert snap.passive_tree == ""
 
 
+class TestDiscoveryBoundaryCoercion:
+    def test_index_state_drops_leagues_with_empty_name(self, tmp_path, caplog):
+        fixture = {
+            "economyLeagues": [
+                {"name": "Mirage", "url": "mirage"},
+                {"name": "", "url": "broken"},
+            ],
+            "oldEconomyLeagues": [],
+            "snapshotVersions": [],
+            "buildLeagues": [],
+            "oldBuildLeagues": [],
+        }
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": fixture})
+        with caplog.at_level("WARNING", logger="poe.ninja.discovery"):
+            state = svc.get_poe1_index_state()
+        assert [lg.name for lg in state.economy_leagues] == ["Mirage"]
+        assert any("dropping" in r.message for r in caplog.records)
+
+    def test_index_state_drops_leagues_with_empty_url(self, tmp_path, caplog):
+        fixture = {
+            "economyLeagues": [
+                {"name": "Mirage", "url": "mirage"},
+                {"name": "Broken", "url": ""},
+            ],
+            "oldEconomyLeagues": [],
+            "snapshotVersions": [],
+            "buildLeagues": [],
+            "oldBuildLeagues": [],
+        }
+        svc = _make_service(tmp_path, {"/poe1/api/data/index-state": fixture})
+        with caplog.at_level("WARNING", logger="poe.ninja.discovery"):
+            state = svc.get_poe1_index_state()
+        assert [lg.name for lg in state.economy_leagues] == ["Mirage"]
+        assert any("dropping" in r.message for r in caplog.records)
+
+    def test_atlas_tree_drops_leagues_with_empty_name(self, tmp_path, caplog):
+        fixture = {
+            "leagues": [
+                {"leagueName": "Mirage", "leagueUrl": "mirage"},
+                {"leagueName": "", "leagueUrl": "ghost"},
+            ],
+            "oldLeagues": [],
+            "snapshotVersions": [],
+        }
+        svc = _make_service(
+            tmp_path,
+            {"/poe1/api/data/atlas-tree-index-state": fixture},
+        )
+        with caplog.at_level("WARNING", logger="poe.ninja.discovery"):
+            state = svc.get_atlas_tree_index_state()
+        assert [lg.league_name for lg in state.leagues] == ["Mirage"]
+        assert any("dropping" in r.message for r in caplog.records)
+
+    def test_build_index_clamps_negative_percentage(self, tmp_path, caplog):
+        fixture = {
+            "leagueBuilds": [
+                {
+                    "leagueName": "Mirage",
+                    "leagueUrl": "mirage",
+                    "total": 100,
+                    "statistics": [
+                        {"class": "Witch", "skill": "Fireball", "percentage": -1.0},
+                    ],
+                },
+            ],
+        }
+        svc = _make_service(tmp_path, {"/poe1/api/data/build-index-state": fixture})
+        with caplog.at_level("WARNING", logger="poe.ninja.discovery"):
+            state = svc.get_build_index_state(game="poe1")
+        assert state.league_builds[0].statistics[0].percentage == 0.0
+        assert any("below 0" in r.message for r in caplog.records)
+
+    def test_build_index_clamps_percentage_above_max(self, tmp_path, caplog):
+        fixture = {
+            "leagueBuilds": [
+                {
+                    "leagueName": "Mirage",
+                    "leagueUrl": "mirage",
+                    "total": 100,
+                    "statistics": [
+                        {"class": "Witch", "skill": "Fireball", "percentage": 999.0},
+                    ],
+                },
+            ],
+        }
+        svc = _make_service(tmp_path, {"/poe1/api/data/build-index-state": fixture})
+        with caplog.at_level("WARNING", logger="poe.ninja.discovery"):
+            state = svc.get_build_index_state(game="poe1")
+        assert state.league_builds[0].statistics[0].percentage == 100.0
+        assert any("above" in r.message for r in caplog.records)
+
+    def test_build_index_drops_stats_with_empty_class(self, tmp_path, caplog):
+        fixture = {
+            "leagueBuilds": [
+                {
+                    "leagueName": "Mirage",
+                    "leagueUrl": "mirage",
+                    "total": 100,
+                    "statistics": [
+                        {"class": "Witch", "skill": "Fireball", "percentage": 5.0},
+                        {"class": "", "skill": "Ghost", "percentage": 1.0},
+                    ],
+                },
+            ],
+        }
+        svc = _make_service(tmp_path, {"/poe1/api/data/build-index-state": fixture})
+        with caplog.at_level("WARNING", logger="poe.ninja.discovery"):
+            state = svc.get_build_index_state(game="poe1")
+        skills = [s.skill for s in state.league_builds[0].statistics]
+        assert skills == ["Fireball"]
+        assert any("missing class" in r.message for r in caplog.records)
+
+
 class TestDiscoveryCachingInvariants:
     def test_no_cache_skips_cache_read(self, tmp_path):
         svc = _make_service(tmp_path, {"/poe1/api/data/index-state": POE1_INDEX_STATE_FIXTURE})

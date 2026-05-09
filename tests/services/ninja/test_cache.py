@@ -157,6 +157,16 @@ class TestGetFreshness:
         f = ninja_cache.get_freshness(tmp_path, "bad", "index")
         assert f["is_stale"] is True
 
+    def test_clock_skew_clamped_to_zero_with_warning(self, tmp_path, caplog):
+        ninja_cache.write_cache(tmp_path, "skewed", {"data": 1})
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "skewed"))
+        future_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        mf.write_text(json.dumps({"fetched_at": future_time}))
+        with caplog.at_level("WARNING", logger="poe.ninja.cache"):
+            f = ninja_cache.get_freshness(tmp_path, "skewed", "index")
+        assert f["cache_age_seconds"] == 0.0
+        assert any("negative" in r.message for r in caplog.records)
+
 
 class TestInvalidateAll:
     def test_removes_all_files(self, tmp_path):

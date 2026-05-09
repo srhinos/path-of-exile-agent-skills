@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
+from poe.constants import PERCENTAGE_MAX
 from poe.models.ninja.discovery import (
     AtlasTreeIndexState,
     BuildIndexState,
@@ -16,6 +18,17 @@ from poe.services.ninja.constants import NINJA_ENDPOINTS
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
+
+_logger = logging.getLogger("poe.ninja.discovery")
+
+_LEAGUE_LIST_KEYS = (
+    "economy_leagues",
+    "old_economy_leagues",
+    "build_leagues",
+    "old_build_leagues",
+    "leagues",
+    "old_leagues",
+)
 
 
 def _camel_to_snake(name: str) -> str:
@@ -32,6 +45,81 @@ def _convert_keys(data: Any) -> Any:
         return {_camel_to_snake(k): _convert_keys(v) for k, v in data.items()}
     if isinstance(data, list):
         return [_convert_keys(item) for item in data]
+    return data
+
+
+def _sanitize_leagues(data: Any) -> Any:
+    """Drop league entries with empty name or url, logging warnings."""
+    if not isinstance(data, dict):
+        return data
+    for key in _LEAGUE_LIST_KEYS:
+        leagues = data.get(key)
+        if not isinstance(leagues, list):
+            continue
+        kept: list[Any] = []
+        for entry in leagues:
+            if not isinstance(entry, dict):
+                kept.append(entry)
+                continue
+            name = entry.get("name") or entry.get("league_name") or ""
+            url = entry.get("url") or entry.get("league_url") or ""
+            if not name or not url:
+                _logger.warning(
+                    "%s entry missing name/url, dropping: name=%r url=%r",
+                    key,
+                    name,
+                    url,
+                )
+                continue
+            kept.append(entry)
+        data[key] = kept
+    return data
+
+
+def _sanitize_build_index(data: Any) -> Any:
+    """Clamp percentage and drop empty-class BuildStat entries, logging warnings."""
+    if not isinstance(data, dict):
+        return data
+    league_builds = data.get("league_builds")
+    if not isinstance(league_builds, list):
+        return data
+    for lb in league_builds:
+        if not isinstance(lb, dict):
+            continue
+        stats = lb.get("statistics")
+        if not isinstance(stats, list):
+            continue
+        kept: list[Any] = []
+        for stat in stats:
+            if not isinstance(stat, dict):
+                kept.append(stat)
+                continue
+            class_name = stat.get("class") or stat.get("class_name") or ""
+            if not class_name:
+                _logger.warning(
+                    "build stat missing class, dropping: skill=%r",
+                    stat.get("skill"),
+                )
+                continue
+            pct = stat.get("percentage")
+            if isinstance(pct, (int, float)):
+                if pct < 0:
+                    _logger.warning(
+                        "build stat percentage=%r below 0, clamping (class=%r)",
+                        pct,
+                        class_name,
+                    )
+                    stat["percentage"] = 0.0
+                elif pct > PERCENTAGE_MAX:
+                    _logger.warning(
+                        "build stat percentage=%r above %d, clamping (class=%r)",
+                        pct,
+                        PERCENTAGE_MAX,
+                        class_name,
+                    )
+                    stat["percentage"] = float(PERCENTAGE_MAX)
+            kept.append(stat)
+        lb["statistics"] = kept
     return data
 
 
@@ -61,24 +149,25 @@ class DiscoveryService:
         if force:
             ninja_cache.invalidate_all(self._cache_dir)
         raw = self._fetch_cached_json(cache_key, NINJA_ENDPOINTS["poe1_index_state"])
-        return Poe1IndexState.model_validate(_convert_keys(raw))
+        return Poe1IndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
 
     def get_poe2_index_state(self, *, force: bool = False) -> Poe2IndexState:
         cache_key = "poe2_index_state"
         if force:
             ninja_cache.invalidate_all(self._cache_dir)
         raw = self._fetch_cached_json(cache_key, NINJA_ENDPOINTS["poe2_index_state"])
-        return Poe2IndexState.model_validate(_convert_keys(raw))
+        return Poe2IndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
 
     def get_build_index_state(self, *, game: str = "poe1") -> BuildIndexState:
         key = f"{game}_build_index_state"
         raw = self._fetch_cached_json(key, NINJA_ENDPOINTS[key])
-        return BuildIndexState.model_validate(_convert_keys(raw))
+        sanitized = _sanitize_build_index(_sanitize_leagues(_convert_keys(raw)))
+        return BuildIndexState.model_validate(sanitized)
 
     def get_atlas_tree_index_state(self) -> AtlasTreeIndexState:
         cache_key = "poe1_atlas_tree_index_state"
         raw = self._fetch_cached_json(cache_key, NINJA_ENDPOINTS["poe1_atlas_tree_index_state"])
-        return AtlasTreeIndexState.model_validate(_convert_keys(raw))
+        return AtlasTreeIndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
 
     def get_current_league(self, *, game: str = "poe1") -> LeagueInfo | None:
         state = self.get_poe2_index_state() if game == "poe2" else self.get_poe1_index_state()
