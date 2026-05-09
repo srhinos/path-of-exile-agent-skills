@@ -204,15 +204,11 @@ async def craft_simulate(
     """
     fossil_list = [f.strip() for f in fossils.split(",")] if fossils else None
     svc = _svc()
-    resolved_targets = []
-    for t in target:
-        resolved = svc.resolve_mod_name(t, base_name)
-        resolved_targets.append(resolved or t)
     result = await svc.simulate(
         base_name,
         ilvl=ilvl,
         method=method,
-        target=resolved_targets,
+        target=list(target),
         fossils=fossil_list,
         essence=essence,
         influence=influence,

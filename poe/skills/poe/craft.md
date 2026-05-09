@@ -1,6 +1,6 @@
 # Crafting Tools
 
-These work standalone — no build file needed. The user just needs a base item name.
+These work standalone — no build file needed. The user just needs a base item name. All commands output human-readable text by default. Add `--json` for machine-readable JSON output.
 
 ## Exploring Mods and Crafting Options
 
@@ -71,6 +71,9 @@ For live economy prices (material costs, buy-vs-craft comparisons), see **`ninja
 ## Simulation Details
 
 - **Target validation**: The simulator validates target mod names against the item's mod pool before running. If a target doesn't exist, it returns an error with available mod groups — use these names.
+- **Match mode**: `--match all` (default) requires all targets on one item. `--match any` counts a hit if any target is present.
+- **Workers**: `--workers N` parallelizes simulation across N threads for faster results.
+- **Existing mods**: `--existing-mod <group>` pins a mod group on the item across rerolls (e.g., simulate chaos spam while keeping a specific mod).
 - **Expanded mod pools**: Supports crafting simulation for flasks, jewels (regular, abyss, cluster), and unveiled/delve items in addition to standard equipment.
 - **Stat translations**: Mod IDs are mapped to human-readable stat text via bundled translations data.
 
@@ -87,4 +90,4 @@ Be upfront about scope:
 poe sim prices         # Live currency prices
 ```
 
-Crafting data is automatically cached with TTL-based refresh.
+Crafting data is automatically cached with TTL-based refresh. Live economy prices are fetched from poe.ninja and cached; use `--no-cache` on ninja commands to force a fresh fetch.

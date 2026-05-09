@@ -64,7 +64,7 @@ class RepoEData:
         ilvl: int = 100,
         influences: list[str] | None = None,
         affix_type: str | None = None,
-    ) -> list[dict]:
+    ) -> list[ModPoolEntry]:
         base_items = self._load("base_items")
         bitem = self._find_base_item(base_name, base_items)
         if not bitem:

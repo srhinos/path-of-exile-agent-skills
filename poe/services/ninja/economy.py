@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 def _route_type(item_type: str, *, game: str) -> tuple[str, str]:
     if game == "poe2":
-        return "poe2_exchange", item_type
+        return "poe2_exchange", item_type.title()
     canonical = TYPE_CANONICAL.get(item_type.lower())
     if canonical is None:
         valid = sorted(TYPE_CANONICAL.values())

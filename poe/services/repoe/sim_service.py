@@ -120,7 +120,7 @@ class SimService:
             }
             for bitem in results[:20]
         ]
-        return BaseItemSearchResult(query=query, count=len(items), items=items)
+        return BaseItemSearchResult(query=query, count=len(results), items=items)
 
     def analyze_item(
         self, build_name: str, *, slot: str, ilvl: int | None = None
@@ -203,11 +203,20 @@ class SimService:
             raise SimDataError("--essence is required when method is 'essence'")
         if method == CraftMethod.FOSSIL and not fossils:
             raise SimDataError("--fossils is required when method is 'fossil'")
-        mod_pool = self._data.get_mod_pool(base_name)
+        if influence:
+            valid_map = {i.value.casefold(): i.value for i in Influence}
+            for idx, inf in enumerate(influence):
+                matched = valid_map.get(inf.casefold())
+                if not matched:
+                    raise SimDataError(
+                        f"Unknown influence: {inf!r}. Valid: {sorted(valid_map.values())}"
+                    )
+                influence[idx] = matched
+        mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=influence or [])
         pool_groups = {mod.group.casefold() for mod in mod_pool}
         resolved_targets = []
         for t in target:
-            resolved = self.resolve_mod_name(t, base_name)
+            resolved = self.resolve_mod_name(t, base_name, influences=influence)
             final = resolved or t
             if final.casefold() not in pool_groups:
                 available = sorted({mod.group for mod in mod_pool})[:20]
@@ -234,6 +243,10 @@ class SimService:
             )
         except ValueError as e:
             raise SimDataError(str(e)) from e
+
+        def _finite(v: float) -> float | None:
+            return None if not math.isfinite(v) else v
+
         return SimulationResult(
             base=base_name,
             ilvl=ilvl,
@@ -244,9 +257,9 @@ class SimService:
             match_mode=match,
             iterations=sim_result.iterations,
             hit_rate=f"{sim_result.hit_rate:.1%}",
-            avg_attempts=round(sim_result.avg_attempts, 1),
+            avg_attempts=_finite(round(sim_result.avg_attempts, 1)),
             cost_per_attempt=round(sim_result.cost_per_attempt, 1),
-            avg_cost_chaos=round(sim_result.avg_cost_chaos, 1),
+            avg_cost_chaos=_finite(round(sim_result.avg_cost_chaos, 1)),
             percentiles=sim_result.percentiles,
         )
 
@@ -271,11 +284,11 @@ class SimService:
                     f"but previous step produces {produced_rarity} items"
                 )
             produced_rarity = RARITY_PRODUCED.get(method, produced_rarity)
-        mod_pool = self._data.get_mod_pool(base_name)
+        mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=influence or [])
         pool_groups = {mod.group.casefold() for mod in mod_pool}
         resolved_targets = []
         for t in target:
-            resolved = self.resolve_mod_name(t, base_name)
+            resolved = self.resolve_mod_name(t, base_name, influences=influence)
             final = resolved or t
             if final.casefold() not in pool_groups:
                 available = sorted({mod.group for mod in mod_pool})[:20]
@@ -445,6 +458,12 @@ class SimService:
         if essence:
             methods_to_try.append("essence")
         results = []
+
+        def _finite(v: float | None) -> float | None:
+            if v is None:
+                return None
+            return None if not math.isfinite(v) else v
+
         for method in methods_to_try:
             sim = await self.simulate(
                 base_name,
@@ -457,9 +476,6 @@ class SimService:
                 iterations=iterations,
                 workers=1,
             )
-
-            def _finite(v: float) -> float | None:
-                return None if not math.isfinite(v) else v
 
             results.append(
                 {
@@ -499,8 +515,14 @@ class SimService:
                 )
         return suggestions
 
-    def resolve_mod_name(self, display_name: str, base_name: str) -> str | None:
-        mods = self._data.get_mod_pool(base_name)
+    def resolve_mod_name(
+        self,
+        display_name: str,
+        base_name: str,
+        *,
+        influences: list[str] | None = None,
+    ) -> str | None:
+        mods = self._data.get_mod_pool(base_name, influences=influences or [])
         name_cf = display_name.casefold()
         for mod in mods:
             if name_cf in mod.name.casefold():

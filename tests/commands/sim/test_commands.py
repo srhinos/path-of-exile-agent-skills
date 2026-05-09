@@ -387,7 +387,7 @@ class TestCraftSearch:
             result = invoke_cli(cli, ["sim", "search", "item", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["count"] == 20
+        assert data["count"] == 30
         assert len(data["items"]) == 20
 
 

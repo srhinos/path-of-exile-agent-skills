@@ -22,6 +22,7 @@ Basic price lookups and meta overview. No build context needed.
 | `poe ninja meta summary` | Top class/skill combos with trends |
 | `poe ninja league-info` | Available leagues and snapshots |
 | `poe ninja cache-status` | Cache freshness report |
+| `poe ninja cache-clear` | Clear all cached ninja responses |
 
 ## Tier 2 — Build Inspection
 
@@ -47,7 +48,7 @@ Advanced queries across the full build/economy dataset.
 | `poe ninja price history "<item>" <type>` | 366-day trend with spike/crash detection |
 | `poe ninja price craft` | All crafting material prices |
 | `poe ninja price fossil-recommend <mod>` | Fossils matching a mod tag, sorted by cost |
-| `poe ninja atlas search --mechanic X` | Atlas tree search (also: `--travel`, `--blockers`, `--scarab-specializations`, `--keystones`) |
+| `poe ninja atlas search --mechanics X` | Atlas tree search (also: `--travel`, `--blockers`, `--scarab-specializations`, `--keystones`, `--beacons`) |
 | `poe ninja atlas recommend --top-n 10` | Most popular atlas nodes (configurable count) |
 | `poe ninja atlas profit` | Scarab spawn chance x price = expected value |
 | `poe ninja meta trend` | Build evolution across leagues |
@@ -74,7 +75,7 @@ Multi-step agent workflows that combine services. Call from Python, not CLI.
 
 ## Global Options
 
-`--game poe1|poe2` (default poe1), `--league <name>` (default current), `--language <code>` (en/de/fr/es/pt/ru/ja/zh), `--json/--no-json`
+`--game poe1|poe2` (default poe1), `--league <name>` (default current), `--language <code>` (en/de/fr/es/pt/ru/ja/zh), `--json` (machine-readable JSON output), `--no-cache` (bypass cached responses and fetch fresh data)
 
 ## Search Filters (PoE1)
 

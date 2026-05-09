@@ -36,7 +36,12 @@ def _mock_char():
             },
             "keyStones": [{"name": "Acrobatics"}],
             "skills": [{"allGems": [{"name": "Lightning Arrow"}]}],
-            "items": [{"name": "Headhunter", "inventoryId": "Belt", "rarity": "unique"}],
+            "items": [
+                {
+                    "itemSlot": 0,
+                    "itemData": {"name": "Headhunter", "inventoryId": "Belt", "rarity": "unique"},
+                },
+            ],
             "flasks": [],
             "jewels": [],
         }

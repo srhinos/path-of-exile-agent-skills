@@ -1,6 +1,6 @@
 # Build Tools
 
-For working with Path of Building `.xml` build files.
+For working with Path of Building `.xml` build files. All commands output human-readable text by default. Add `--json` for machine-readable JSON output.
 
 ## Getting Oriented
 
@@ -48,7 +48,7 @@ poe build config get "<name>"                  # Build config (charges, conditio
 
 ```bash
 # Create / delete / clone / rename
-poe build create "<name>" --class-name Witch --ascendancy Necromancer --level 90
+poe build create "<name>" --class Witch --ascendancy Necromancer --level 90
 poe build create "<name>" --file /path/to/output.xml
 poe build delete "<name>" --confirm
 poe build duplicate "<name>" "Clone Name"
@@ -209,6 +209,7 @@ Notes often contain critical context: gearing strategies, gem swaps, crafting gu
 ## Build File Location
 
 - Build files are auto-detected from the standard PoB builds directory
+- Build names support **prefix matching** — `"My RF"` resolves to `"My RF Jugg"` if it's the only match. Ambiguous prefixes return an error listing matches.
 - PoB installation path: `poe build engine info`
 
 ## Known Limitations

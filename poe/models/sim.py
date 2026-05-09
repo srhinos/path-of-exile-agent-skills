@@ -148,9 +148,9 @@ class SimulationResult(BaseModel):
     match_mode: str = "all"
     iterations: int = 0
     hit_rate: str = ""
-    avg_attempts: float = 0.0
+    avg_attempts: float | None = 0.0
     cost_per_attempt: float = 0.0
-    avg_cost_chaos: float = 0.0
+    avg_cost_chaos: float | None = 0.0
     percentiles: dict[str, int] = {}
 
 

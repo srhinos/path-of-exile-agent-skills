@@ -1093,12 +1093,14 @@ class CraftingEngine:
         attempts_on_hit: list[int] = []
         item = engine.create_item(base, ilvl, influences)
         pinned_pool_entries: list[ModPoolEntry] = []
+        pinned_groups: set[str] = set()
         if existing_mods:
             pool = engine._build_mod_pool(item)
             for mod_name in existing_mods:
                 for m in pool:
                     if m.group.casefold() == mod_name.casefold():
                         pinned_pool_entries.append(m)
+                        pinned_groups.add(m.group.casefold())
                         break
 
         for _ in range(chunk_size):
@@ -1110,8 +1112,15 @@ class CraftingEngine:
                     blocked_tags,
                     essence_name,
                 )
-                for pinned in pinned_pool_entries:
-                    engine._add_mod(item, pinned)
+                if pinned_pool_entries:
+                    item.prefixes = [
+                        m for m in item.prefixes if m.group.casefold() not in pinned_groups
+                    ]
+                    item.suffixes = [
+                        m for m in item.suffixes if m.group.casefold() not in pinned_groups
+                    ]
+                    for pinned in pinned_pool_entries:
+                        engine._add_mod(item, pinned)
 
                 if match_mode == "all":
                     hit = all(

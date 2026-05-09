@@ -70,8 +70,8 @@ def _make_character(**overrides) -> CharacterResponse:
         "skills": [
             {
                 "allGems": [
-                    {"name": "Lightning Arrow", "isSupport": False},
-                    {"name": "GMP", "isSupport": True},
+                    {"name": "Lightning Arrow", "isBuiltInSupport": False},
+                    {"name": "GMP", "isBuiltInSupport": True},
                 ],
             },
         ],

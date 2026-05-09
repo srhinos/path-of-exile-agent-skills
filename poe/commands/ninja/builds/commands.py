@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import zlib
 from typing import Annotated
 
 import cyclopts
 
 from poe.exceptions import CodecError
 from poe.output import render
+from poe.paths import validate_build_name
 from poe.safety import get_claude_builds_path
 from poe.services.build.xml.codec import decode_build
 from poe.services.ninja.atlas import AtlasService
@@ -92,9 +94,10 @@ def builds_import(
             return
 
         build_name = f"{result.name} ({result.class_name})"
+        validate_build_name(build_name)
         try:
             xml_str = decode_build(result.pob_export)
-        except (ValueError, Exception) as e:
+        except (ValueError, zlib.error) as e:
             raise CodecError(f"Failed to decode PoB export: {e}") from e
         claude_dir = get_claude_builds_path()
         filename = build_name + ".xml"

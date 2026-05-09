@@ -12,7 +12,7 @@ A command-line interface for Path of Exile theorycrafting. Reads your [Path of B
 
 **Economy data** — Price checks, currency conversion, and price history from poe.ninja. Search the meta: what builds are popular, what gear they use, and what atlas strategies people are running.
 
-All output is JSON by default. Add `--human` for readable output. Ships with a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill so an AI agent can drive the whole thing programmatically.
+All output is human-readable by default. Add `--json` for machine-parseable JSON output. Ships with a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill so an AI agent can drive the whole thing programmatically.
 
 ## Install
 
@@ -54,7 +54,7 @@ poe build jewels list "My RF Jugg"
 poe build config get "My RF Jugg"
 
 # Modify builds (writes go to Claude/ subfolder)
-poe build create "New Build" --class-name Witch --ascendancy Necromancer --level 90
+poe build create "New Build" --class Witch --ascendancy Necromancer --level 90
 poe build duplicate "My RF Jugg" "RF Jugg Copy"
 poe build rename "Old Name" "New Name"
 poe build set-level "My RF Jugg" --level 95
@@ -88,7 +88,7 @@ poe sim search "Crown"
 poe sim mods "Hubris Circlet" --ilvl 84
 poe sim weights "Hubris Circlet" --ilvl 84
 poe sim simulate "Vaal Regalia" --method fossil --target IncreasedLife --fossils "Pristine Fossil,Dense Fossil"
-poe sim simulate-multistep "Vaal Regalia" --step alteration --step regal --target IncreasedLife
+poe sim simulate-multistep "Vaal Regalia" --step alt --step regal --target IncreasedLife
 poe sim compare "Vaal Regalia" --target IncreasedLife --fossils "Pristine Fossil"
 poe sim suggest --mod "IncreasedLife"
 poe sim analyze "My RF Jugg" --slot Helmet

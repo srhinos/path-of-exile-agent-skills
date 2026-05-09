@@ -42,11 +42,11 @@ Commands → Services → Models → Data
 
 ### Safety Layer (Clone-on-Write)
 
-Write operations clone the original build into a `Claude/` subfolder before modifying. Reads prefer `Claude/` copies for consistency. Bypassed when `--file-path` is explicitly provided.
+Write operations clone the original build into a `Claude/` subfolder before modifying. Reads prefer `Claude/` copies for consistency. Bypassed when `--file` is explicitly provided.
 
 ### Key Patterns
 
-**Output:** All commands output JSON by default. Human formatters registered via `@human_formatter(ModelClass)` in `formatters.py`. Commands call `output.render(data, human=flag)`.
+**Output:** All commands output human-readable text by default. Add `--json` for machine-readable JSON. Human formatters registered via `@human_formatter(ModelClass)` in `formatters.py`. Commands call `output.render(data, json_mode=flag)`.
 
 **Errors:** All domain exceptions inherit from `PoeError`. The top-level `run()` in `app.py` catches `PoeError` and serializes `{"error": "..."}` to stderr.
 

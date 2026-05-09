@@ -83,7 +83,7 @@ Command → Service (e.g., ItemsService.edit())
         → return MutationResult         # includes cloned_from field
 ```
 
-Write operations use `safety.resolve_for_write()` which copies the original build into a `Claude/` subfolder before modifying. This prevents accidental damage to user's real builds. Reads prefer `Claude/` copies over originals for read-after-write consistency. The safety layer is bypassed when `--file-path` is explicitly provided.
+Write operations use `safety.resolve_for_write()` which copies the original build into a `Claude/` subfolder before modifying. This prevents accidental damage to user's real builds. Reads prefer `Claude/` copies over originals for read-after-write consistency. The safety layer is bypassed when `--file` is explicitly provided.
 
 ### Crafting Simulation
 
@@ -100,12 +100,12 @@ Command → SimService.simulate()
 Command → EconomyService
         → NinjaClient                   # httpx + rate limiting
         → poe.ninja API
-        → cached in ~/.cache/poe/
+        → cached in ~/.cache/poe-agent/ninja/
 ```
 
 ## Output Pattern
 
-All commands output JSON by default. Human-readable formatters are registered via `@human_formatter(ModelClass)` decorator in `formatters.py`. Commands call `output.render(data, human=flag)`. Errors serialize as `{"error": "..."}` to stderr via `poe/app.py`.
+All commands output human-readable text by default. Add `--json` for machine-readable JSON. Human-readable formatters are registered via `@human_formatter(ModelClass)` decorator in `formatters.py`. Commands call `output.render(data, json_mode=flag)`. Errors serialize as `{"error": "..."}` to stderr via `poe/app.py`.
 
 ## Environment Variables
 
