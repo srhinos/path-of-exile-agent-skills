@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from poe.models.ninja.history import (
+    CurrencyDetailsResponse,
     CurrencyHistoryResponse,
     HistoryPoint,
     PriceHistory,
@@ -14,6 +16,8 @@ from poe.services.ninja.constants import (
     NINJA_ENDPOINTS,
     NINJA_POE1_CURRENCY_STASH_TYPES,
 )
+
+CHAOS_PAIR_ID = "chaos"
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
@@ -170,18 +174,36 @@ class HistoryService:
     def get_currency_history(
         self,
         league: str,
-        currency_id: int,
+        currency_slug: str,
         currency_type: str = "Currency",
     ) -> CurrencyHistoryResponse:
-        cache_key = f"history_currency_{league}_{currency_type}_{currency_id}"
+        cache_key = f"history_currency_{league}_{currency_type}_{currency_slug}"
         path = NINJA_ENDPOINTS["currency_history"]
         params = {
             "league": league,
             "type": currency_type,
-            "currencyId": str(currency_id),
+            "id": currency_slug,
         }
         raw = self._fetch_cached(cache_key, path, params)
-        return CurrencyHistoryResponse.model_validate(raw)
+        details = CurrencyDetailsResponse.model_validate(raw)
+        chaos_pair = next((p for p in details.pairs if p.id == CHAOS_PAIR_ID), None)
+        if chaos_pair is None:
+            return CurrencyHistoryResponse()
+        now = datetime.now(UTC)
+        receive_points: list[HistoryPoint] = []
+        for entry in chaos_pair.history:
+            try:
+                ts = datetime.fromisoformat(entry.timestamp)
+            except ValueError:
+                continue
+            receive_points.append(
+                HistoryPoint(
+                    count=int(entry.volume_primary_value),
+                    value=entry.rate,
+                    days_ago=(now - ts).days,
+                )
+            )
+        return CurrencyHistoryResponse(receive_currency_graph_data=receive_points)
 
     def get_item_history(
         self,
@@ -194,7 +216,7 @@ class HistoryService:
         params = {
             "league": league,
             "type": item_type,
-            "itemId": str(item_id),
+            "id": str(item_id),
         }
         raw = self._fetch_cached(cache_key, path, params)
         if isinstance(raw, list):
@@ -222,14 +244,14 @@ class HistoryService:
         language: str = "en",
     ) -> PriceHistory | None:
         overview = self._economy.get_currency_overview(league, item_type, language=language)
-        detail = next(
-            (d for d in overview.currency_details if d.name.lower() == item_name.lower()),
+        line = next(
+            (ln for ln in overview.lines if ln.currency_type_name.lower() == item_name.lower()),
             None,
         )
-        if not detail:
+        if not line or not line.details_id:
             return None
 
-        resp = self.get_currency_history(league, detail.id, item_type)
+        resp = self.get_currency_history(league, line.details_id, item_type)
         points = resp.receive_currency_graph_data
         analysis = analyze_history(points)
 

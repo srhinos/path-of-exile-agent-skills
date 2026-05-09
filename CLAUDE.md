@@ -92,7 +92,7 @@ Write operations clone the original build into a `Claude/` subfolder before modi
 
 ## Testing
 
-- 1400+ tests, 90% minimum coverage enforced (95% for build services/models, 80% for engine/pipeline)
+- 1800+ tests, 90% minimum coverage enforced (95% for build services/models, 80% for engine/pipeline)
 - Tests mirror source layout: `poe/services/build/build_service.py` → `tests/services/build/test_build_service.py`
 - Strict ruff linting: `select = ["ALL"]` — never add `noqa` or edit `pyproject.toml` to ignore a rule
 - Test fixtures in `tests/conftest.py`:
@@ -103,6 +103,22 @@ Write operations clone the original build into a `Claude/` subfolder before modi
   - `fixture_path()` — resolve files from `tests/fixtures/`
 - HTTP mocking: `respx` for ninja service tests
 - Integration tests (real PoB/network) marked with `@pytest.mark.integration`
+
+### Required test categories (beyond happy path)
+
+Coverage % is necessary but not sufficient. Every non-trivial function needs tests across all five categories below. Code reviews keep finding bugs that "passed all tests" because tests only checked shape and happy paths. Each category targets a distinct failure mode that the others miss.
+
+1. **Invariant assertions, not shape assertions.** After a function returns, assert that the result respects domain rules — not just that the right type came back. `assert isinstance(result, SimResult)` is worthless on its own. `assert len(item.prefixes) <= item.max_prefixes` is the test that catches the bug. Every simulation/mutation test should assert game-rule invariants on the output state.
+
+2. **Parametrize over the input space, not the canonical output space.** If a function promises case-insensitivity, normalization, or alias-resolution, the parametrize values must include the *non-canonical* forms. `@pytest.mark.parametrize("item_type", NINJA_POE2_EXCHANGE_TYPES)` only proves "canonical input survives" — it can't catch a broken normalizer. Use lowercase, uppercase, mixed case, aliases, and underscores; assert all map to the same canonical output.
+
+3. **Cover every value in an enum/lookup, not one representative.** When a function dispatches on an enum (Influence, Rarity, CraftMethod, currency aliases, item types), parametrize over the *full* enum or include every key in the lookup table. Single-representative tests pass coincidentally when the picked value happens to round-trip through the bug. The Influence codename bug shipped because only `shaper` was tested and Shaper's codename is its lowercased name.
+
+4. **Negative tests for every `raise`.** Every `raise PoeError`, `raise SimDataError`, `raise NinjaError`, `raise ApiSchemaError` needs a test that triggers it with `pytest.raises(...)` and asserts the error message includes the relevant context. Validation paths that aren't tested are validation paths that don't exist.
+
+5. **Semantic invariants on Pydantic models.** Pydantic enforces types, not semantics. If a `float` field must be finite, write a test that asserts it. If a `list[str]` must be non-empty, write a test that asserts it. If two fields must agree (`hits <= iterations`), write a test that asserts it. Write the test even when the producer "always returns valid values" today — that contract decays silently otherwise.
+
+When adding a test, ask: which of these five categories does it fall into? If the answer is "none, it just exercises the happy path," it's incomplete. Add the others.
 
 ## Git
 

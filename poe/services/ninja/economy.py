@@ -18,6 +18,7 @@ from poe.services.ninja.constants import (
     NINJA_LOW_CONFIDENCE_THRESHOLD,
     NINJA_POE1_CURRENCY_STASH_TYPES,
     NINJA_POE1_STASH_TYPES,
+    POE2_TYPE_CANONICAL,
     TYPE_CANONICAL,
 )
 from poe.services.ninja.errors import ApiSchemaError, NinjaError
@@ -28,7 +29,13 @@ if TYPE_CHECKING:
 
 def _route_type(item_type: str, *, game: str) -> tuple[str, str]:
     if game == "poe2":
-        return "poe2_exchange", item_type.title()
+        canonical_poe2 = POE2_TYPE_CANONICAL.get(item_type.lower())
+        if canonical_poe2 is None:
+            valid = sorted(POE2_TYPE_CANONICAL.values())
+            raise ApiSchemaError(
+                f"Unknown item type '{item_type}' for {game}. Valid types: {valid}"
+            )
+        return "poe2_exchange", canonical_poe2
     canonical = TYPE_CANONICAL.get(item_type.lower())
     if canonical is None:
         valid = sorted(TYPE_CANONICAL.values())
@@ -281,7 +288,7 @@ class EconomyService:
         from_key = CURRENCY_ALIASES.get(from_currency.lower(), from_currency.lower())
         to_key = CURRENCY_ALIASES.get(to_currency.lower(), to_currency.lower())
         from_chaos = price_map.get(from_key)
-        if from_chaos is None:
+        if from_chaos is None or from_chaos <= 0:
             raise NinjaError(f"Currency not found: {from_currency!r}")
         to_chaos = price_map.get(to_key)
         if to_chaos is None or to_chaos <= 0:

@@ -1119,6 +1119,14 @@ class CraftingEngine:
                     item.suffixes = [
                         m for m in item.suffixes if m.group.casefold() not in pinned_groups
                     ]
+                    pinned_prefix_count = sum(1 for p in pinned_pool_entries if p.affix == "prefix")
+                    pinned_suffix_count = len(pinned_pool_entries) - pinned_prefix_count
+                    prefix_room = item.max_prefixes - pinned_prefix_count
+                    suffix_room = item.max_suffixes - pinned_suffix_count
+                    if len(item.prefixes) > prefix_room:
+                        item.prefixes = item.prefixes[:prefix_room]
+                    if len(item.suffixes) > suffix_room:
+                        item.suffixes = item.suffixes[:suffix_room]
                     for pinned in pinned_pool_entries:
                         engine._add_mod(item, pinned)
 

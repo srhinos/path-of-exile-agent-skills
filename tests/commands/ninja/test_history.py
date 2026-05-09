@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -38,10 +39,49 @@ CURRENCY_HISTORY_RESPONSE = {
     ],
 }
 
+_NOW = datetime.now(UTC)
+
+
+def _iso(days_ago: int) -> str:
+    return (_NOW - timedelta(days=days_ago)).isoformat().replace("+00:00", "Z")
+
+
+CURRENCY_DETAILS_RESPONSE = {
+    "item": {
+        "id": "exalted",
+        "name": "Exalted Orb",
+        "detailsId": "exalted-orb",
+        "category": "Currency",
+        "image": "",
+    },
+    "pairs": [
+        {
+            "id": "chaos",
+            "rate": 17.5,
+            "volumePrimaryValue": 100,
+            "history": [
+                {
+                    "timestamp": _iso(i),
+                    "rate": 17.5 + i * 0.01,
+                    "volumePrimaryValue": 100,
+                }
+                for i in range(366)
+            ],
+        },
+    ],
+    "core": {},
+}
+
 ITEM_HISTORY_RESPONSE = [{"count": 30, "value": 15000.0 - i * 10, "daysAgo": i} for i in range(366)]
 
 CURRENCY_OVERVIEW = {
-    "lines": [],
+    "lines": [
+        {
+            "currencyTypeName": "Exalted Orb",
+            "chaosEquivalent": 17.5,
+            "detailsId": "exalted-orb",
+        },
+    ],
     "currencyDetails": [
         {"id": 42, "name": "Exalted Orb", "tradeId": "exalted-orb"},
     ],
@@ -250,17 +290,17 @@ class TestHistoryService:
         svc = _make_history_service(
             tmp_path,
             {
-                "currencyhistory": CURRENCY_HISTORY_RESPONSE,
+                "exchange/current/details": CURRENCY_DETAILS_RESPONSE,
             },
         )
-        resp = svc.get_currency_history("Mirage", 42, "Currency")
+        resp = svc.get_currency_history("Mirage", "exalted-orb", "Currency")
         assert len(resp.receive_currency_graph_data) == 366
 
     def test_item_history(self, tmp_path):
         svc = _make_history_service(
             tmp_path,
             {
-                "itemhistory": ITEM_HISTORY_RESPONSE,
+                "item/history": ITEM_HISTORY_RESPONSE,
             },
         )
         points = svc.get_item_history("Mirage", 100, "UniqueAccessory")
@@ -270,7 +310,7 @@ class TestHistoryService:
         svc = _make_history_service(
             tmp_path,
             {
-                "itemhistory": {"unexpected": "format"},
+                "item/history": {"unexpected": "format"},
             },
         )
         points = svc.get_item_history("Mirage", 100, "UniqueAccessory")
@@ -281,14 +321,13 @@ class TestHistoryService:
             tmp_path,
             {
                 "currency/overview": CURRENCY_OVERVIEW,
-                "currencyhistory": CURRENCY_HISTORY_RESPONSE,
+                "exchange/current/details": CURRENCY_DETAILS_RESPONSE,
             },
         )
         result = svc.get_price_history("Mirage", "Exalted Orb", "Currency")
         assert result is not None
         assert result.item_name == "Exalted Orb"
         assert len(result.data_points) == 366
-        assert len(result.pay_data_points) == 366
         assert result.analysis.current_price > 0
 
     def test_get_price_history_item(self, tmp_path):
@@ -296,7 +335,7 @@ class TestHistoryService:
             tmp_path,
             {
                 "item/overview": ITEM_OVERVIEW,
-                "itemhistory": ITEM_HISTORY_RESPONSE,
+                "item/history": ITEM_HISTORY_RESPONSE,
             },
         )
         result = svc.get_price_history("Mirage", "Headhunter", "UniqueAccessory")
@@ -335,8 +374,8 @@ class TestPriceHistoryCli:
                 return INDEX_STATE
             if "currency/overview" in path:
                 return CURRENCY_OVERVIEW
-            if "currencyhistory" in path:
-                return CURRENCY_HISTORY_RESPONSE
+            if "exchange/current/details" in path:
+                return CURRENCY_DETAILS_RESPONSE
             msg = f"Unmocked: {path}"
             raise ValueError(msg)
 

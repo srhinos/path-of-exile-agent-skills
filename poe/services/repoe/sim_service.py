@@ -225,6 +225,15 @@ class SimService:
                     f"Available groups (first 20): {available}"
                 )
             resolved_targets.append(final)
+        if existing_mods:
+            for em in existing_mods:
+                resolved_em = self.resolve_mod_name(em, base_name, influences=influence) or em
+                if resolved_em.casefold() not in pool_groups:
+                    available = sorted({mod.group for mod in mod_pool})[:20]
+                    raise SimDataError(
+                        f"Existing mod {em!r} not found in mod pool for {base_name!r}. "
+                        f"Available groups (first 20): {available}"
+                    )
         eng = CraftingEngine(self._data.snapshot())
         try:
             sim_result = await eng.simulate(
@@ -258,7 +267,7 @@ class SimService:
             iterations=sim_result.iterations,
             hit_rate=f"{sim_result.hit_rate:.1%}",
             avg_attempts=_finite(round(sim_result.avg_attempts, 1)),
-            cost_per_attempt=round(sim_result.cost_per_attempt, 1),
+            cost_per_attempt=_finite(round(sim_result.cost_per_attempt, 1)),
             avg_cost_chaos=_finite(round(sim_result.avg_cost_chaos, 1)),
             percentiles=sim_result.percentiles,
         )

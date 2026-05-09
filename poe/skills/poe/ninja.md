@@ -69,7 +69,7 @@ Multi-step agent workflows that combine services. Call from Python, not CLI.
 ## Type Reference
 
 **PoE1 Stash Currency**: `Currency`, `Fragment`
-**PoE1 Stash Items**: `BaseType`, `Beast`, `BlightedMap`, `BlightRavagedMap`, `ClusterJewel`, `ForbiddenJewel`, `Incubator`, `IncursionTemple`, `Invitation`, `Map`, `Memory`, `SkillGem`, `UniqueAccessory`, `UniqueArmour`, `UniqueFlask`, `UniqueJewel`, `UniqueMap`, `UniqueRelic`, `UniqueTincture`, `UniqueWeapon`, `ValdoMap`, `Vial`, `Wombgift`
+**PoE1 Stash Items**: `BaseType`, `Beast`, `BlightedMap`, `BlightRavagedMap`, `ClusterJewel`, `ForbiddenJewel`, `Incubator`, `IncursionTemple`, `Invitation`, `Map`, `Memory`, `ShrineBelt`, `SkillGem`, `UniqueAccessory`, `UniqueArmour`, `UniqueFlask`, `UniqueJewel`, `UniqueMap`, `UniqueRelic`, `UniqueTincture`, `UniqueWeapon`, `ValdoMap`, `Vial`, `Wombgift`
 **PoE1 Exchange**: `AllflameEmber`, `Artifact`, `Astrolabe`, `Currency`, `DeliriumOrb`, `DivinationCard`, `DjinnCoin`, `Essence`, `Fossil`, `Fragment`, `Oil`, `Omen`, `Resonator`, `Runegraft`, `Scarab`, `Tattoo`
 **PoE2 Exchange**: `Abyss`, `Breach`, `Currency`, `Delirium`, `Essences`, `Expedition`, `Fragments`, `Idols`, `LineageSupportGems`, `Ritual`, `Runes`, `SoulCores`, `UncutGems`
 

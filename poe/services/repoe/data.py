@@ -81,7 +81,7 @@ class RepoEData:
         for inf in influences or []:
             display = INFLUENCE_TAG_MAP.get(inf.casefold(), inf.title())
             allowed_influences.add(display)
-            codename = inv_influence_map.get(inf, inf.casefold())
+            codename = inv_influence_map.get(display, inf.casefold())
             for tag in bitem["tags"]:
                 inf_tags.add(f"{tag}_{codename}")
 

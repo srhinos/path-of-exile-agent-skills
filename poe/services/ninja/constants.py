@@ -5,7 +5,7 @@ NINJA_POE1_API = f"{NINJA_BASE_URL}/poe1/api"
 NINJA_POE2_API = f"{NINJA_BASE_URL}/poe2/api"
 NINJA_LEGACY_API = f"{NINJA_BASE_URL}/api"
 
-NINJA_USER_AGENT = "poe-cli/0.1.0 (+https://github.com/poe-cli)"
+NINJA_USER_AGENT = "poe-cli/0.1.0 (+https://github.com/srhinos/poe-cli)"
 
 NINJA_CONNECT_TIMEOUT = 10.0
 NINJA_READ_TIMEOUT = 30.0
@@ -48,6 +48,7 @@ NINJA_POE1_STASH_TYPES: frozenset[str] = frozenset(
         "Invitation",
         "Map",
         "Memory",
+        "ShrineBelt",
         "SkillGem",
         "UniqueAccessory",
         "UniqueArmour",
@@ -119,8 +120,8 @@ NINJA_ENDPOINTS = {
     "poe1_item_overview": "/poe1/api/economy/stash/current/item/overview",
     "poe1_exchange_overview": "/poe1/api/economy/exchange/current/overview",
     "poe2_exchange_overview": "/poe2/api/economy/exchange/current/overview",
-    "currency_history": "/api/data/currencyhistory",
-    "item_history": "/api/data/itemhistory",
+    "currency_history": "/poe1/api/economy/exchange/current/details",
+    "item_history": "/poe1/api/economy/stash/current/item/history",
 }
 
 SIGNED_INT64_MAX = 0x7FFFFFFFFFFFFFFF
@@ -174,6 +175,8 @@ TYPE_CANONICAL: dict[str, str] = {
     t.lower(): t
     for t in NINJA_POE1_CURRENCY_STASH_TYPES | NINJA_POE1_STASH_TYPES | NINJA_POE1_EXCHANGE_TYPES
 }
+
+POE2_TYPE_CANONICAL: dict[str, str] = {t.lower(): t for t in NINJA_POE2_EXCHANGE_TYPES}
 
 HEATMAP_MANDATORY_THRESHOLD = 0.5
 HEATMAP_FLEX_THRESHOLD = 0.1

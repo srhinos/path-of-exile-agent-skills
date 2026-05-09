@@ -45,6 +45,11 @@ class DefensiveStats(BaseModel):
     deflect_chance: int = Field(0, alias="deflectChance")
     movement_speed: int = Field(0, alias="movementSpeed")
     item_rarity: int = Field(0, alias="itemRarity")
+    energy_shield_regen: int = Field(0, alias="energyShieldRegen")
+    evade_chance: int = Field(0, alias="evadeChance")
+    life_reserved: int = Field(0, alias="lifeReserved")
+    mana_reserved: int = Field(0, alias="manaReserved")
+    physical_damage_reduction: int = Field(0, alias="physicalDamageReduction")
 
 
 class SkillDps(BaseModel):
@@ -164,6 +169,8 @@ class CharacterResponse(BaseModel):
     atlas_tree_name: str = Field("", alias="atlasTreeName")
     keystones: list[Keystone] = Field(default_factory=list, alias="keyStones")
     masteries: list[Mastery] = Field(default_factory=list)
+    runegrafts: list[dict] = Field(default_factory=list)
+    tattoos: list[dict] = Field(default_factory=list)
     bandit_choice: str | None = Field(None, alias="banditChoice")
     pantheon_major: str | None = Field(None, alias="pantheonMajor")
     pantheon_minor: str | None = Field(None, alias="pantheonMinor")

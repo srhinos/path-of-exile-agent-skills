@@ -13,13 +13,65 @@ class HistoryPoint(BaseModel):
     days_ago: int = Field(0, alias="daysAgo")
 
 
-class CurrencyHistoryResponse(BaseModel):
-    """Response from the currency history endpoint (pay + receive directions)."""
+class CurrencyPairHistoryEntry(BaseModel):
+    """A single history entry within a currency exchange pair."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    pay_currency_graph_data: list[HistoryPoint] = Field([], alias="payCurrencyGraphData")
-    receive_currency_graph_data: list[HistoryPoint] = Field([], alias="receiveCurrencyGraphData")
+    timestamp: str = ""
+    rate: float = 0.0
+    volume_primary_value: float = Field(0.0, alias="volumePrimaryValue")
+
+
+class CurrencyPair(BaseModel):
+    """An exchange pair from the currency details endpoint."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str = ""
+    rate: float = 0.0
+    volume_primary_value: float = Field(0.0, alias="volumePrimaryValue")
+    history: list[CurrencyPairHistoryEntry] = Field(default_factory=list)
+
+
+class CurrencyDetailsItem(BaseModel):
+    """The 'item' block in the currency details response."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str = ""
+    name: str = ""
+    image: str = ""
+    category: str = ""
+    details_id: str = Field("", alias="detailsId")
+
+
+class CurrencyDetailsResponse(BaseModel):
+    """Raw response from /poe1/api/economy/exchange/current/details."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    item: CurrencyDetailsItem = Field(default_factory=CurrencyDetailsItem)
+    pairs: list[CurrencyPair] = Field(default_factory=list)
+
+
+class CurrencyHistoryResponse(BaseModel):
+    """Translated currency history (pay + receive directions vs Chaos Orb).
+
+    The poe.ninja API returns a nested `{item, pairs, core}` shape; we extract
+    the chaos pair and translate it to this flat list-of-points form so
+    downstream consumers (analyze_history, PriceHistory) don't need to know
+    about pair structure.
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    pay_currency_graph_data: list[HistoryPoint] = Field(
+        default_factory=list, alias="payCurrencyGraphData"
+    )
+    receive_currency_graph_data: list[HistoryPoint] = Field(
+        default_factory=list, alias="receiveCurrencyGraphData"
+    )
 
 
 class TrendAnalysis(BaseModel):
