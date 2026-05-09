@@ -126,6 +126,28 @@ class TestRun:
             with pytest.raises(RuntimeError, match="boom"):
                 run()
 
+    def test_run_catches_validation_error(self, capsys, monkeypatch):
+        import json as _json
+
+        from pydantic import ValidationError
+
+        from poe.models.build.items import Item
+
+        monkeypatch.setattr("poe.app._check_skill_version", lambda: None)
+        try:
+            Item(id=1, text="", rarity="HEROIC")
+        except ValidationError as ve:
+            err = ve
+
+        with patch("poe.app.app", side_effect=err):
+            with pytest.raises(SystemExit) as exc_info:
+                run()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        parsed = _json.loads(captured.err.strip())
+        assert "Invalid data" in parsed["error"]
+        assert "rarity" in parsed["error"]
+
 
 # ── Error handler structure invariants (Pattern 4) ──────────────────────────
 
