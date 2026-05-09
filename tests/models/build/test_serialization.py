@@ -197,6 +197,91 @@ class TestGemModels:
         assert s.level == 21
 
 
+class TestGemInvariants:
+    def test_name_spec_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="")
+
+    def test_level_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", level=0)
+
+    def test_level_rejects_above_40(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", level=41)
+
+    def test_quality_rejects_above_30(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", quality=99)
+
+    def test_quality_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", quality=-1)
+
+    def test_count_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", count=0)
+
+    def test_gem_summary_rejects_empty_name(self):
+        with pytest.raises((ValueError, TypeError)):
+            GemSummary(name="")
+
+    def test_gem_group_main_active_skill_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            GemGroup(main_active_skill=0)
+
+
+class TestFlaskInvariants:
+    def test_slot_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(slot="", name="Divine Life Flask", base_type="Divine Life Flask")
+
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(slot="Flask 1", name="", base_type="Divine Life Flask")
+
+    def test_base_type_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(slot="Flask 1", name="Divine Life Flask", base_type="")
+
+    def test_quality_rejects_above_30(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(
+                slot="Flask 1",
+                name="Divine Life Flask",
+                base_type="Divine Life Flask",
+                quality=99,
+            )
+
+
+class TestJewelInvariants:
+    def test_item_id_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Jewel(node_id=100, item_id=0)
+
+    def test_item_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Jewel(node_id=100, item_id=-1)
+
+    def test_node_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Jewel(node_id=-1, item_id=5)
+
+
+class TestConfigInvariants:
+    def test_config_entry_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ConfigEntry(name="", value=True, input_type="boolean")
+
+    def test_config_entry_input_type_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            ConfigEntry(name="x", value="hi", input_type="garbage")
+
+    def test_build_config_id_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildConfig(id="")
+
+
 # --- Flask, Jewel models ---
 
 

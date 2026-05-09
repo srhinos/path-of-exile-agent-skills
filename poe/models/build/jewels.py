@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from poe.models.build.items import EquippedItem
 
@@ -14,8 +14,8 @@ class Jewel(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    node_id: int
-    item_id: int
+    node_id: int = Field(ge=0)
+    item_id: int = Field(gt=0)
     name: str = ""
     base_type: str = ""
     rarity: str = ""

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+VALID_CONFIG_INPUT_TYPES: frozenset[str] = frozenset({"boolean", "number", "string"})
 
 
 class ConfigEntry(BaseModel):
@@ -12,9 +14,18 @@ class ConfigEntry(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    name: str
+    name: str = Field(min_length=1)
     value: str | float | bool
     input_type: str = "boolean"
+
+    @field_validator("input_type")
+    @classmethod
+    def _validate_input_type(cls, v: str) -> str:
+        if v not in VALID_CONFIG_INPUT_TYPES:
+            raise ValueError(
+                f"input_type must be one of {sorted(VALID_CONFIG_INPUT_TYPES)}, got {v!r}"
+            )
+        return v
 
 
 class BuildConfig(BaseModel):
@@ -27,7 +38,7 @@ class BuildConfig(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    id: str = "1"
+    id: str = Field(default="1", min_length=1)
     title: str = "Default"
     inputs: list[ConfigEntry] = []
     placeholders: list[ConfigEntry] = []

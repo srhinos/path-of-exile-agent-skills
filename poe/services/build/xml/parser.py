@@ -277,12 +277,16 @@ def _parse_skill_elements(parent) -> list[GemGroup]:
     """Parse <Skill> elements from a parent element."""
     groups = []
     for skill_el in parent.findall("Skill"):
+        raw_main = _safe_int(skill_el.get("mainActiveSkill", "1"), 1)
+        main_active_skill = _clamp_int(
+            raw_main, lo=1, hi=None, field="main_active_skill", context="skill group"
+        )
         group = GemGroup(
             slot=skill_el.get("slot", ""),
             label=skill_el.get("label", ""),
             enabled=skill_el.get("enabled", "true").casefold() == "true",
             include_in_full_dps=skill_el.get("includeInFullDPS", "false").casefold() == "true",
-            main_active_skill=_safe_int(skill_el.get("mainActiveSkill", "1"), 1),
+            main_active_skill=main_active_skill,
             main_active_skill_calcs=_safe_int(skill_el.get("mainActiveSkillCalcs", "0")),
             group_count=_safe_int(skill_el.get("groupCount", "0")),
             source=skill_el.get("source", ""),
@@ -290,7 +294,8 @@ def _parse_skill_elements(parent) -> list[GemGroup]:
 
         for gem_el in skill_el.findall("Gem"):
             gem = _parse_gem_element(gem_el)
-            group.gems.append(gem)
+            if gem is not None:
+                group.gems.append(gem)
 
         groups.append(group)
     return groups
@@ -315,22 +320,36 @@ _GEM_STR_ATTRS = (
 )
 
 
-def _parse_gem_element(gem_el: Element) -> Gem:
-    """Parse a single <Gem> XML element."""
+def _parse_gem_element(gem_el: Element) -> Gem | None:
+    """Parse a single <Gem>. Returns None and warns if nameSpec is empty."""
+    name_spec = gem_el.get("nameSpec", "Unknown")
+    if not name_spec:
+        _logger.warning("gem element has empty nameSpec, skipping")
+        return None
+
     str_fields = {}
     for xml_attr, field in _GEM_STR_ATTRS:
         val = gem_el.get(xml_attr, "")
         if val:
             str_fields[field] = val
 
+    raw_level = _safe_int(gem_el.get("level", "20"), 20)
+    level = _clamp_int(raw_level, lo=1, hi=40, field="gem level", context=f"gem {name_spec!r}")
+    raw_quality = _safe_int(gem_el.get("quality", "0"), 0)
+    quality = _clamp_int(
+        raw_quality, lo=0, hi=30, field="gem quality", context=f"gem {name_spec!r}"
+    )
+    raw_count = _safe_int(gem_el.get("count", "1"), 1)
+    count = _clamp_int(raw_count, lo=1, hi=None, field="gem count", context=f"gem {name_spec!r}")
+
     return Gem(
-        name_spec=gem_el.get("nameSpec", "Unknown"),
-        level=_safe_int(gem_el.get("level", "20"), 20),
-        quality=_safe_int(gem_el.get("quality", "0"), 0),
+        name_spec=name_spec,
+        level=level,
+        quality=quality,
         enabled=gem_el.get("enabled", "true").casefold() == "true",
         enable_global1=gem_el.get("enableGlobal1", "true").casefold() != "false",
         enable_global2=gem_el.get("enableGlobal2", "true").casefold() != "false",
-        count=_safe_int(gem_el.get("count", "1"), 1),
+        count=count,
         **str_fields,
     )
 
@@ -813,28 +832,43 @@ def _parse_config_section(root: Element, build: BuildDocument) -> None:
     config_set_elements = config_el.findall("ConfigSet")
     if config_set_elements:
         for set_el in config_set_elements:
+            raw_id = set_el.get("id", "1")
+            if not raw_id:
+                _logger.warning("config set missing 'id' attribute, defaulting to '1'")
+                raw_id = "1"
             config_set = BuildConfig(
-                id=set_el.get("id", "1"),
+                id=raw_id,
                 title=set_el.get("title", "Default"),
             )
             for input_el in set_el.findall("Input"):
-                config_set.inputs.append(_parse_config_input(input_el))
+                entry = _parse_config_input(input_el)
+                if entry is not None:
+                    config_set.inputs.append(entry)
             for ph_el in set_el.findall("Placeholder"):
-                config_set.placeholders.append(_parse_config_input(ph_el))
+                entry = _parse_config_input(ph_el)
+                if entry is not None:
+                    config_set.placeholders.append(entry)
             build.config_sets.append(config_set)
     else:
         legacy = BuildConfig(id="1", title="Default")
         for input_el in config_el.findall("Input"):
-            legacy.inputs.append(_parse_config_input(input_el))
+            entry = _parse_config_input(input_el)
+            if entry is not None:
+                legacy.inputs.append(entry)
         for ph_el in config_el.findall("Placeholder"):
-            legacy.placeholders.append(_parse_config_input(ph_el))
+            entry = _parse_config_input(ph_el)
+            if entry is not None:
+                legacy.placeholders.append(entry)
         if legacy.inputs or legacy.placeholders:
             build.config_sets.append(legacy)
 
 
-def _parse_config_input(el) -> ConfigEntry:
-    """Parse an <Input> or <Placeholder> element."""
+def _parse_config_input(el) -> ConfigEntry | None:
+    """Parse an <Input> or <Placeholder>. Returns None and warns on empty name."""
     name = el.get("name", "")
+    if not name:
+        _logger.warning("config input missing 'name' attribute, skipping")
+        return None
     if el.get("boolean") is not None:
         return ConfigEntry(name=name, value=el.get("boolean") == "true", input_type="boolean")
     if el.get("number") is not None:

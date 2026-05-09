@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Gem(BaseModel):
@@ -13,17 +13,17 @@ class Gem(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    name_spec: str
+    name_spec: str = Field(min_length=1)
     skill_id: str = ""
     gem_id: str = ""
     variant_id: str = ""
-    level: int = 20
-    quality: int = 0
+    level: int = Field(default=20, ge=1, le=40)
+    quality: int = Field(default=0, ge=0, le=30)
     quality_id: str = "Default"
     enabled: bool = True
     enable_global1: bool = True
     enable_global2: bool = True
-    count: int = 1
+    count: int = Field(default=1, ge=1)
     skill_part: str = ""
     skill_part_calcs: str = ""
     skill_minion: str = ""
@@ -52,9 +52,9 @@ class GemGroup(BaseModel):
     enabled: bool = True
     gems: list[Gem] = []
     include_in_full_dps: bool = False
-    main_active_skill: int = 1
-    main_active_skill_calcs: int = 0
-    group_count: int = 0
+    main_active_skill: int = Field(default=1, ge=1)
+    main_active_skill_calcs: int = Field(default=0, ge=0)
+    group_count: int = Field(default=0, ge=0)
     source: str = ""
 
 
@@ -91,8 +91,8 @@ class GemSummary(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    name: str
-    level: int = 20
-    quality: int = 0
+    name: str = Field(min_length=1)
+    level: int = Field(default=20, ge=1, le=40)
+    quality: int = Field(default=0, ge=0, le=30)
     enabled: bool = True
     quality_id: str = "Default"

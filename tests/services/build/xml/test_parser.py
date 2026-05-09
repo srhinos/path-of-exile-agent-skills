@@ -1140,6 +1140,121 @@ Item Level: 200
         assert any("item_level=200" in r.message and "maximum" in r.message for r in caplog.records)
 
 
+class TestParseConfigBoundary:
+    def test_config_input_with_empty_name_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Config>
+                    <Input name="" boolean="true"/>
+                    <Input name="useFrenzyCharges" boolean="true"/>
+                </Config>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        names = [e.name for e in build.config_sets[0].inputs]
+        assert names == ["useFrenzyCharges"]
+        assert any("missing 'name'" in r.message for r in caplog.records)
+
+    def test_config_set_with_empty_id_defaulted_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Config activeConfigSet="1">
+                    <ConfigSet id="" title="Empty Id">
+                        <Input name="useFrenzyCharges" boolean="true"/>
+                    </ConfigSet>
+                </Config>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.config_sets[0].id == "1"
+        assert any("missing 'id'" in r.message for r in caplog.records)
+
+
+class TestParseGemBoundary:
+    def test_gem_level_above_max_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="Fireball" level="999" quality="0"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.skill_groups[0].gems[0].level == 40
+        assert any("gem level=999" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_gem_quality_above_max_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="Fireball" level="20" quality="99"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.skill_groups[0].gems[0].quality == 30
+        assert any("gem quality=99" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_gem_zero_count_clamped_to_one_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="Fireball" level="20" quality="0" count="0"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.skill_groups[0].gems[0].count == 1
+        assert any("gem count=0" in r.message and "minimum" in r.message for r in caplog.records)
+
+    def test_gem_with_empty_name_spec_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="" level="20" quality="0"/>
+                            <Gem nameSpec="Fireball" level="20" quality="0"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [g.name_spec for g in build.skill_groups[0].gems] == ["Fireball"]
+        assert any("empty nameSpec" in r.message for r in caplog.records)
+
+
 class TestParseItemSlotBoundary:
     def test_slot_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
         xml = textwrap.dedent("""\
