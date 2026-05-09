@@ -168,32 +168,26 @@ class TestBuildGetEquippedItems:
 
 
 class TestBuildDocumentInvariants:
-    @pytest.mark.xfail(strict=True, reason="No validator: level should be in 1..100")
     def test_level_rejects_zero(self):
         with pytest.raises((ValueError, TypeError)):
             BuildDocument(level=0)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: level should be 1..100")
     def test_level_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             BuildDocument(level=-5)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: level should be 1..100")
     def test_level_rejects_above_100(self):
         with pytest.raises((ValueError, TypeError)):
             BuildDocument(level=999)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: active_spec >= 1")
     def test_active_spec_rejects_zero(self):
         with pytest.raises((ValueError, TypeError)):
             BuildDocument(active_spec=0)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: active_spec rejects negative")
     def test_active_spec_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             BuildDocument(active_spec=-1)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: target_version should match X_Y format")
     def test_target_version_rejects_arbitrary_string(self):
         with pytest.raises((ValueError, TypeError)):
             BuildDocument(target_version="not_a_version!!")
@@ -212,17 +206,14 @@ class TestStatEntryInvariants:
         s = StatEntry(stat="Life", value=4500)
         assert s.value == 4500
 
-    @pytest.mark.xfail(strict=True, reason="No validator: stat name rejects empty")
     def test_stat_rejects_empty(self):
         with pytest.raises((ValueError, TypeError)):
             StatEntry(stat="", value=1)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: value rejects NaN")
     def test_value_rejects_nan(self):
         with pytest.raises((ValueError, TypeError)):
             StatEntry(stat="Life", value=float("nan"))
 
-    @pytest.mark.xfail(strict=True, reason="No validator: value rejects +inf")
     def test_value_rejects_inf(self):
         with pytest.raises((ValueError, TypeError)):
             StatEntry(stat="Life", value=float("inf"))
@@ -233,7 +224,6 @@ class TestItemSetInvariants:
         s = ItemSet()
         assert s.id == "1"
 
-    @pytest.mark.xfail(strict=True, reason="No validator: id rejects empty")
     def test_id_rejects_empty(self):
         with pytest.raises((ValueError, TypeError)):
             ItemSet(id="")

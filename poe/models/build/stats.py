@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from math import isfinite
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class StatEntry(BaseModel):
     """A single player stat parsed from the build XML's PlayerStat elements."""
 
-    stat: str
+    stat: str = Field(min_length=1)
     value: float
+
+    @field_validator("value")
+    @classmethod
+    def _validate_value_finite(cls, v: float) -> float:
+        if not isfinite(v):
+            raise ValueError("value must be finite (not NaN or +/-inf)")
+        return v
 
 
 class StatBlock(BaseModel):

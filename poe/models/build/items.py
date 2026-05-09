@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from poe.models.build.tree import TreeSocket
+from poe.types import Influence, Rarity
+
+_VALID_INFLUENCES = {i.value for i in Influence}
+_VALID_RARITIES = {r.value for r in Rarity}
 
 
 class ItemMod(BaseModel):
@@ -28,8 +32,14 @@ class ItemMod(BaseModel):
     is_synthesis: bool = False
     is_mutated: bool = False
     tags: list[str] = []
-    range_value: float | None = None
+    range_value: float | None = Field(default=None, ge=0.0, le=1.0)
     variant: str = ""
+
+    @model_validator(mode="after")
+    def _check_affix_exclusive(self) -> ItemMod:
+        if self.is_prefix and self.is_suffix:
+            raise ValueError("ItemMod cannot be both is_prefix and is_suffix")
+        return self
 
 
 class Item(BaseModel):
@@ -40,7 +50,7 @@ class Item(BaseModel):
     Open prefix/suffix counts are computed from the slot arrays.
     """
 
-    id: int
+    id: int = Field(gt=0)
     text: str
     variant: str = ""
     variant_alt: str = ""
@@ -61,14 +71,28 @@ class Item(BaseModel):
     is_split: bool = False
     has_veiled_prefix: bool = False
     has_veiled_suffix: bool = False
-    quality: int = 0
+    quality: int = Field(default=0, ge=0, le=30)
     sockets: str = ""
-    level_req: int = 0
-    item_level: int = 0
-    armour: int = 0
-    evasion: int = 0
-    energy_shield: int = 0
-    ward: int = 0
+    level_req: int = Field(default=0, ge=0)
+    item_level: int = Field(default=0, ge=0, le=100)
+    armour: int = Field(default=0, ge=0)
+    evasion: int = Field(default=0, ge=0)
+    energy_shield: int = Field(default=0, ge=0)
+    ward: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_rarity_and_influences(self) -> Item:
+        if self.rarity and self.rarity not in _VALID_RARITIES:
+            raise ValueError(
+                f"Invalid rarity: {self.rarity!r}. Must be one of {sorted(_VALID_RARITIES)}"
+            )
+        for inf in self.influences:
+            if inf not in _VALID_INFLUENCES:
+                raise ValueError(
+                    f"Invalid influence: {inf!r}. Must be one of {sorted(_VALID_INFLUENCES)}"
+                )
+        return self
+
     catalyst_type: str = ""
     catalyst_quality: int = 0
     unique_id: str = ""
@@ -109,8 +133,8 @@ class Item(BaseModel):
 class ItemSlot(BaseModel):
     """Binds an item ID to a named equipment slot within an ItemSet."""
 
-    name: str
-    item_id: int
+    name: str = Field(min_length=1)
+    item_id: int = Field(gt=0)
     active: bool = True
     item_pb_url: str = ""
 
@@ -122,7 +146,7 @@ class ItemSet(BaseModel):
     BuildDocument.active_item_set.
     """
 
-    id: str = "1"
+    id: str = Field(default="1", min_length=1)
     title: str = ""
     slots: list[ItemSlot] = []
     socket_id_urls: list[TreeSocket] = []
@@ -141,7 +165,15 @@ class ItemSummary(BaseModel):
     rarity: str
     influences: list[str] = []
     sockets: str = ""
-    quality: int = 0
+    quality: int = Field(default=0, ge=0, le=30)
+
+    @model_validator(mode="after")
+    def _validate_rarity(self) -> ItemSummary:
+        if self.rarity and self.rarity not in _VALID_RARITIES:
+            raise ValueError(
+                f"Invalid rarity: {self.rarity!r}. Must be one of {sorted(_VALID_RARITIES)}"
+            )
+        return self
 
 
 class ItemSetSummary(BaseModel):

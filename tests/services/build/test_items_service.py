@@ -596,19 +596,6 @@ class TestItemSearchCaseInsensitive:
 
 
 class TestItemPydanticInvariants:
-    def test_item_rarity_accepts_arbitrary_string(self):
-        from poe.models.build.items import Item
-
-        item = Item(id=1, text="", rarity="HEROIC")
-        assert item.rarity == "HEROIC"
-
-    def test_item_influences_accepts_arbitrary_strings(self):
-        from poe.models.build.items import Item
-
-        item = Item(id=1, text="", influences=["Bogus", "Fake"])
-        assert item.influences == ["Bogus", "Fake"]
-
-    @pytest.mark.xfail(strict=True, reason="Item.rarity should reject invalid rarities")
     def test_item_rarity_rejects_invalid(self):
         from pydantic import ValidationError
 
@@ -617,9 +604,6 @@ class TestItemPydanticInvariants:
         with pytest.raises(ValidationError):
             Item(id=1, text="", rarity="HEROIC")
 
-    @pytest.mark.xfail(
-        strict=True, reason="Item.influences should reject unknown influence strings"
-    )
     def test_item_influences_rejects_unknown(self):
         from pydantic import ValidationError
 

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from poe.models.build.config import BuildConfig
 from poe.models.build.gems import GemGroup
 from poe.models.build.items import Item, ItemSet
 from poe.models.build.stats import StatEntry
 from poe.models.build.tree import TreeSpec
+
+_TARGET_VERSION_PATTERN = re.compile(r"^\d+_\d+$")
 
 
 class BuildMetadata(BaseModel):
@@ -79,7 +83,7 @@ class BuildDocument(BaseModel):
 
     class_name: str = ""
     ascend_class_name: str = ""
-    level: int = 1
+    level: int = Field(default=1, ge=1, le=100)
     bandit: str | None = None
     view_mode: str = "TREE"
     target_version: str = "3_0"
@@ -92,7 +96,15 @@ class BuildDocument(BaseModel):
     minion_stats: list[StatEntry] = []
     full_dps_skills: list[dict] = []
     player_stats: list[StatEntry] = []
-    active_spec: int = 1
+    active_spec: int = Field(default=1, ge=1)
+
+    @field_validator("target_version")
+    @classmethod
+    def _validate_target_version(cls, v: str) -> str:
+        if not _TARGET_VERSION_PATTERN.match(v):
+            raise ValueError(f"target_version must match X_Y format (e.g. '3_25'), got {v!r}")
+        return v
+
     specs: list[TreeSpec] = []
     active_skill_set: int = 1
     default_gem_level: int = 0
