@@ -168,9 +168,9 @@ class TestBuildGetEquippedItems:
 
 
 class TestBuildDocumentInvariants:
-    def test_level_zero_accepted_for_unleveled_imports(self):
-        b = BuildDocument(level=0)
-        assert b.level == 0
+    def test_level_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(level=0)
 
     def test_level_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
@@ -206,6 +206,10 @@ class TestStatEntryInvariants:
         s = StatEntry(stat="Life", value=4500)
         assert s.value == 4500
 
+    def test_stat_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            StatEntry(stat="", value=1)
+
     def test_value_rejects_nan(self):
         with pytest.raises((ValueError, TypeError)):
             StatEntry(stat="Life", value=float("nan"))
@@ -220,6 +224,6 @@ class TestItemSetInvariants:
         s = ItemSet()
         assert s.id == "1"
 
-    def test_id_default_is_one(self):
-        s = ItemSet()
-        assert s.id == "1"
+    def test_id_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSet(id="")

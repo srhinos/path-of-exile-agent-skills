@@ -1018,15 +1018,77 @@ class TestLevelParsing:
         build = parse_build_file(_write_xml(tmp_path, xml))
         assert build.level == level
 
-    def test_level_zero_preserved_as_invariant_check(self, tmp_path):
+    def test_level_zero_clamped_to_one_with_warning(self, tmp_path, caplog):
         xml = textwrap.dedent("""\
             <?xml version="1.0"?>
             <PathOfBuilding>
                 <Build level="0" className="Witch" ascendClassName=""/>
             </PathOfBuilding>
         """)
-        build = parse_build_file(_write_xml(tmp_path, xml))
-        assert build.level == 0
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == 1
+        assert any("level=0" in r.message and "minimum" in r.message for r in caplog.records)
+
+    def test_level_above_max_clamped_to_100_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="9999" className="Witch" ascendClassName=""/>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == 100
+        assert any("level=9999" in r.message and "maximum" in r.message for r in caplog.records)
+
+
+class TestParseStatBoundary:
+    def test_player_stat_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="">
+                    <PlayerStat stat="" value="42"/>
+                    <PlayerStat stat="Life" value="4500"/>
+                </Build>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [s.stat for s in build.player_stats] == ["Life"]
+        assert any("missing 'stat'" in r.message for r in caplog.records)
+
+    def test_minion_stat_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="">
+                    <MinionStat stat="" value="100"/>
+                </Build>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.minion_stats == []
+        assert any("missing 'stat'" in r.message for r in caplog.records)
+
+
+class TestParseItemSetBoundary:
+    def test_item_set_with_empty_id_is_defaulted_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <ItemSet id="" title="Default"/>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.item_sets[0].id == "1"
+        assert any("missing 'id'" in r.message for r in caplog.records)
 
 
 # ── Influence enum coverage ──────────────────────────────────────────────────

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from math import isfinite
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StatEntry(BaseModel):
@@ -10,7 +10,7 @@ class StatEntry(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    stat: str = ""
+    stat: str = Field(min_length=1)
     value: float
 
     @field_validator("value")

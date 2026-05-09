@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import logging
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -33,6 +34,8 @@ from poe.services.build.constants import (
 if TYPE_CHECKING:
     from xml.etree.ElementTree import Element
 
+_logger = logging.getLogger("poe.parser")
+
 
 def _safe_int(val: str, default: int = 0) -> int:
     """Parse an int, returning default for non-numeric values like 'nil'."""
@@ -40,6 +43,17 @@ def _safe_int(val: str, default: int = 0) -> int:
         return int(val)
     except (ValueError, TypeError):
         return default
+
+
+def _clamp_int(val: int, *, lo: int, hi: int | None, field: str, context: str) -> int:
+    """Clamp val to [lo, hi]. Logs a warning when clamped. hi=None means no upper bound."""
+    if val < lo:
+        _logger.warning("%s: %s=%d below minimum %d, clamping", context, field, val, lo)
+        return lo
+    if hi is not None and val > hi:
+        _logger.warning("%s: %s=%d above maximum %d, clamping", context, field, val, hi)
+        return hi
+    return val
 
 
 def parse_build_file(path: Path, *, skill_set_id: int | None = None) -> BuildDocument:
@@ -73,7 +87,8 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
 
     build.class_name = el.get("className", "")
     build.ascend_class_name = el.get("ascendClassName", "")
-    build.level = int(el.get("level", "1"))
+    raw_level = _safe_int(el.get("level", "1"), 1)
+    build.level = _clamp_int(raw_level, lo=1, hi=100, field="level", context="build")
     raw_bandit = el.get("bandit", "")
     build.bandit = raw_bandit if raw_bandit and raw_bandit != "None" else None
     build.view_mode = el.get("viewMode", "TREE")
@@ -84,10 +99,14 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
     build.character_level_auto_mode = el.get("characterLevelAutoMode", "false").casefold() == "true"
 
     for stat_el in el.findall("PlayerStat"):
-        build.player_stats.append(_parse_stat_element(stat_el))
+        stat = _parse_stat_element(stat_el)
+        if stat is not None:
+            build.player_stats.append(stat)
 
     for stat_el in el.findall("MinionStat"):
-        build.minion_stats.append(_parse_stat_element(stat_el))
+        stat = _parse_stat_element(stat_el)
+        if stat is not None:
+            build.minion_stats.append(stat)
 
     for spectre_el in el.findall("Spectre"):
         spectre_id = spectre_el.get("id", "")
@@ -113,9 +132,12 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
                 build.timeless_data[tag].append(dict(child.attrib.items()))
 
 
-def _parse_stat_element(stat_el: Element) -> StatEntry:
-    """Parse a <PlayerStat> or <MinionStat> element."""
+def _parse_stat_element(stat_el: Element) -> StatEntry | None:
+    """Parse a <PlayerStat>/<MinionStat>. Returns None and warns when 'stat' is empty."""
     name = stat_el.get("stat", "")
+    if not name:
+        _logger.warning("stat element missing 'stat' attribute, skipping")
+        return None
     val_str = stat_el.get("value", "0")
     try:
         val = float(val_str)
@@ -332,8 +354,12 @@ def _parse_items_section(root: Element, build: BuildDocument) -> None:
         build.items.append(item)
 
     for set_el in items_el.findall("ItemSet"):
+        raw_id = set_el.get("id", "1")
+        if not raw_id:
+            _logger.warning("item set missing 'id' attribute, defaulting to '1'")
+            raw_id = "1"
         item_set = ItemSet(
-            id=set_el.get("id", "1"),
+            id=raw_id,
             title=set_el.get("title", ""),
             use_second_weapon_set=set_el.get("useSecondWeaponSet", "false").casefold() == "true",
         )

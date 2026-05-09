@@ -179,7 +179,7 @@ class ItemSet(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    id: str = "1"
+    id: str = Field(default="1", min_length=1)
     title: str = ""
     slots: list[ItemSlot] = []
     socket_id_urls: list[TreeSocket] = []

@@ -82,7 +82,7 @@ class BuildDocument(BaseModel):
 
     class_name: str = ""
     ascend_class_name: str = ""
-    level: int = Field(default=1, ge=0, le=100)
+    level: int = Field(default=1, ge=1, le=100)
     bandit: str | None = None
     view_mode: str = "TREE"
     target_version: str = "3_0"
