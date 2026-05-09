@@ -132,22 +132,18 @@ class TestTreeComparison:
 
 
 class TestTreeSpecInvariants:
-    @pytest.mark.xfail(strict=True, reason="No validator: nodes should be unique")
     def test_nodes_rejects_duplicates(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSpec(nodes=[1, 2, 2, 3])
 
-    @pytest.mark.xfail(strict=True, reason="No validator: class_id rejects negative")
     def test_class_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSpec(class_id=-1)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: ascend_class_id rejects negative")
     def test_ascend_class_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSpec(ascend_class_id=-1)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: tree_version format X_Y")
     def test_tree_version_rejects_invalid_format(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSpec(tree_version="!!!")
@@ -162,43 +158,40 @@ class TestTreeSpecInvariants:
 
 
 class TestTreeSummaryInvariants:
-    @pytest.mark.xfail(strict=True, reason="No validator: index >= 1")
     def test_index_rejects_zero(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSummary(index=0, title="x")
 
-    @pytest.mark.xfail(strict=True, reason="No validator: node_count rejects negative")
     def test_node_count_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSummary(index=1, title="x", node_count=-5)
 
 
 class TestMasteryMappingInvariants:
-    @pytest.mark.xfail(strict=True, reason="No validator: node_id rejects negative")
     def test_node_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             MasteryMapping(node_id=-1, effect_id=200)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: effect_id rejects negative")
     def test_effect_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             MasteryMapping(node_id=1, effect_id=-1)
 
 
 class TestTreeSocketInvariants:
-    @pytest.mark.xfail(strict=True, reason="No validator: node_id rejects negative")
     def test_node_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             TreeSocket(node_id=-1, item_id=1)
 
-    @pytest.mark.xfail(strict=True, reason="No validator: item_id should be > 0")
-    def test_item_id_rejects_zero(self):
+    def test_item_id_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
-            TreeSocket(node_id=1, item_id=0)
+            TreeSocket(node_id=1, item_id=-1)
+
+    def test_item_id_zero_means_empty_socket(self):
+        s = TreeSocket(node_id=1, item_id=0)
+        assert s.item_id == 0
 
 
 class TestTreeComparisonInvariants:
-    @pytest.mark.xfail(strict=True, reason="No validator: build1_count rejects negative")
     def test_build1_count_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             TreeComparison(build1_count=-1)

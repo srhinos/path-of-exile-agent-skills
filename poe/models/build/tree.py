@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+_TREE_VERSION_PATTERN = re.compile(r"^\d+_\d+$")
 
 
 class MasteryMapping(BaseModel):
     """A mastery effect selection: which effect is chosen on which node."""
 
-    node_id: int
-    effect_id: int
+    node_id: int = Field(ge=0)
+    effect_id: int = Field(ge=0)
 
 
 class TreeSocket(BaseModel):
-    """A jewel socket on the passive tree, binding a node to an item."""
+    """A jewel socket on the passive tree, binding a node to an item.
 
-    node_id: int
-    item_id: int
+    item_id == 0 represents an empty socket (node has a jewel slot but
+    nothing socketed).
+    """
+
+    node_id: int = Field(ge=0)
+    item_id: int = Field(ge=0)
 
 
 class TreeOverride(BaseModel):
@@ -39,12 +47,26 @@ class TreeSpec(BaseModel):
     tree_version: str = ""
     nodes: list[int] = []
     url: str = ""
-    class_id: int = 0
-    ascend_class_id: int = 0
+    class_id: int = Field(default=0, ge=0)
+    ascend_class_id: int = Field(default=0, ge=0)
     secondary_ascend_class_id: int = 0
     mastery_effects: list[MasteryMapping] = []
     sockets: list[TreeSocket] = []
     overrides: list[TreeOverride] = []
+
+    @field_validator("nodes")
+    @classmethod
+    def _validate_nodes_unique(cls, v: list[int]) -> list[int]:
+        if len(v) != len(set(v)):
+            raise ValueError("nodes must be unique")
+        return v
+
+    @field_validator("tree_version")
+    @classmethod
+    def _validate_tree_version(cls, v: str) -> str:
+        if v and not _TREE_VERSION_PATTERN.match(v):
+            raise ValueError(f"tree_version must match X_Y format (e.g. '3_25'), got {v!r}")
+        return v
 
 
 class TreeSummary(BaseModel):
@@ -54,10 +76,10 @@ class TreeSummary(BaseModel):
     just enough to show in a spec picker.
     """
 
-    index: int
+    index: int = Field(ge=1)
     title: str
     tree_version: str = ""
-    node_count: int = 0
+    node_count: int = Field(default=0, ge=0)
     class_id: int = 0
     ascend_class_id: int = 0
     active: bool = False
@@ -91,8 +113,8 @@ class TreeComparison(BaseModel):
     build1_only: list[int] = []
     build2_only: list[int] = []
     shared: list[int] = []
-    build1_count: int = 0
-    build2_count: int = 0
+    build1_count: int = Field(default=0, ge=0)
+    build2_count: int = Field(default=0, ge=0)
     mastery_diff: dict = {}
     class_diff: dict = {}
 
