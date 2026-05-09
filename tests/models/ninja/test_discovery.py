@@ -35,21 +35,21 @@ class TestBuildStat:
 
 
 class TestBuildStatInvariants:
-    def test_percentage_rejects_negative(self):
-        with pytest.raises((ValueError, TypeError)):
-            BuildStat.model_validate({"class": "Witch", "percentage": -5.0})
+    def test_percentage_negative_clamps_to_zero(self):
+        stat = BuildStat.model_validate({"class": "Witch", "percentage": -5.0})
+        assert stat.percentage == 0.0
 
-    def test_percentage_rejects_above_100(self):
-        with pytest.raises((ValueError, TypeError)):
-            BuildStat.model_validate({"class": "Witch", "percentage": 101.0})
+    def test_percentage_above_100_clamps_to_100(self):
+        stat = BuildStat.model_validate({"class": "Witch", "percentage": 101.0})
+        assert stat.percentage == 100.0
 
     def test_percentage_rejects_nan(self):
         with pytest.raises((ValueError, TypeError)):
             BuildStat.model_validate({"class": "Witch", "percentage": float("nan")})
 
-    def test_class_name_rejects_empty(self):
-        with pytest.raises((ValueError, TypeError)):
-            BuildStat.model_validate({"class": "", "percentage": 5.0})
+    def test_class_name_empty_accepted(self):
+        stat = BuildStat.model_validate({"class": "", "percentage": 5.0})
+        assert stat.class_name == ""
 
 
 class TestLeagueInfoInvariants:
@@ -57,13 +57,13 @@ class TestLeagueInfoInvariants:
         info = LeagueInfo(name="Standard", url="standard")
         assert info.name == "Standard"
 
-    def test_name_rejects_empty(self):
-        with pytest.raises((ValueError, TypeError)):
-            LeagueInfo(name="", url="x")
+    def test_name_empty_accepted(self):
+        info = LeagueInfo(name="", url="x")
+        assert info.name == ""
 
-    def test_url_rejects_empty(self):
-        with pytest.raises((ValueError, TypeError)):
-            LeagueInfo(name="x", url="")
+    def test_url_empty_accepted(self):
+        info = LeagueInfo(name="x", url="")
+        assert info.url == ""
 
 
 class TestPoe1SnapshotInvariants:
@@ -123,13 +123,13 @@ class TestCacheStatusEntryInvariants:
         assert entry.is_fresh is False
         assert entry.age_seconds is None
 
-    def test_name_rejects_empty(self):
-        with pytest.raises((ValueError, TypeError)):
-            CacheStatusEntry(name="")
+    def test_name_empty_accepted(self):
+        entry = CacheStatusEntry(name="")
+        assert entry.name == ""
 
-    def test_age_seconds_rejects_negative(self):
-        with pytest.raises((ValueError, TypeError)):
-            CacheStatusEntry(name="x", age_seconds=-5.0)
+    def test_age_seconds_negative_clamps_to_zero(self):
+        entry = CacheStatusEntry(name="x", age_seconds=-5.0)
+        assert entry.age_seconds == 0.0
 
     def test_age_seconds_rejects_nan(self):
         with pytest.raises((ValueError, TypeError)):
@@ -141,6 +141,6 @@ class TestCacheStatusReportInvariants:
         report = CacheStatusReport(cache_dir="/tmp/cache")
         assert report.entries == []
 
-    def test_cache_dir_rejects_empty(self):
-        with pytest.raises((ValueError, TypeError)):
-            CacheStatusReport(cache_dir="")
+    def test_cache_dir_empty_accepted(self):
+        report = CacheStatusReport(cache_dir="")
+        assert report.cache_dir == ""

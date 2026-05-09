@@ -7,6 +7,7 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 import cyclopts
+from pydantic import ValidationError
 
 from poe.commands.build.commands import build_app
 from poe.commands.dev.commands import dev_app
@@ -53,4 +54,10 @@ def run() -> None:
         app()
     except PoeError as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
+        raise SystemExit(1) from None
+    except ValidationError as e:
+        message = "; ".join(
+            f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()
+        )
+        print(json.dumps({"error": f"Invalid data: {message}"}), file=sys.stderr)
         raise SystemExit(1) from None

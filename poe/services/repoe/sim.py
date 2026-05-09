@@ -1121,8 +1121,8 @@ class CraftingEngine:
                     ]
                     pinned_prefix_count = sum(1 for p in pinned_pool_entries if p.affix == "prefix")
                     pinned_suffix_count = len(pinned_pool_entries) - pinned_prefix_count
-                    prefix_room = item.max_prefixes - pinned_prefix_count
-                    suffix_room = item.max_suffixes - pinned_suffix_count
+                    prefix_room = max(0, item.max_prefixes - pinned_prefix_count)
+                    suffix_room = max(0, item.max_suffixes - pinned_suffix_count)
                     if len(item.prefixes) > prefix_room:
                         item.prefixes = item.prefixes[:prefix_room]
                     if len(item.suffixes) > suffix_room:

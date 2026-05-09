@@ -118,7 +118,9 @@ Coverage % is necessary but not sufficient. Every non-trivial function needs tes
 
 5. **Semantic invariants on Pydantic models.** Pydantic enforces types, not semantics. If a `float` field must be finite, write a test that asserts it. If a `list[str]` must be non-empty, write a test that asserts it. If two fields must agree (`hits <= iterations`), write a test that asserts it. Write the test even when the producer "always returns valid values" today — that contract decays silently otherwise.
 
-When adding a test, ask: which of these five categories does it fall into? If the answer is "none, it just exercises the happy path," it's incomplete. Add the others.
+6. **Construct objects through the production code path, not just kwargs.** A Pydantic validator that fires on `Item(rarity="HEROIC")` may not fire on `item.rarity = "HEROIC"` — Pydantic v2's `validate_assignment` defaults to `False`. The XML parser does `BuildDocument()` then `setattr` for the next 200 lines, so kwargs-only tests give a false sense of safety. For every model touched by a parser, an importer, or a service mutation, add a test that exercises the same construction pattern: load a fixture, mutate via setattr, write back, and reload. If the validator should fire, set `model_config = ConfigDict(validate_assignment=True)`.
+
+When adding a test, ask: which of these six categories does it fall into? If the answer is "none, it just exercises the happy path," it's incomplete. Add the others.
 
 ## Git
 

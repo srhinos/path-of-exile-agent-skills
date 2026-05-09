@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from math import isfinite
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from poe.constants import HIT_RATE_PATTERN, VALID_AFFIXES, VALID_AFFIXES_OR_EMPTY
 from poe.types import CraftMethod, MatchMode
@@ -179,6 +179,8 @@ class BaseItemSearchResult(BaseModel):
 
 class SimulationResult(BaseModel):
     """Response from SimService.simulate() — full simulation with context."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     base: str
     ilvl: int = Field(ge=0, le=100)

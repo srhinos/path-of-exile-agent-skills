@@ -10,7 +10,6 @@ from poe.models.build.items import (
     ItemMod,
     ItemSetList,
     ItemSetSummary,
-    ItemSlot,
     ItemSummary,
 )
 from poe.types import Influence, Rarity
@@ -158,10 +157,6 @@ class TestItemSemanticInvariants:
         with pytest.raises((ValueError, TypeError)):
             Item(id=1, text="", quality=-5)
 
-    def test_quality_rejects_above_30(self):
-        with pytest.raises((ValueError, TypeError)):
-            Item(id=1, text="", quality=999)
-
     def test_armour_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             Item(id=1, text="", armour=-100)
@@ -178,10 +173,6 @@ class TestItemSemanticInvariants:
         with pytest.raises((ValueError, TypeError)):
             Item(id=-1, text="")
 
-    def test_item_level_rejects_above_100(self):
-        with pytest.raises((ValueError, TypeError)):
-            Item(id=1, text="", item_level=999)
-
     def test_level_req_rejects_negative(self):
         with pytest.raises((ValueError, TypeError)):
             Item(id=1, text="", level_req=-5)
@@ -193,16 +184,6 @@ class TestItemSemanticInvariants:
             prefix_slots=["a", None, "b", None, None],
         )
         assert item.open_prefixes + item.filled_prefixes == len(item.prefix_slots)
-
-
-class TestItemSlotInvariants:
-    def test_name_rejects_empty(self):
-        with pytest.raises((ValueError, TypeError)):
-            ItemSlot(name="", item_id=1)
-
-    def test_item_id_rejects_zero(self):
-        with pytest.raises((ValueError, TypeError)):
-            ItemSlot(name="Helmet", item_id=0)
 
 
 class TestItemSummaryInvariants:

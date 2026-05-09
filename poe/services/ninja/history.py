@@ -190,20 +190,37 @@ class HistoryService:
         if chaos_pair is None:
             return CurrencyHistoryResponse()
         now = datetime.now(UTC)
-        receive_points: list[HistoryPoint] = []
-        for entry in chaos_pair.history:
+
+        def _to_history_point(entry: object) -> HistoryPoint | None:
             try:
                 ts = datetime.fromisoformat(entry.timestamp)
-            except ValueError:
-                continue
-            receive_points.append(
-                HistoryPoint(
-                    count=int(entry.volume_primary_value),
-                    value=entry.rate,
-                    days_ago=(now - ts).days,
-                )
+            except (ValueError, TypeError):
+                return None
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            return HistoryPoint(
+                count=int(entry.volume_primary_value),
+                value=entry.rate,
+                days_ago=(now - ts).days,
             )
-        return CurrencyHistoryResponse(receive_currency_graph_data=receive_points)
+
+        receive_points = [
+            p for entry in chaos_pair.history if (p := _to_history_point(entry)) is not None
+        ]
+        # The exchange rate is "1 of this currency = N chaos". The pay direction
+        # ("how many of this currency for 1 chaos") is 1/rate.
+        pay_points = [
+            HistoryPoint(
+                count=p.count,
+                value=1.0 / p.value if p.value else 0.0,
+                days_ago=p.days_ago,
+            )
+            for p in receive_points
+        ]
+        return CurrencyHistoryResponse(
+            receive_currency_graph_data=receive_points,
+            pay_currency_graph_data=pay_points,
+        )
 
     def get_item_history(
         self,

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from poe.constants import VERSION_PATTERN
 
 
 class MasteryMapping(BaseModel):
     """A mastery effect selection: which effect is chosen on which node."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     node_id: int = Field(ge=0)
     effect_id: int = Field(ge=0)
@@ -19,12 +21,16 @@ class TreeSocket(BaseModel):
     nothing socketed).
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     node_id: int = Field(ge=0)
     item_id: int = Field(ge=0)
 
 
 class TreeOverride(BaseModel):
     """A passive node overridden by a cluster jewel or timeless jewel."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     node_id: int
     name: str
@@ -40,6 +46,8 @@ class TreeSpec(BaseModel):
     allocated nodes, mastery choices, jewel sockets, and tree version.
     Parsed by xml.parser, written by xml.writer.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     title: str = ""
     tree_version: str = ""
@@ -58,6 +66,18 @@ class TreeSpec(BaseModel):
         if len(v) != len(set(v)):
             raise ValueError("nodes must be unique")
         return v
+
+    @field_validator("mastery_effects")
+    @classmethod
+    def _dedupe_mastery_effects(cls, v: list[MasteryMapping]) -> list[MasteryMapping]:
+        seen: set[int] = set()
+        result: list[MasteryMapping] = []
+        for m in v:
+            if m.node_id in seen:
+                continue
+            seen.add(m.node_id)
+            result.append(m)
+        return result
 
     @field_validator("tree_version")
     @classmethod

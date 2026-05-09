@@ -12,8 +12,8 @@ class LeagueInfo(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    name: str = Field(min_length=1)
-    url: str = Field(min_length=1)
+    name: str = ""
+    url: str = ""
     display_name: str | None = None
     hardcore: bool | None = None
     indexed: bool | None = None
@@ -78,7 +78,7 @@ class BuildStat(BaseModel):
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    class_name: str = Field(alias="class", min_length=1)
+    class_name: str = Field(default="", alias="class")
     skill: str = ""
     percentage: float
     trend: int = 0
@@ -88,9 +88,7 @@ class BuildStat(BaseModel):
     def _validate_percentage(cls, v: float) -> float:
         if not isfinite(v):
             raise ValueError("percentage must be finite")
-        if v < 0 or v > PERCENTAGE_MAX:
-            raise ValueError(f"percentage must be in 0..{PERCENTAGE_MAX}, got {v}")
-        return v
+        return max(0.0, min(float(PERCENTAGE_MAX), v))
 
 
 class LeagueBuild(BaseModel):
@@ -151,7 +149,7 @@ class AtlasTreeIndexState(BaseModel):
 class CacheStatusEntry(BaseModel):
     """Status of a single cache key."""
 
-    name: str = Field(min_length=1)
+    name: str = ""
     is_cached: bool = False
     is_fresh: bool = False
     age_seconds: float | None = None
@@ -164,13 +162,11 @@ class CacheStatusEntry(BaseModel):
             return v
         if not isfinite(v):
             raise ValueError("age_seconds must be finite or None")
-        if v < 0:
-            raise ValueError(f"age_seconds must be non-negative, got {v}")
-        return v
+        return max(0.0, v)
 
 
 class CacheStatusReport(BaseModel):
     """Cache status summary across all ninja cache keys."""
 
-    cache_dir: str = Field(min_length=1)
+    cache_dir: str = ""
     entries: list[CacheStatusEntry] = []

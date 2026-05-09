@@ -1,12 +1,25 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from poe.models.build.tree import TreeSocket
 from poe.types import Influence, Rarity
 
 VALID_INFLUENCES = frozenset(Influence)
 VALID_RARITIES = frozenset(Rarity)
+
+_INFLUENCE_BY_CASEFOLD = {i.value.casefold(): i.value for i in Influence}
+_RARITY_BY_CASEFOLD = {r.value.casefold(): r.value for r in Rarity}
+
+
+def _normalize_rarity(v: str) -> str:
+    if not v:
+        return v
+    return _RARITY_BY_CASEFOLD.get(v.casefold(), v)
+
+
+def _normalize_influences(v: list[str]) -> list[str]:
+    return [_INFLUENCE_BY_CASEFOLD.get(inf.casefold(), inf) for inf in v]
 
 
 class ItemMod(BaseModel):
@@ -15,6 +28,8 @@ class ItemMod(BaseModel):
     Tracks mod text plus metadata flags (prefix/suffix, crafted, fractured,
     influence). Used inside Item.implicits and Item.explicits.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     text: str
     mod_id: str = ""
@@ -50,7 +65,9 @@ class Item(BaseModel):
     Open prefix/suffix counts are computed from the slot arrays.
     """
 
-    id: int = Field(gt=0)
+    model_config = ConfigDict(validate_assignment=True)
+
+    id: int = Field(ge=0)
     text: str
     variant: str = ""
     variant_alt: str = ""
@@ -58,7 +75,7 @@ class Item(BaseModel):
     variant_alt3: str = ""
     variant_alt4: str = ""
     variant_alt5: str = ""
-    selected_variant: int = 0
+    selected_variant: int = Field(default=0, ge=0)
     rarity: str = ""
     name: str = ""
     base_type: str = ""
@@ -71,14 +88,26 @@ class Item(BaseModel):
     is_split: bool = False
     has_veiled_prefix: bool = False
     has_veiled_suffix: bool = False
-    quality: int = Field(default=0, ge=0, le=30)
+    quality: int = Field(default=0, ge=0)
     sockets: str = ""
     level_req: int = Field(default=0, ge=0)
-    item_level: int = Field(default=0, ge=0, le=100)
+    item_level: int = Field(default=0, ge=0)
     armour: int = Field(default=0, ge=0)
     evasion: int = Field(default=0, ge=0)
     energy_shield: int = Field(default=0, ge=0)
     ward: int = Field(default=0, ge=0)
+
+    @field_validator("rarity", mode="before")
+    @classmethod
+    def _normalize_rarity(cls, v: str) -> str:
+        return _normalize_rarity(v) if isinstance(v, str) else v
+
+    @field_validator("influences", mode="before")
+    @classmethod
+    def _normalize_influences(cls, v: list[str]) -> list[str]:
+        if isinstance(v, list):
+            return _normalize_influences(v)
+        return v
 
     @model_validator(mode="after")
     def _validate_rarity_and_influences(self) -> Item:
@@ -94,13 +123,13 @@ class Item(BaseModel):
         return self
 
     catalyst_type: str = ""
-    catalyst_quality: int = 0
+    catalyst_quality: int = Field(default=0, ge=0)
     unique_id: str = ""
-    talisman_tier: int = 0
+    talisman_tier: int = Field(default=0, ge=0)
     cluster_jewel_skill: str = ""
-    cluster_jewel_node_count: int = 0
+    cluster_jewel_node_count: int = Field(default=0, ge=0)
     jewel_radius: str = ""
-    limited_to: int = 0
+    limited_to: int = Field(default=0, ge=0)
     item_class: str = ""
     foil_type: str = ""
     prefix_slots: list[str | None] = []
@@ -133,8 +162,10 @@ class Item(BaseModel):
 class ItemSlot(BaseModel):
     """Binds an item ID to a named equipment slot within an ItemSet."""
 
-    name: str = Field(min_length=1)
-    item_id: int = Field(gt=0)
+    model_config = ConfigDict(validate_assignment=True)
+
+    name: str = ""
+    item_id: int = Field(default=0, ge=0)
     active: bool = True
     item_pb_url: str = ""
 
@@ -146,7 +177,9 @@ class ItemSet(BaseModel):
     BuildDocument.active_item_set.
     """
 
-    id: str = Field(default="1", min_length=1)
+    model_config = ConfigDict(validate_assignment=True)
+
+    id: str = "1"
     title: str = ""
     slots: list[ItemSlot] = []
     socket_id_urls: list[TreeSocket] = []
@@ -159,13 +192,20 @@ class ItemSummary(BaseModel):
     Subset of Item fields — no mods, no prefix/suffix tracking.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     slot: str
     name: str
     base_type: str
     rarity: str
     influences: list[str] = []
     sockets: str = ""
-    quality: int = Field(default=0, ge=0, le=30)
+    quality: int = Field(default=0, ge=0)
+
+    @field_validator("rarity", mode="before")
+    @classmethod
+    def _normalize_rarity(cls, v: str) -> str:
+        return _normalize_rarity(v) if isinstance(v, str) else v
 
     @model_validator(mode="after")
     def _validate_rarity(self) -> ItemSummary:

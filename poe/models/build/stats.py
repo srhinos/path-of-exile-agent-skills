@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from math import isfinite
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class StatEntry(BaseModel):
     """A single player stat parsed from the build XML's PlayerStat elements."""
 
-    stat: str = Field(min_length=1)
+    model_config = ConfigDict(validate_assignment=True)
+
+    stat: str = ""
     value: float
 
     @field_validator("value")
