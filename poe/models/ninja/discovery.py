@@ -4,7 +4,7 @@ from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-_PERCENTAGE_MAX = 100
+from poe.constants import PERCENTAGE_MAX
 
 
 class LeagueInfo(BaseModel):
@@ -88,8 +88,8 @@ class BuildStat(BaseModel):
     def _validate_percentage(cls, v: float) -> float:
         if not isfinite(v):
             raise ValueError("percentage must be finite")
-        if v < 0 or v > _PERCENTAGE_MAX:
-            raise ValueError(f"percentage must be in 0..{_PERCENTAGE_MAX}, got {v}")
+        if v < 0 or v > PERCENTAGE_MAX:
+            raise ValueError(f"percentage must be in 0..{PERCENTAGE_MAX}, got {v}")
         return v
 
 

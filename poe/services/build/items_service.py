@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from poe.exceptions import BuildValidationError, SlotError
 from poe.models.build.build import MutationResult
 from poe.models.build.items import (
+    VALID_RARITIES,
     EquippedItem,
     Item,
     ItemDiff,
@@ -15,7 +16,7 @@ from poe.models.build.items import (
     ItemSlot,
 )
 from poe.services.build.build_service import BuildService
-from poe.services.build.constants import SLOT_TYPE_MAP, STALE_STATS_WARNING, VALID_RARITIES
+from poe.services.build.constants import SLOT_TYPE_MAP, STALE_STATS_WARNING
 from poe.services.build.xml.slots import normalize_slot
 
 if TYPE_CHECKING:

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel, Field, field_validator
 
-_TREE_VERSION_PATTERN = re.compile(r"^\d+_\d+$")
+from poe.constants import VERSION_PATTERN
 
 
 class MasteryMapping(BaseModel):
@@ -64,7 +62,7 @@ class TreeSpec(BaseModel):
     @field_validator("tree_version")
     @classmethod
     def _validate_tree_version(cls, v: str) -> str:
-        if v and not _TREE_VERSION_PATTERN.match(v):
+        if v and not VERSION_PATTERN.match(v):
             raise ValueError(f"tree_version must match X_Y format (e.g. '3_25'), got {v!r}")
         return v
 

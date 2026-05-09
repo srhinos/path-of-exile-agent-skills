@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from poe.constants import VERSION_PATTERN
 from poe.models.build.config import BuildConfig
 from poe.models.build.gems import GemGroup
 from poe.models.build.items import Item, ItemSet
 from poe.models.build.stats import StatEntry
 from poe.models.build.tree import TreeSpec
-
-_TARGET_VERSION_PATTERN = re.compile(r"^\d+_\d+$")
 
 
 class BuildMetadata(BaseModel):
@@ -101,7 +98,7 @@ class BuildDocument(BaseModel):
     @field_validator("target_version")
     @classmethod
     def _validate_target_version(cls, v: str) -> str:
-        if not _TARGET_VERSION_PATTERN.match(v):
+        if not VERSION_PATTERN.match(v):
             raise ValueError(f"target_version must match X_Y format (e.g. '3_25'), got {v!r}")
         return v
 

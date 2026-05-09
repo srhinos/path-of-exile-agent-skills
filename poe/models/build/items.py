@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from poe.models.build.tree import TreeSocket
 from poe.types import Influence, Rarity
 
-_VALID_INFLUENCES = {i.value for i in Influence}
-_VALID_RARITIES = {r.value for r in Rarity}
+VALID_INFLUENCES = frozenset(Influence)
+VALID_RARITIES = frozenset(Rarity)
 
 
 class ItemMod(BaseModel):
@@ -82,14 +82,14 @@ class Item(BaseModel):
 
     @model_validator(mode="after")
     def _validate_rarity_and_influences(self) -> Item:
-        if self.rarity and self.rarity not in _VALID_RARITIES:
+        if self.rarity and self.rarity not in VALID_RARITIES:
             raise ValueError(
-                f"Invalid rarity: {self.rarity!r}. Must be one of {sorted(_VALID_RARITIES)}"
+                f"Invalid rarity: {self.rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
             )
         for inf in self.influences:
-            if inf not in _VALID_INFLUENCES:
+            if inf not in VALID_INFLUENCES:
                 raise ValueError(
-                    f"Invalid influence: {inf!r}. Must be one of {sorted(_VALID_INFLUENCES)}"
+                    f"Invalid influence: {inf!r}. Must be one of {sorted(VALID_INFLUENCES)}"
                 )
         return self
 
@@ -169,9 +169,9 @@ class ItemSummary(BaseModel):
 
     @model_validator(mode="after")
     def _validate_rarity(self) -> ItemSummary:
-        if self.rarity and self.rarity not in _VALID_RARITIES:
+        if self.rarity and self.rarity not in VALID_RARITIES:
             raise ValueError(
-                f"Invalid rarity: {self.rarity!r}. Must be one of {sorted(_VALID_RARITIES)}"
+                f"Invalid rarity: {self.rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
             )
         return self
 

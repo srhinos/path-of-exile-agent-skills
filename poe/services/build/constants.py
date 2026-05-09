@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import re
 
-from poe.types import Rarity
-
 STALE_STATS_WARNING = (
     "PlayerStats are stale until the build is recalculated in PoB or via 'poe build engine load'."
 )
-
-VALID_RARITIES = frozenset(Rarity)
 
 CLASS_IDS: dict[str, int] = {
     "Scion": 0,

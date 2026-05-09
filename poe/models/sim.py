@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import re
 from math import isfinite
 
 from pydantic import BaseModel, Field, field_validator
 
+from poe.constants import HIT_RATE_PATTERN, VALID_AFFIXES, VALID_AFFIXES_OR_EMPTY
 from poe.types import CraftMethod, MatchMode
 
-_VALID_AFFIXES = {"prefix", "suffix"}
-_VALID_AFFIXES_OR_EMPTY = {"", "prefix", "suffix", "implicit"}
-_HIT_RATE_PATTERN = re.compile(r"^\d+(\.\d+)?%$")
-_VALID_METHODS = {m.value for m in CraftMethod}
-_VALID_MATCH_MODES = {m.value for m in MatchMode}
+VALID_METHODS = frozenset(CraftMethod)
+VALID_MATCH_MODES = frozenset(MatchMode)
 
 
 def _ensure_finite(v: float) -> float:
@@ -48,7 +45,7 @@ class Mod(BaseModel):
     @field_validator("affix")
     @classmethod
     def _validate_affix(cls, v: str) -> str:
-        if v not in _VALID_AFFIXES:
+        if v not in VALID_AFFIXES:
             raise ValueError(f"affix must be 'prefix' or 'suffix', got {v!r}")
         return v
 
@@ -120,8 +117,8 @@ class IdentifiedMod(BaseModel):
     @field_validator("affix")
     @classmethod
     def _validate_affix(cls, v: str) -> str:
-        if v not in _VALID_AFFIXES_OR_EMPTY:
-            raise ValueError(f"affix must be one of {sorted(_VALID_AFFIXES_OR_EMPTY)}, got {v!r}")
+        if v not in VALID_AFFIXES_OR_EMPTY:
+            raise ValueError(f"affix must be one of {sorted(VALID_AFFIXES_OR_EMPTY)}, got {v!r}")
         return v
 
 
@@ -200,21 +197,21 @@ class SimulationResult(BaseModel):
     @field_validator("method")
     @classmethod
     def _validate_method(cls, v: str) -> str:
-        if v not in _VALID_METHODS:
+        if v not in VALID_METHODS:
             raise ValueError(f"method must be a valid CraftMethod, got {v!r}")
         return v
 
     @field_validator("match_mode")
     @classmethod
     def _validate_match_mode(cls, v: str) -> str:
-        if v not in _VALID_MATCH_MODES:
-            raise ValueError(f"match_mode must be one of {sorted(_VALID_MATCH_MODES)}, got {v!r}")
+        if v not in VALID_MATCH_MODES:
+            raise ValueError(f"match_mode must be one of {sorted(VALID_MATCH_MODES)}, got {v!r}")
         return v
 
     @field_validator("hit_rate")
     @classmethod
     def _validate_hit_rate(cls, v: str) -> str:
-        if v and not _HIT_RATE_PATTERN.match(v):
+        if v and not HIT_RATE_PATTERN.match(v):
             raise ValueError(f"hit_rate must match pattern N% or N.N% (e.g. '12.5%'), got {v!r}")
         return v
 
