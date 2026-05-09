@@ -27,12 +27,16 @@ class StatBlock(BaseModel):
     Category is "off", "def", or "all" — controls which stats are included.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     category: str = "all"
     stats: dict[str, float] = {}
 
 
 class StatDiff(BaseModel):
     """A single stat's values across two builds, with computed diff and pct change."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     stat: str
     value1: float

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class HistoryPoint(BaseModel):
     """A single daily price data point."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     count: int = 0
     value: float = 0.0
@@ -16,7 +16,7 @@ class HistoryPoint(BaseModel):
 class CurrencyPairHistoryEntry(BaseModel):
     """A single history entry within a currency exchange pair."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     timestamp: str = ""
     rate: float = 0.0
@@ -26,7 +26,7 @@ class CurrencyPairHistoryEntry(BaseModel):
 class CurrencyPair(BaseModel):
     """An exchange pair from the currency details endpoint."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: str = ""
     rate: float = 0.0
@@ -37,7 +37,7 @@ class CurrencyPair(BaseModel):
 class CurrencyDetailsItem(BaseModel):
     """The 'item' block in the currency details response."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: str = ""
     name: str = ""
@@ -49,7 +49,7 @@ class CurrencyDetailsItem(BaseModel):
 class CurrencyDetailsResponse(BaseModel):
     """Raw response from /poe1/api/economy/exchange/current/details."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     item: CurrencyDetailsItem = Field(default_factory=CurrencyDetailsItem)
     pairs: list[CurrencyPair] = Field(default_factory=list)
@@ -64,7 +64,7 @@ class CurrencyHistoryResponse(BaseModel):
     about pair structure.
     """
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     pay_currency_graph_data: list[HistoryPoint] = Field(
         default_factory=list, alias="payCurrencyGraphData"
@@ -76,6 +76,8 @@ class CurrencyHistoryResponse(BaseModel):
 
 class TrendAnalysis(BaseModel):
     """Analytics summary for a price history series."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     current_price: float = 0.0
     average_7d: float | None = None
@@ -93,6 +95,8 @@ class TrendAnalysis(BaseModel):
 
 class PriceHistory(BaseModel):
     """Full price history with analytics for an item."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     item_name: str
     item_type: str

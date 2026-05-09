@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class DefensiveStats(BaseModel):
     """Defensive stats shared between PoE1 and PoE2 characters."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     life: int = 0
     energy_shield: int = Field(0, alias="energyShield")
@@ -55,7 +55,7 @@ class DefensiveStats(BaseModel):
 class SkillDps(BaseModel):
     """DPS breakdown for a skill."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     name: str = ""
     dps: int = 0
@@ -68,7 +68,7 @@ class SkillDps(BaseModel):
 class CharacterSkillGem(BaseModel):
     """A gem within a skill group."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     name: str = ""
     level: int = 0
@@ -80,7 +80,7 @@ class CharacterSkillGem(BaseModel):
 class CharacterSkill(BaseModel):
     """A skill group (linked gems)."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     all_gems: list[CharacterSkillGem] = Field(default_factory=list, alias="allGems")
     dps: list[SkillDps] = Field(default_factory=list)
@@ -90,7 +90,7 @@ class CharacterSkill(BaseModel):
 class CharacterItem(BaseModel):
     """An equipped item from poe.ninja character API."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     item_slot: int = Field(0, alias="itemSlot")
     item_data: dict = Field(default_factory=dict, alias="itemData")
@@ -99,7 +99,7 @@ class CharacterItem(BaseModel):
 class CharacterFlask(BaseModel):
     """An equipped flask."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     item_slot: int = Field(0, alias="itemSlot")
     item_data: dict = Field(default_factory=dict, alias="itemData")
@@ -108,7 +108,7 @@ class CharacterFlask(BaseModel):
 class CharacterCharm(BaseModel):
     """An equipped charm (PoE2 only)."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     item_slot: int = Field(0, alias="itemSlot")
     item_data: dict = Field(default_factory=dict, alias="itemData")
@@ -117,7 +117,7 @@ class CharacterCharm(BaseModel):
 class CharacterJewel(BaseModel):
     """An equipped jewel."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     item_slot: int = Field(0, alias="itemSlot")
     item_data: dict = Field(default_factory=dict, alias="itemData")
@@ -126,7 +126,7 @@ class CharacterJewel(BaseModel):
 class Keystone(BaseModel):
     """An allocated keystone passive."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     name: str = ""
     icon: str = ""
@@ -136,7 +136,7 @@ class Keystone(BaseModel):
 class Mastery(BaseModel):
     """An allocated mastery passive."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     name: str = ""
     group: str = ""
@@ -145,7 +145,7 @@ class Mastery(BaseModel):
 class CharacterResponse(BaseModel):
     """Unified character response for both PoE1 and PoE2."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     account: str = ""
     name: str = ""
@@ -188,7 +188,7 @@ class CharacterResponse(BaseModel):
 class TooltipMod(BaseModel):
     """A single modifier in a tooltip."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     text: str = ""
     optional: bool = False
@@ -197,7 +197,7 @@ class TooltipMod(BaseModel):
 class TooltipResponse(BaseModel):
     """Tooltip response for items, keystones, anointments, etc."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     name: str = ""
     implicit_mods: list[TooltipMod] = Field(default_factory=list, alias="implicitMods")
@@ -207,6 +207,8 @@ class TooltipResponse(BaseModel):
 
 class MetaSummary(BaseModel):
     """Meta overview with top builds and trends."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     game: str = "poe1"
     league: str = ""
@@ -219,6 +221,8 @@ class MetaSummary(BaseModel):
 class DimensionEntry(BaseModel):
     """A resolved dimension entry with human-readable name and count."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str
     count: int
     percentage: float = 0.0
@@ -227,12 +231,16 @@ class DimensionEntry(BaseModel):
 class ResolvedDimension(BaseModel):
     """A categorical dimension with resolved string values."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str
     entries: list[DimensionEntry] = Field(default_factory=list)
 
 
 class IntegerRange(BaseModel):
     """A numeric stat range from search results."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str
     min_value: int = 0
@@ -241,6 +249,8 @@ class IntegerRange(BaseModel):
 
 class SearchCharacter(BaseModel):
     """A character from search results with all available stats."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str
     account: str
@@ -256,6 +266,8 @@ class SearchCharacter(BaseModel):
 
 class SearchResults(BaseModel):
     """Parsed and resolved builds search results."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     total: int = 0
     characters: list[SearchCharacter] = Field(default_factory=list)

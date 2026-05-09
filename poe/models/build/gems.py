@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class Gem(BaseModel):
@@ -10,6 +10,8 @@ class Gem(BaseModel):
     (Anomalous, Divergent, Phantasmal). skill_part and skill_minion
     select sub-skills for DPS calculations.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name_spec: str
     skill_id: str = ""
@@ -43,6 +45,8 @@ class GemGroup(BaseModel):
     slot this skill is socketed in (if any).
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     slot: str = ""
     label: str = ""
     enabled: bool = True
@@ -57,6 +61,8 @@ class GemGroup(BaseModel):
 class GemSet(BaseModel):
     """A named collection of gem groups (PoB supports multiple skill sets)."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: int
     title: str = ""
     groups: list[GemGroup] = []
@@ -65,6 +71,8 @@ class GemSet(BaseModel):
 class SkillSetSummary(BaseModel):
     """Compact skill set info for GemsService.list_sets()."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: int
     active: bool = False
 
@@ -72,12 +80,16 @@ class SkillSetSummary(BaseModel):
 class SkillSetList(BaseModel):
     """Response from GemsService.list_sets() — all skill sets with active indicator."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     active_skill_set: int
     sets: list[SkillSetSummary] = []
 
 
 class GemSummary(BaseModel):
     """Lightweight gem view for search results. Subset of Gem fields."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str
     level: int = 20

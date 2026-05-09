@@ -219,6 +219,8 @@ class ItemSummary(BaseModel):
 class ItemSetSummary(BaseModel):
     """Summary of an item set for ItemsService.list_sets()."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str
     slot_count: int = 0
     active: bool = False
@@ -226,6 +228,8 @@ class ItemSetSummary(BaseModel):
 
 class ItemSetList(BaseModel):
     """Response from ItemsService.list_sets() — all item sets with active indicator."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     active_item_set: str
     sets: list[ItemSetSummary] = []
@@ -244,6 +248,8 @@ class EquippedItem(Item):
 
 class ItemDiff(BaseModel):
     """A single field difference between two items in the same slot."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     slot: str
     field: str

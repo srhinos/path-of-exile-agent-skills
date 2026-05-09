@@ -20,6 +20,8 @@ def _ensure_finite(v: float) -> float:
 class ModWeight(BaseModel):
     """A fossil or essence modifier that scales a mod's spawn weight."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     tag: str = Field(min_length=1)
     multiplier: float
 
@@ -34,6 +36,8 @@ class Mod(BaseModel):
 
     Returned inside ModPoolResult.mods from SimService.get_mods().
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     mod_id: str
     name: str
@@ -53,6 +57,8 @@ class Mod(BaseModel):
 class ModTier(BaseModel):
     """A specific tier of a mod, showing ilvl requirement and stat ranges."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     tier: int = Field(ge=1)
     ilvl: int = Field(ge=0, le=100)
     values: list = []
@@ -65,6 +71,8 @@ class Fossil(BaseModel):
 
     Returned inside FossilListResult from SimService.get_fossils().
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str = Field(min_length=1)
     mod_weights: dict[str, float] = {}
@@ -85,6 +93,8 @@ class Essence(BaseModel):
     Returned inside EssenceListResult from SimService.get_essences().
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str = Field(min_length=1)
     tier: str = ""
     mods: list[dict] = []
@@ -92,6 +102,8 @@ class Essence(BaseModel):
 
 class BenchCraft(BaseModel):
     """A crafting bench option available for a base item."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str = Field(min_length=1)
     mod: str = ""
@@ -101,6 +113,8 @@ class BenchCraft(BaseModel):
 class CurrencyPrices(BaseModel):
     """Currency/fossil/essence prices in chaos equivalents from poe.ninja."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     currency: dict[str, float] = {}
     fossils: dict[str, float] = {}
     essences: dict[str, float] = {}
@@ -108,6 +122,8 @@ class CurrencyPrices(BaseModel):
 
 class IdentifiedMod(BaseModel):
     """A mod on an item matched against the crafting database."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     text: str
     mod_id: str = ""
@@ -128,6 +144,8 @@ class IdentifiedMod(BaseModel):
 class ModPoolResult(BaseModel):
     """Response from SimService.get_mods() — rollable mods for a base item."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     base: str
     ilvl: int
     influences: list[str] = []
@@ -139,6 +157,8 @@ class ModPoolResult(BaseModel):
 class ModTierResult(BaseModel):
     """Response from SimService.get_tiers() — tier breakdown for a mod."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     mod_id: str
     base: str
     ilvl: int
@@ -148,6 +168,8 @@ class ModTierResult(BaseModel):
 class FossilListResult(BaseModel):
     """Response from SimService.get_fossils()."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     filter: str | None = None
     count: int = 0
     fossils: list[dict] = []
@@ -155,6 +177,8 @@ class FossilListResult(BaseModel):
 
 class EssenceListResult(BaseModel):
     """Response from SimService.get_essences()."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     base: str = "all"
     count: int = 0
@@ -164,6 +188,8 @@ class EssenceListResult(BaseModel):
 class BenchCraftListResult(BaseModel):
     """Response from SimService.get_bench_crafts()."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     base: str
     count: int = 0
     crafts: list[dict] = []
@@ -171,6 +197,8 @@ class BenchCraftListResult(BaseModel):
 
 class BaseItemSearchResult(BaseModel):
     """Response from SimService.search_bases() — matching base items."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     query: str
     count: int = 0
@@ -235,6 +263,8 @@ class ItemAnalysisResult(BaseModel):
     item contains the equipped item data, analysis contains open affix
     counts, available mods, and bench craft options.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     slot: str
     item: dict = {}

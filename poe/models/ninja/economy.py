@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class SparkLine(BaseModel):
     """7-day price trend data."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     data: list[float | None] = []
     total_change: float = Field(0.0, alias="totalChange")
@@ -15,7 +15,7 @@ class SparkLine(BaseModel):
 class TradeData(BaseModel):
     """Buy/sell trade sampling data from currency overview."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: int = 0
     league_id: int = Field(0, alias="league_id")
@@ -32,7 +32,7 @@ class TradeData(BaseModel):
 class CurrencyDetail(BaseModel):
     """Currency metadata including trade site ID."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: int = 0
     icon: str | None = None
@@ -43,7 +43,7 @@ class CurrencyDetail(BaseModel):
 class CurrencyLine(BaseModel):
     """A single currency entry from the stash currency overview."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     currency_type_name: str = Field("", alias="currencyTypeName")
     pay: TradeData | None = None
@@ -61,7 +61,7 @@ class CurrencyLine(BaseModel):
 class CurrencyOverviewResponse(BaseModel):
     """Response from the stash currency overview endpoint."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     lines: list[CurrencyLine] = []
     currency_details: list[CurrencyDetail] = Field([], alias="currencyDetails")
@@ -70,7 +70,7 @@ class CurrencyOverviewResponse(BaseModel):
 class Modifier(BaseModel):
     """Item modifier text."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     text: str = ""
     optional: bool = False
@@ -79,7 +79,7 @@ class Modifier(BaseModel):
 class TradeInfo(BaseModel):
     """Trade filter info for an item line."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     mod: str = ""
     min: float = 0.0
@@ -90,7 +90,7 @@ class TradeInfo(BaseModel):
 class ItemLine(BaseModel):
     """A single item entry from the stash item overview."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: int = 0
     name: str = ""
@@ -127,7 +127,7 @@ class ItemLine(BaseModel):
 class ItemOverviewResponse(BaseModel):
     """Response from the stash item overview endpoint."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     lines: list[ItemLine] = []
 
@@ -135,7 +135,7 @@ class ItemOverviewResponse(BaseModel):
 class CoreItem(BaseModel):
     """Currency item in the exchange core rates."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: str = ""
     name: str = ""
@@ -147,7 +147,7 @@ class CoreItem(BaseModel):
 class ExchangeCore(BaseModel):
     """Core rates and primary/secondary currency info."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     items: list[CoreItem] = []
     rates: dict[str, float] = {}
@@ -158,7 +158,7 @@ class ExchangeCore(BaseModel):
 class ExchangeLine(BaseModel):
     """A single item entry from the exchange overview."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: str = ""
     primary_value: float = Field(0.0, alias="primaryValue")
@@ -171,7 +171,7 @@ class ExchangeLine(BaseModel):
 class ExchangeItem(BaseModel):
     """Item metadata from the exchange overview."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     id: str = ""
     name: str = ""
@@ -183,7 +183,7 @@ class ExchangeItem(BaseModel):
 class ExchangeOverviewResponse(BaseModel):
     """Response from the exchange overview endpoint."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     core: ExchangeCore = ExchangeCore()
     lines: list[ExchangeLine] = []
@@ -192,6 +192,8 @@ class ExchangeOverviewResponse(BaseModel):
 
 class PriceResult(BaseModel):
     """Normalized price result returned by EconomyService."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str
     chaos_value: float
@@ -215,6 +217,8 @@ class PriceResult(BaseModel):
 
 class CraftingPrices(BaseModel):
     """Chaos-denominated prices for crafting materials."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     currency: dict[str, float] = {}
     fossils: dict[str, float] = {}

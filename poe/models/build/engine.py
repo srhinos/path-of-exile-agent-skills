@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class EngineInfo(BaseModel):
@@ -9,6 +9,8 @@ class EngineInfo(BaseModel):
     Reports whether PoB is found, the engine is initialized,
     and a build is loaded for stat calculation.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     pob_path: str = ""
     initialized: bool = False
@@ -22,6 +24,8 @@ class EngineStats(BaseModel):
     Populated by engine.extractors from the Lua runtime output.
     Stats are key-value pairs like {"CombinedDPS": 12345.6, "Life": 5000.0}.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     stats: dict[str, float] = {}
     build_name: str = ""

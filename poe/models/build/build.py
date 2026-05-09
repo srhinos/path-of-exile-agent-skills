@@ -18,6 +18,8 @@ class BuildMetadata(BaseModel):
     BuildComparison.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str
     file_path: str = ""
     class_name: str = ""
@@ -28,6 +30,8 @@ class BuildMetadata(BaseModel):
 
 class BuildNotes(BaseModel):
     """Notes text attached to a build, returned by BuildService.notes_get()."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     build_name: str
     notes: str = ""
@@ -40,6 +44,8 @@ class ValidationIssue(BaseModel):
     resistances, life_pool, defenses, attributes, flasks.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     severity: str
     category: str
     message: str
@@ -48,6 +54,8 @@ class ValidationIssue(BaseModel):
 
 class ValidationResult(BaseModel):
     """Full result from BuildService.validate(), wrapping all issues found."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     build: str
     issues: list[ValidationIssue] = []
@@ -62,7 +70,7 @@ class MutationResult(BaseModel):
     Used by all services for mutation returns.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     status: str = "ok"
     warning: str | None = None
@@ -176,6 +184,8 @@ class BuildComparison(BaseModel):
     Returned by BuildService.compare(). stat_comparison maps stat names
     to per-build values and diff. config_diff shows only differing keys.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     build1: BuildMetadata
     build2: BuildMetadata

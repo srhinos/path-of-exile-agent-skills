@@ -10,7 +10,7 @@ from poe.constants import PERCENTAGE_MAX
 class LeagueInfo(BaseModel):
     """League identity from index-state endpoints."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     name: str = Field(min_length=1)
     url: str = Field(min_length=1)
@@ -22,7 +22,7 @@ class LeagueInfo(BaseModel):
 class Poe1Snapshot(BaseModel):
     """PoE1 snapshot version with time machine labels."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     url: str
     type: str
@@ -38,7 +38,7 @@ class Poe1Snapshot(BaseModel):
 class Poe2Snapshot(BaseModel):
     """PoE2 snapshot version with time machine labels."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     url: str
     name: str
@@ -52,7 +52,7 @@ class Poe2Snapshot(BaseModel):
 class Poe1IndexState(BaseModel):
     """PoE1 index-state response with leagues and snapshots."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     economy_leagues: list[LeagueInfo] = []
     old_economy_leagues: list[LeagueInfo] = []
@@ -64,7 +64,7 @@ class Poe1IndexState(BaseModel):
 class Poe2IndexState(BaseModel):
     """PoE2 index-state response with leagues and snapshots."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     economy_leagues: list[LeagueInfo] = []
     old_economy_leagues: list[LeagueInfo] = []
@@ -76,7 +76,7 @@ class Poe2IndexState(BaseModel):
 class BuildStat(BaseModel):
     """Top class/skill combo from build-index-state."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     class_name: str = Field(alias="class", min_length=1)
     skill: str = ""
@@ -96,7 +96,7 @@ class BuildStat(BaseModel):
 class LeagueBuild(BaseModel):
     """Per-league build summary from build-index-state."""
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     league_name: str
     league_url: str
@@ -108,7 +108,7 @@ class LeagueBuild(BaseModel):
 class BuildIndexState(BaseModel):
     """Build index-state response listing leagues and build counts."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     league_builds: list[LeagueBuild] = []
 
@@ -116,7 +116,7 @@ class BuildIndexState(BaseModel):
 class AtlasLeague(BaseModel):
     """League entry from atlas-tree-index-state."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     league_name: str
     league_url: str
@@ -125,7 +125,7 @@ class AtlasLeague(BaseModel):
 class AtlasSnapshot(BaseModel):
     """Atlas tree snapshot version."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     url: str = ""
     type: str = ""
@@ -141,7 +141,7 @@ class AtlasSnapshot(BaseModel):
 class AtlasTreeIndexState(BaseModel):
     """Atlas tree index-state response."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     leagues: list[AtlasLeague] = []
     old_leagues: list[AtlasLeague] = []
@@ -150,6 +150,8 @@ class AtlasTreeIndexState(BaseModel):
 
 class CacheStatusEntry(BaseModel):
     """Status of a single cache key."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str = Field(min_length=1)
     is_cached: bool = False
@@ -171,6 +173,8 @@ class CacheStatusEntry(BaseModel):
 
 class CacheStatusReport(BaseModel):
     """Cache status summary across all ninja cache keys."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     cache_dir: str = Field(min_length=1)
     entries: list[CacheStatusEntry] = []

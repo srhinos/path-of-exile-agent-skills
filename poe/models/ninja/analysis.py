@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SlotCost(BaseModel):
     """Cost of a single equipment slot."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     slot: str
     item_name: str
@@ -15,6 +17,8 @@ class SlotCost(BaseModel):
 
 class BuildCost(BaseModel):
     """Total build cost with per-slot breakdown."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     total_chaos: float = 0.0
     total_divine: float | None = None
@@ -27,6 +31,8 @@ class BuildCost(BaseModel):
 
 class UpgradeSuggestion(BaseModel):
     """A suggested upgrade for a build slot."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     slot: str
     current_item: str

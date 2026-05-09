@@ -94,6 +94,8 @@ class TreeSummary(BaseModel):
     just enough to show in a spec picker.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     index: int = Field(ge=1)
     title: str
     tree_version: str = ""
@@ -105,6 +107,8 @@ class TreeSummary(BaseModel):
 
 class TreeSpecList(BaseModel):
     """Response from TreeService.get_specs() — all specs with active indicator."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     active_spec: int
     specs: list[TreeSummary] = []
@@ -128,6 +132,8 @@ class TreeComparison(BaseModel):
     Also diffs mastery selections and class/ascendancy choices.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     build1_only: list[int] = []
     build2_only: list[int] = []
     shared: list[int] = []
@@ -139,6 +145,8 @@ class TreeComparison(BaseModel):
 
 class TreeDiff(BaseModel):
     """Directional diff (added/removed) between two tree specs."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     added_nodes: list[int] = []
     removed_nodes: list[int] = []

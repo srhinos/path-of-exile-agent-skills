@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ConfigEntry(BaseModel):
@@ -9,6 +9,8 @@ class ConfigEntry(BaseModel):
     Parsed from PoB XML <Input> elements. input_type determines how
     the value is interpreted (boolean, number, string).
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str
     value: str | float | bool
@@ -22,6 +24,8 @@ class BuildConfig(BaseModel):
     ConfigService.get(). Inputs are the active settings, placeholders
     are default/empty entries shown in the PoB UI.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str = "1"
     title: str = "Default"
