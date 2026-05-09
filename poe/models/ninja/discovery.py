@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from math import isfinite
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+_PERCENTAGE_MAX = 100
 
 
 class LeagueInfo(BaseModel):
@@ -8,8 +12,8 @@ class LeagueInfo(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    name: str
-    url: str
+    name: str = Field(min_length=1)
+    url: str = Field(min_length=1)
     display_name: str | None = None
     hardcore: bool | None = None
     indexed: bool | None = None
@@ -26,7 +30,7 @@ class Poe1Snapshot(BaseModel):
     time_machine_labels: list[str] = []
     version: str
     snapshot_name: str
-    overview_type: int = 0
+    overview_type: int = Field(default=0, ge=0)
     passive_tree: str = ""
     atlas_tree: str = ""
 
@@ -74,10 +78,19 @@ class BuildStat(BaseModel):
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    class_name: str = Field(alias="class")
+    class_name: str = Field(alias="class", min_length=1)
     skill: str = ""
     percentage: float
     trend: int = 0
+
+    @field_validator("percentage")
+    @classmethod
+    def _validate_percentage(cls, v: float) -> float:
+        if not isfinite(v):
+            raise ValueError("percentage must be finite")
+        if v < 0 or v > _PERCENTAGE_MAX:
+            raise ValueError(f"percentage must be in 0..{_PERCENTAGE_MAX}, got {v}")
+        return v
 
 
 class LeagueBuild(BaseModel):
@@ -87,7 +100,7 @@ class LeagueBuild(BaseModel):
 
     league_name: str
     league_url: str
-    total: int = 0
+    total: int = Field(default=0, ge=0)
     status: int = 0
     statistics: list[BuildStat] = []
 
@@ -138,15 +151,26 @@ class AtlasTreeIndexState(BaseModel):
 class CacheStatusEntry(BaseModel):
     """Status of a single cache key."""
 
-    name: str
+    name: str = Field(min_length=1)
     is_cached: bool = False
     is_fresh: bool = False
     age_seconds: float | None = None
     fetched_at: str | None = None
 
+    @field_validator("age_seconds")
+    @classmethod
+    def _validate_age(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not isfinite(v):
+            raise ValueError("age_seconds must be finite or None")
+        if v < 0:
+            raise ValueError(f"age_seconds must be non-negative, got {v}")
+        return v
+
 
 class CacheStatusReport(BaseModel):
     """Cache status summary across all ninja cache keys."""
 
-    cache_dir: str
+    cache_dir: str = Field(min_length=1)
     entries: list[CacheStatusEntry] = []
