@@ -2007,7 +2007,6 @@ class TestFlasksAddNegative:
 
 
 class TestJewelsAddNegative:
-    @pytest.mark.xfail(strict=True, reason="jewels add does not validate base type")
     def test_jewels_add_invalid_base_raises(self, build_file):
         result = invoke_cli(
             cli,

@@ -70,6 +70,8 @@ def normalize_slot(user_input: str) -> str | None:
     Matching is case-insensitive and supports common aliases.
     """
     key = user_input.strip().casefold()
+    if not key:
+        return None
     if key in _SLOT_ALIASES:
         return _SLOT_ALIASES[key]
     # Substring match as fallback.

@@ -83,6 +83,9 @@ class JewelsService:
         explicits: list[str] | None = None,
         file_path: str | None = None,
     ) -> MutationResult:
+        if base not in JEWEL_BASE_TYPES:
+            valid = sorted(JEWEL_BASE_TYPES)
+            raise BuildValidationError(f"Invalid jewel base type {base!r}. Valid types: {valid}")
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         next_id = max((i.id for i in build_obj.items), default=0) + 1
         item = Item(

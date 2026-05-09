@@ -115,7 +115,16 @@ def resolve_build_file(name: str) -> Path:
     raise BuildNotFoundError(f"Build file not found: {name}")
 
 
+def validate_file_path(file_path: str) -> None:
+    parts = Path(file_path).parts
+    if ".." in parts:
+        raise BuildValidationError(
+            f"Invalid file path: {file_path!r} contains '..' (path traversal)"
+        )
+
+
 def resolve_or_file(name: str, file_path: str | None) -> Path:
     if file_path:
+        validate_file_path(file_path)
         return Path(file_path)
     return resolve_build_file(name)

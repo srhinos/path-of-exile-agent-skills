@@ -999,7 +999,6 @@ class TestHardcodedJsonModeBugs:
 
 
 class TestFilePathTraversalUnvalidated:
-    @pytest.mark.xfail(strict=True, reason="--file bypasses path validation")
     def test_file_path_traversal_should_raise_validation_error(self, tmp_path):
         from poe.exceptions import BuildValidationError
 

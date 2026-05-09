@@ -128,7 +128,7 @@ class AtlasService:
             if exact is not None:
                 avg_price = exact
             else:
-                prefix = entry.name.lower().rstrip("s")
+                prefix = entry.name.lower().removesuffix("s")
                 matching = [v for k, v in price_map.items() if k.startswith(prefix)]
                 avg_price = sum(matching) / len(matching) if matching else 0.0
             ev = entry.percentage / 100 * avg_price

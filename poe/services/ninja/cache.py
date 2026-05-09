@@ -48,9 +48,12 @@ def ttl_for_category(category: str) -> int:
 
 def is_fresh(base_dir: Path, key: str, category: str) -> bool:
     ttl = ttl_for_category(category)
-    if ttl == NINJA_TTL_DICTIONARY:
+    override = os.environ.get("POE_NINJA_CACHE_TTL")
+    if override is None and category == "dictionary":
         cf = cache_file(base_dir, key)
         return cf.exists()
+    if ttl <= 0:
+        return False
 
     mf = meta_path(cache_file(base_dir, key))
     if not mf.exists():

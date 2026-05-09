@@ -20,7 +20,13 @@ from poe.models.build.config import BuildConfig
 from poe.models.build.items import ItemSet
 from poe.models.build.stats import StatBlock
 from poe.models.build.tree import TreeSpec
-from poe.paths import list_build_files, resolve_build_file, resolve_or_file, validate_build_name
+from poe.paths import (
+    list_build_files,
+    resolve_build_file,
+    resolve_or_file,
+    validate_build_name,
+    validate_file_path,
+)
 from poe.safety import get_claude_builds_path, is_inside_claude_folder, resolve_for_write
 from poe.services.build.constants import (
     ASCENDANCY_IDS,
@@ -83,6 +89,7 @@ class BuildService:
     ) -> tuple[Path, BuildDocument, str | None]:
         try:
             if file_path:
+                validate_file_path(file_path)
                 path, cloned_from = Path(file_path), None
             else:
                 path, cloned_from = resolve_for_write(name)
@@ -106,6 +113,7 @@ class BuildService:
         file_path: str | None = None,
     ) -> MutationResult:
         if file_path:
+            validate_file_path(file_path)
             path = Path(file_path)
         else:
             builds_path = get_claude_builds_path()
@@ -160,6 +168,7 @@ class BuildService:
         self, name: str, *, file_path: str | None = None, confirm: bool = False
     ) -> MutationResult:
         if file_path:
+            validate_file_path(file_path)
             path = Path(file_path)
         else:
             try:
@@ -348,6 +357,8 @@ class BuildService:
         file_path: str | None = None,
     ) -> MutationResult:
         validate_build_name(new_name)
+        if file_path:
+            validate_file_path(file_path)
         try:
             src = Path(file_path) if file_path else resolve_build_file(name)
         except (FileNotFoundError, BuildNotFoundError) as e:

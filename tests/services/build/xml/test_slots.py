@@ -127,17 +127,9 @@ class TestNormalizeSlotFullCoverage:
     def test_alias_case_insensitive(self, alias, expected):
         assert normalize_slot(alias) == expected
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug: empty string substring-matches first canonical slot",
-    )
     def test_empty_string_returns_none(self):
         assert normalize_slot("") is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Bug: whitespace-only normalizes to first canonical slot via substring",
-    )
     def test_whitespace_only_returns_none(self):
         assert normalize_slot("   ") is None
 

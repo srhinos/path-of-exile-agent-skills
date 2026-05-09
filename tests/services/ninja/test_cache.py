@@ -226,15 +226,6 @@ class TestTtlByCategoryFullEnumCoverage:
 
 
 class TestEnvOverrideEdgeCases:
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: POE_NINJA_CACHE_TTL=0 is documented as 'never fresh', but "
-            "is_fresh() short-circuits on ttl == NINJA_TTL_DICTIONARY (also 0) "
-            "to use file-existence, so 0 actually means 'always fresh if file "
-            "exists'. Caller can't disable freshness via env override."
-        ),
-    )
     def test_zero_string_means_never_fresh(self, tmp_path, monkeypatch):
         monkeypatch.setenv("POE_NINJA_CACHE_TTL", "0")
         ninja_cache.write_cache(tmp_path, "test", {"v": 1})
@@ -260,19 +251,11 @@ class TestEnvOverrideEdgeCases:
         monkeypatch.setenv("POE_NINJA_CACHE_TTL", "-100")
         assert ninja_cache.ttl_for_category("index") == -100
 
-    def test_zero_override_makes_index_treated_as_dictionary(self, tmp_path, monkeypatch):
-        # When override is "0", ttl == NINJA_TTL_DICTIONARY (0), so is_fresh
-        # uses the file-existence special case. This documents the actual
-        # behavior — set ttl=0 effectively turns categories into "always fresh
-        # if file exists", NOT "never fresh".
+    def test_zero_override_disables_freshness_for_all_categories(self, tmp_path, monkeypatch):
         monkeypatch.setenv("POE_NINJA_CACHE_TTL", "0")
         ninja_cache.write_cache(tmp_path, "test", {"v": 1})
-        # The cache file exists, so dictionary-style is_fresh returns True.
-        # The semantic claim "0 means never fresh" is actually NOT honored
-        # when paired with the dictionary-special-case. This is a documented
-        # oddity in is_fresh().
-        result = ninja_cache.is_fresh(tmp_path, "test", "index")
-        assert result is True
+        assert ninja_cache.is_fresh(tmp_path, "test", "index") is False
+        assert ninja_cache.is_fresh(tmp_path, "test", "dictionary") is False
 
 
 class TestIsFreshDictionaryBoundary:

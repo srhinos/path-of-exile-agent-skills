@@ -5,7 +5,12 @@ from pathlib import Path
 
 from poe.constants import CLAUDE_SUBFOLDER
 from poe.exceptions import BuildValidationError
-from poe.paths import get_builds_path, resolve_build_file, validate_build_name
+from poe.paths import (
+    get_builds_path,
+    resolve_build_file,
+    validate_build_name,
+    validate_file_path,
+)
 
 
 def get_claude_builds_path() -> Path:
@@ -55,5 +60,6 @@ def resolve_or_file_for_write(name: str, file_path: str | None) -> tuple[Path, s
     Returns (path, cloned_from). When file_path is given, the safety layer is bypassed.
     """
     if file_path:
+        validate_file_path(file_path)
         return Path(file_path), None
     return resolve_for_write(name)

@@ -222,14 +222,6 @@ class TestScarabPrefixMatching:
         avg_ambush = (5.0 + 15.0) / 2
         assert profits[0]["price_chaos"] == round(avg_ambush, 1)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG: rstrip('s') strips ALL trailing 's' chars, not just one. An entry name "
-        "ending in multiple s's (e.g. 'Goddess', 'Cross') gets over-stripped: "
-        "'Cross'.rstrip('s') == 'cro', which then prefix-matches unrelated names like "
-        "'Crocodile Scarab'. This is a latent bug whenever a scarab category name ends in "
-        "consecutive 's' characters.",
-    )
     def test_rstrip_s_does_not_overstrip_double_s(self, tmp_path):
         svc = _make_atlas_service(tmp_path)
         mock_economy = MagicMock()
