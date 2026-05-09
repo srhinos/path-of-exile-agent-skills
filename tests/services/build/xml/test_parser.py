@@ -1140,6 +1140,52 @@ Item Level: 200
         assert any("item_level=200" in r.message and "maximum" in r.message for r in caplog.records)
 
 
+class TestParseItemSlotBoundary:
+    def test_slot_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+                    </Item>
+                    <ItemSet id="1" title="Default">
+                        <Slot name="" itemId="1"/>
+                        <Slot name="Helmet" itemId="1"/>
+                    </ItemSet>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [s.name for s in build.item_sets[0].slots] == ["Helmet"]
+        assert any("empty name" in r.message for r in caplog.records)
+
+    def test_slot_with_zero_item_id_is_skipped_silently(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+                    </Item>
+                    <ItemSet id="1" title="Default">
+                        <Slot name="Helmet" itemId="0"/>
+                        <Slot name="Body" itemId="1"/>
+                    </ItemSet>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [s.name for s in build.item_sets[0].slots] == ["Body"]
+
+
 class TestParseItemSetBoundary:
     def test_item_set_with_empty_id_is_defaulted_with_warning(self, tmp_path, caplog):
         xml = textwrap.dedent("""\

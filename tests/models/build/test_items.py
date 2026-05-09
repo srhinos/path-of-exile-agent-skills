@@ -10,6 +10,7 @@ from poe.models.build.items import (
     ItemMod,
     ItemSetList,
     ItemSetSummary,
+    ItemSlot,
     ItemSummary,
 )
 from poe.types import Influence, Rarity
@@ -196,6 +197,25 @@ class TestItemSemanticInvariants:
             prefix_slots=["a", None, "b", None, None],
         )
         assert item.open_prefixes + item.filled_prefixes == len(item.prefix_slots)
+
+
+class TestItemSlotInvariants:
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSlot(name="", item_id=1)
+
+    def test_item_id_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSlot(name="Helmet", item_id=0)
+
+    def test_item_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSlot(name="Helmet", item_id=-1)
+
+    def test_valid_slot_constructs(self):
+        slot = ItemSlot(name="Helmet", item_id=5)
+        assert slot.name == "Helmet"
+        assert slot.item_id == 5
 
 
 class TestItemSummaryInvariants:

@@ -164,8 +164,8 @@ class ItemSlot(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    name: str = ""
-    item_id: int = Field(default=0, ge=0)
+    name: str = Field(min_length=1)
+    item_id: int = Field(gt=0)
     active: bool = True
     item_pb_url: str = ""
 

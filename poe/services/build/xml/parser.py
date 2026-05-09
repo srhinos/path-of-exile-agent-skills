@@ -366,15 +366,24 @@ def _parse_items_section(root: Element, build: BuildDocument) -> None:
         )
 
         for slot_el in set_el.findall("Slot"):
-            item_id = int(slot_el.get("itemId", "0"))
-            if item_id > 0:
-                slot = ItemSlot(
-                    name=slot_el.get("name", ""),
+            item_id = _safe_int(slot_el.get("itemId", "0"), 0)
+            slot_name = slot_el.get("name", "")
+            if item_id <= 0:
+                continue
+            if not slot_name:
+                _logger.warning(
+                    "slot with item_id=%d has empty name, skipping",
+                    item_id,
+                )
+                continue
+            item_set.slots.append(
+                ItemSlot(
+                    name=slot_name,
                     item_id=item_id,
                     active=slot_el.get("active", "true").casefold() != "false",
                     item_pb_url=slot_el.get("itemPbURL", ""),
                 )
-                item_set.slots.append(slot)
+            )
 
         for sock_el in set_el.findall("SocketIdURL"):
             item_set.socket_id_urls.append(
