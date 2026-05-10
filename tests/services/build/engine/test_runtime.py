@@ -99,6 +99,60 @@ class TestLuaTableToDict:
 
         assert lua_table_to_dict(BadType()) == {"_raw": "bad-type"}
 
+    def test_self_referential_table_marked_cycle(self):
+        # Self-cycle: t = {}; t.t = t — without cycle detection this stack-overflows.
+        mock_inner = MagicMock()
+        mock_outer = MagicMock()
+        mock_outer.items.return_value = [("self", mock_inner)]
+        mock_inner.items.return_value = [("back", mock_outer)]
+
+        result = lua_table_to_dict(mock_outer)
+        assert result["self"]["back"] == {"_cycle": True}
+
+    def test_disjoint_subtrees_not_falsely_marked_cycle(self):
+        # Cycle detection must release the id when leaving a subtree —
+        # otherwise sibling subtrees with the same id (rare but possible
+        # with mocks/recycled objects) get mis-flagged as cycles.
+        shared_inner = MagicMock()
+        shared_inner.items.return_value = [("v", 1)]
+        outer = MagicMock()
+        outer.items.return_value = [("a", shared_inner), ("b", shared_inner)]
+
+        result = lua_table_to_dict(outer)
+        assert result["a"] == {"v": 1}
+        assert result["b"] == {"v": 1}
+
+    def test_excessive_depth_truncated(self):
+        # Build a >MAX-deep nested chain.
+        from poe.services.build.constants import LUA_TABLE_MAX_DEPTH
+
+        leaf = MagicMock()
+        leaf.items.return_value = [("k", "v")]
+        chain = leaf
+        for _ in range(LUA_TABLE_MAX_DEPTH + 5):
+            wrapper = MagicMock()
+            wrapper.items.return_value = [("next", chain)]
+            chain = wrapper
+
+        result = lua_table_to_dict(chain)
+        # Walk to the truncation marker
+        node = result
+        for _ in range(LUA_TABLE_MAX_DEPTH):
+            assert isinstance(node, dict)
+            node = node.get("next", node)
+        assert node == {"_truncated_depth": True}
+
+    def test_excessive_keys_truncated(self):
+        from poe.services.build.constants import LUA_TABLE_MAX_KEYS
+
+        mock_table = MagicMock()
+        mock_table.items.return_value = [(f"k{i}", i) for i in range(LUA_TABLE_MAX_KEYS + 10)]
+        result = lua_table_to_dict(mock_table)
+        assert result.get("_truncated_keys") is True
+        # Real keys count = LUA_TABLE_MAX_KEYS (the marker doesn't count toward the cap)
+        real = {k: v for k, v in result.items() if not k.startswith("_truncated")}
+        assert len(real) == LUA_TABLE_MAX_KEYS
+
 
 # ── PoBEngine.__init__ ───────────────────────────────────────────────────────
 

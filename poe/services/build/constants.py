@@ -269,6 +269,13 @@ CATEGORY_ALIASES: dict[str, str] = {
     "defense": "def",
 }
 
+# Defensive bounds on Lua → Python table conversion. PoB's stat tables
+# normally nest 2-4 deep with hundreds of keys. The limits below stop a
+# malicious or corrupted Lua state (self-referential table, runaway
+# generator) from OOMing or stack-overflowing the bridge.
+LUA_TABLE_MAX_DEPTH = 32
+LUA_TABLE_MAX_KEYS = 10000
+
 ENGINE_OFF_TERMS = frozenset(
     {"DPS", "Damage", "Hit", "Crit", "Speed", "AverageHit", "AverageBurst"}
 )

@@ -9,6 +9,7 @@ from xml.etree.ElementTree import ParseError as XMLParseError
 from defusedxml import ElementTree as SafeET
 
 from poe.paths import get_pob_path, resolve_build_file
+from poe.services.build.constants import LUA_TABLE_MAX_DEPTH, LUA_TABLE_MAX_KEYS
 from poe.services.build.engine.stubs import register_stubs
 
 _logger = logging.getLogger("poe.engine")
@@ -246,28 +247,54 @@ class PoBEngine:
 def lua_table_to_dict(lua_table) -> dict:
     """Convert a lupa Lua table to a Python dict.
 
-    On iteration failure (AttributeError/TypeError), logs a warning and
-    returns {"_raw": str(...)} as a degraded fallback. Without the warn,
-    a refactor that breaks Lua-table iteration silently returns empty
-    stats with no signal to the caller.
+    Bounded by LUA_TABLE_MAX_DEPTH and LUA_TABLE_MAX_KEYS. Self-referential
+    tables are detected via id() and short-circuited with a "_cycle" marker.
+    On iteration failure, returns {"_raw": str(...)} as a degraded fallback
+    so a broken bridge doesn't masquerade as empty stats.
     """
     if lua_table is None:
         return {}
+    return _lua_table_to_dict_impl(lua_table, depth=0, seen=set())
+
+
+def _lua_table_to_dict_impl(lua_table, *, depth: int, seen: set[int]) -> dict:
+    if depth >= LUA_TABLE_MAX_DEPTH:
+        _logger.warning("lua_table_to_dict truncated at depth %d", LUA_TABLE_MAX_DEPTH)
+        return {"_truncated_depth": True}
+
+    table_id = id(lua_table)
+    if table_id in seen:
+        _logger.warning("lua_table_to_dict detected cycle at depth %d", depth)
+        return {"_cycle": True}
+    seen.add(table_id)
     try:
-        result = {}
-        for k, v in lua_table.items():
-            key = str(k)
-            if hasattr(v, "items"):
-                result[key] = lua_table_to_dict(v)
-            elif hasattr(v, "__iter__") and not isinstance(v, (str, bytes)):
-                result[key] = list(v)
-            else:
-                result[key] = v
-    except (AttributeError, TypeError) as e:
-        _logger.warning("lua_table_to_dict failed to iterate %r: %s", type(lua_table).__name__, e)
-        return {"_raw": str(lua_table)}
-    else:
-        return result
+        try:
+            result: dict = {}
+            for k, v in lua_table.items():
+                if len(result) >= LUA_TABLE_MAX_KEYS:
+                    _logger.warning(
+                        "lua_table_to_dict truncated at %d keys (depth %d)",
+                        LUA_TABLE_MAX_KEYS,
+                        depth,
+                    )
+                    result["_truncated_keys"] = True
+                    break
+                key = str(k)
+                if hasattr(v, "items"):
+                    result[key] = _lua_table_to_dict_impl(v, depth=depth + 1, seen=seen)
+                elif hasattr(v, "__iter__") and not isinstance(v, (str, bytes)):
+                    result[key] = list(v)
+                else:
+                    result[key] = v
+        except (AttributeError, TypeError) as e:
+            _logger.warning(
+                "lua_table_to_dict failed to iterate %r: %s", type(lua_table).__name__, e
+            )
+            return {"_raw": str(lua_table)}
+        else:
+            return result
+    finally:
+        seen.discard(table_id)
 
 
 def check_lua_version() -> dict:
