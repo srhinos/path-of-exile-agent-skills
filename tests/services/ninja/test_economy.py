@@ -367,6 +367,62 @@ class TestItemPricing:
         assert mb.variant == "4 Flask"
 
 
+class TestBoundarySanitize:
+    def test_currency_overview_schema_mismatch_returns_empty(self, tmp_path, caplog):
+        # API returned non-dict at the top level — strict model_validate raises;
+        # the boundary should swallow + warn and return an empty response.
+        svc = _make_service(tmp_path, {"currency/overview": "garbage"})
+        with caplog.at_level("WARNING", logger="poe.ninja.economy"):
+            resp = svc.get_currency_overview("Mirage", "Currency")
+        assert isinstance(resp, CurrencyOverviewResponse)
+        assert resp.lines == []
+        assert any("schema mismatch" in rec.message for rec in caplog.records)
+
+    def test_item_overview_schema_mismatch_returns_empty(self, tmp_path, caplog):
+        svc = _make_service(tmp_path, {"item/overview": ["not", "a", "dict"]})
+        with caplog.at_level("WARNING", logger="poe.ninja.economy"):
+            resp = svc.get_item_overview("Mirage", "UniqueAccessory")
+        assert isinstance(resp, ItemOverviewResponse)
+        assert resp.lines == []
+
+    def test_exchange_overview_schema_mismatch_returns_empty(self, tmp_path):
+        svc = _make_service(tmp_path, {"exchange/current/overview": 42})
+        resp = svc.get_exchange_overview("Mirage", "Currency", game="poe1")
+        assert isinstance(resp, ExchangeOverviewResponse)
+        assert resp.lines == []
+
+    def test_currency_line_with_nan_chaos_skipped(self, tmp_path, caplog):
+        # NaN chaosEquivalent slips PriceResult.chaos_value finite validator.
+        # The boundary catches the per-line ValidationError and skips.
+        nan_resp = {
+            "lines": [
+                {"currencyTypeName": "Bad", "chaosEquivalent": float("nan")},
+                {"currencyTypeName": "Good", "chaosEquivalent": 5.0},
+            ],
+            "currencyDetails": [],
+        }
+        svc = _make_service(tmp_path, {"currency/overview": nan_resp})
+        with caplog.at_level("WARNING", logger="poe.ninja.economy"):
+            prices = svc.get_prices("Mirage", "Currency", game="poe1")
+        names = [p.name for p in prices]
+        assert "Good" in names
+        assert "Bad" not in names
+        assert any("skipping currency line" in rec.message for rec in caplog.records)
+
+    def test_item_line_with_negative_chaos_skipped(self, tmp_path):
+        bad_resp = {
+            "lines": [
+                {"name": "Bad", "chaosValue": -10.0, "detailsId": "bad"},
+                {"name": "Good", "chaosValue": 5.0, "detailsId": "good"},
+            ],
+        }
+        svc = _make_service(tmp_path, {"item/overview": bad_resp})
+        prices = svc.get_prices("Mirage", "UniqueAccessory", game="poe1")
+        names = [p.name for p in prices]
+        assert "Good" in names
+        assert "Bad" not in names
+
+
 class TestExchangePricing:
     def test_prices_from_exchange_poe1(self, tmp_path):
         svc = _make_service(tmp_path, {"exchange/current/overview": EXCHANGE_RESPONSE})

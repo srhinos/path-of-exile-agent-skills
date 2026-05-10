@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from poe.models.ninja.economy import (
     CraftingPrices,
     CurrencyOverviewResponse,
@@ -111,7 +113,16 @@ class EconomyService:
         path = NINJA_ENDPOINTS["poe1_currency_overview"]
         params = {"league": league, "type": item_type, "language": language}
         raw = self._fetch_cached(cache_key, path, params)
-        return CurrencyOverviewResponse.model_validate(raw)
+        try:
+            return CurrencyOverviewResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning(
+                "currency overview schema mismatch (league=%r type=%r): %s — returning empty",
+                league,
+                item_type,
+                e,
+            )
+            return CurrencyOverviewResponse()
 
     def get_item_overview(
         self, league: str, item_type: str, *, language: str = "en"
@@ -120,7 +131,16 @@ class EconomyService:
         path = NINJA_ENDPOINTS["poe1_item_overview"]
         params = {"league": league, "type": item_type, "language": language}
         raw = self._fetch_cached(cache_key, path, params)
-        return ItemOverviewResponse.model_validate(raw)
+        try:
+            return ItemOverviewResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning(
+                "item overview schema mismatch (league=%r type=%r): %s — returning empty",
+                league,
+                item_type,
+                e,
+            )
+            return ItemOverviewResponse()
 
     def get_exchange_overview(
         self, league: str, item_type: str, *, game: str = "poe1"
@@ -130,7 +150,18 @@ class EconomyService:
         path = NINJA_ENDPOINTS[endpoint_key]
         params = {"league": league, "type": item_type}
         raw = self._fetch_cached(cache_key, path, params)
-        return ExchangeOverviewResponse.model_validate(raw)
+        try:
+            return ExchangeOverviewResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning(
+                "exchange overview schema mismatch "
+                "(game=%r league=%r type=%r): %s — returning empty",
+                game,
+                league,
+                item_type,
+                e,
+            )
+            return ExchangeOverviewResponse()
 
     def get_prices(
         self,
@@ -166,19 +197,27 @@ class EconomyService:
         results = []
         for line in resp.lines:
             detail = details_map.get(line.currency_type_name)
-            results.append(
-                PriceResult(
-                    name=line.currency_type_name,
-                    chaos_value=line.chaos_equivalent,
-                    details_id=line.details_id,
-                    trade_id=detail.trade_id if detail else None,
-                    icon=detail.icon if detail else None,
-                    listing_count=line.receive.listing_count if line.receive else None,
-                    sparkline=line.receive_spark_line,
-                    low_confidence=line.receive is None,
-                    category=item_type,
-                ),
-            )
+            try:
+                results.append(
+                    PriceResult(
+                        name=line.currency_type_name,
+                        chaos_value=line.chaos_equivalent,
+                        details_id=line.details_id,
+                        trade_id=detail.trade_id if detail else None,
+                        icon=detail.icon if detail else None,
+                        listing_count=line.receive.listing_count if line.receive else None,
+                        sparkline=line.receive_spark_line,
+                        low_confidence=line.receive is None,
+                        category=item_type,
+                    ),
+                )
+            except ValidationError as e:
+                _logger.warning(
+                    "skipping currency line name=%r chaos=%r: %s",
+                    line.currency_type_name,
+                    line.chaos_equivalent,
+                    e,
+                )
         return results
 
     def _prices_from_items(
@@ -188,26 +227,29 @@ class EconomyService:
         results = []
         for line in resp.lines:
             chaos = line.chaos_value or 0.0
-            results.append(
-                PriceResult(
-                    name=line.name,
-                    chaos_value=chaos,
-                    divine_value=line.divine_value,
-                    details_id=line.details_id or "",
-                    icon=line.icon,
-                    variant=line.variant,
-                    links=line.links,
-                    corrupted=line.corrupted,
-                    gem_level=line.gem_level,
-                    gem_quality=line.gem_quality,
-                    map_tier=line.map_tier,
-                    listing_count=line.listing_count,
-                    sparkline=line.spark_line,
-                    low_confidence=line.count is not None
-                    and line.count < NINJA_LOW_CONFIDENCE_THRESHOLD,
-                    category=item_type,
-                ),
-            )
+            try:
+                results.append(
+                    PriceResult(
+                        name=line.name,
+                        chaos_value=chaos,
+                        divine_value=line.divine_value,
+                        details_id=line.details_id or "",
+                        icon=line.icon,
+                        variant=line.variant,
+                        links=line.links,
+                        corrupted=line.corrupted,
+                        gem_level=line.gem_level,
+                        gem_quality=line.gem_quality,
+                        map_tier=line.map_tier,
+                        listing_count=line.listing_count,
+                        sparkline=line.spark_line,
+                        low_confidence=line.count is not None
+                        and line.count < NINJA_LOW_CONFIDENCE_THRESHOLD,
+                        category=item_type,
+                    ),
+                )
+            except ValidationError as e:
+                _logger.warning("skipping item line name=%r chaos=%r: %s", line.name, chaos, e)
         return results
 
     def _prices_from_exchange(
@@ -219,16 +261,19 @@ class EconomyService:
         for line in resp.lines:
             item = items_map.get(line.id)
             chaos = _exchange_chaos_value(line.primary_value, resp.core.rates, resp.core.primary)
-            results.append(
-                PriceResult(
-                    name=item.name if item else line.id,
-                    chaos_value=chaos,
-                    details_id=item.details_id if item else "",
-                    icon=item.image if item else None,
-                    sparkline=line.sparkline,
-                    category=item.category if item else item_type,
-                ),
-            )
+            try:
+                results.append(
+                    PriceResult(
+                        name=item.name if item else line.id,
+                        chaos_value=chaos,
+                        details_id=item.details_id if item else "",
+                        icon=item.image if item else None,
+                        sparkline=line.sparkline,
+                        category=item.category if item else item_type,
+                    ),
+                )
+            except ValidationError as e:
+                _logger.warning("skipping exchange line id=%r chaos=%r: %s", line.id, chaos, e)
         return results
 
     def price_check(

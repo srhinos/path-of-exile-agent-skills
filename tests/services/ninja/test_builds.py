@@ -61,6 +61,38 @@ class TestGetGenericTooltip:
         assert result is not None
 
 
+class TestSchemaMismatch:
+    def test_get_character_validation_error_returns_none(self, tmp_path, caplog):
+        # API returned a malformed shape (level as a non-coercible string).
+        # Boundary should swallow ValidationError and warn.
+        bad = {"account": "a", "name": "c", "class": "X", "level": "not-a-number"}
+        svc = _make_builds_service(tmp_path, get_json_side_effect=lambda *a, **kw: bad)
+        svc._discovery.get_current_snapshot.return_value = MagicMock(
+            version="v1", snapshot_name="snap"
+        )
+        with caplog.at_level("WARNING", logger="poe.ninja.builds"):
+            result = svc.get_character("a", "c")
+        assert result is None
+        assert any("character schema mismatch" in rec.message for rec in caplog.records)
+
+    def test_get_tooltip_validation_error_returns_none(self, tmp_path, caplog):
+        bad = {"explicitMods": "should-be-a-list-not-string"}
+        svc = _make_builds_service(tmp_path, get_json_side_effect=lambda *a, **kw: bad)
+        svc._discovery.get_current_snapshot.return_value = MagicMock(
+            version="v1", snapshot_name="snap"
+        )
+        with caplog.at_level("WARNING", logger="poe.ninja.builds"):
+            result = svc.get_tooltip("some-slug")
+        assert result is None
+        assert any("tooltip schema mismatch" in rec.message for rec in caplog.records)
+
+    def test_get_generic_tooltip_validation_error_returns_none(self, tmp_path):
+        bad = {"explicitMods": 42}
+        svc = _make_builds_service(tmp_path, get_json_side_effect=lambda *a, **kw: bad)
+        result = svc.get_generic_tooltip("Some Node", "keystone")
+        assert result is None
+
+
 class TestGetCharacterMore:
     def test_returns_none_when_no_snapshot(self, tmp_path):
         svc = _make_builds_service(tmp_path)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from poe.models.ninja.builds import (
     CharacterResponse,
     DimensionEntry,
@@ -73,7 +75,16 @@ class BuildsService:
             raw = self._fetch_cached(cache_key, path, params)
         except NinjaError:
             return None
-        return CharacterResponse.model_validate(raw)
+        try:
+            return CharacterResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning(
+                "character schema mismatch (account=%r character=%r): %s",
+                account,
+                character,
+                e,
+            )
+            return None
 
     def get_tooltip(
         self,
@@ -97,7 +108,11 @@ class BuildsService:
 
         cache_key = f"tooltip_{game}_{slug}_{tooltip_type}"
         raw = self._fetch_cached(cache_key, path, params)
-        return TooltipResponse.model_validate(raw)
+        try:
+            return TooltipResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning("tooltip schema mismatch (slug=%r): %s", slug, e)
+            return None
 
     def get_generic_tooltip(
         self,
@@ -113,7 +128,11 @@ class BuildsService:
             raw = self._fetch_cached(cache_key, path, params)
         except NinjaError:
             return None
-        return TooltipResponse.model_validate(raw)
+        try:
+            return TooltipResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning("generic tooltip schema mismatch (name=%r): %s", name, e)
+            return None
 
     def get_meta_summary(self, *, game: str = "poe1") -> MetaSummary:
         state = self._discovery.get_build_index_state(game=game)
