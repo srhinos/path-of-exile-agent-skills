@@ -197,7 +197,10 @@ class PoBEngine:
                     end
                     local stats = {}
                     for k, v in pairs(output) do
-                        if type(v) == "number" or type(v) == "string" or type(v) == "boolean" then
+                        -- Exclude booleans: bool is subclass of int in Python,
+                        -- so `output.HasFlask = true` would silently become a
+                        -- numeric 1.0 stat downstream. Stats are numeric/textual.
+                        if type(v) == "number" or type(v) == "string" then
                             stats[k] = v
                         end
                     end
