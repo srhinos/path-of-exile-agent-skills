@@ -30,7 +30,11 @@ ITEM_INT_FIELD_BOUNDS: dict[str, tuple[int, int | None]] = {
     "evasion": (0, None),
     "energy_shield": (0, None),
     "ward": (0, None),
-    "quality": (0, 30),
+    # Quality caps at 50 to cover corrupted/imbued items (Hillock can roll
+    # +10 over base 30; perfect catalysts and corrupt-implicit catalyst
+    # items push past 30). Round-tripping a real PoB export with quality > 30
+    # would silently truncate to 30 if the cap stayed there.
+    "quality": (0, 50),
     "level_req": (0, None),
     "item_level": (0, 100),
     "catalyst_quality": (0, None),

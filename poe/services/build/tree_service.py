@@ -120,19 +120,31 @@ class TreeService:
         if idx < 0 or idx >= len(build_obj.specs):
             raise BuildValidationError("Spec index out of range")
         active_spec = build_obj.specs[idx]
-        if nodes is not None:
-            active_spec.nodes = sorted({int(n) for n in nodes.split(",") if n.strip()})
-        if add_nodes:
-            existing = set(active_spec.nodes)
-            for raw in add_nodes.split(","):
-                s = raw.strip()
-                if s:
-                    existing.add(int(s))
-            active_spec.nodes = sorted(existing)
-        if remove_nodes:
-            to_remove = {int(n.strip()) for n in remove_nodes.split(",") if n.strip()}
-            active_spec.nodes = [n for n in active_spec.nodes if n not in to_remove]
-        self._apply_mastery_changes(active_spec, mastery, add_mastery, remove_mastery)
+        try:
+            if nodes is not None:
+                active_spec.nodes = sorted({int(n) for n in nodes.split(",") if n.strip()})
+            if add_nodes:
+                existing = set(active_spec.nodes)
+                for raw in add_nodes.split(","):
+                    s = raw.strip()
+                    if s:
+                        existing.add(int(s))
+                active_spec.nodes = sorted(existing)
+            if remove_nodes:
+                to_remove = {int(n.strip()) for n in remove_nodes.split(",") if n.strip()}
+                active_spec.nodes = [n for n in active_spec.nodes if n not in to_remove]
+        except ValueError as e:
+            # int(...) raises ValueError on non-numeric input. Translate so
+            # users see a clean PoeError envelope rather than a raw traceback.
+            raise BuildValidationError(
+                f"Tree node IDs must be comma-separated integers: {e}"
+            ) from e
+        try:
+            self._apply_mastery_changes(active_spec, mastery, add_mastery, remove_mastery)
+        except ValueError as e:
+            raise BuildValidationError(
+                f"Mastery entries must be 'node_id:effect_id' pairs: {e}"
+            ) from e
         if class_id is not None:
             active_spec.class_id = class_id
             build_obj.class_name = CLASS_ID_TO_NAME.get(class_id, build_obj.class_name)

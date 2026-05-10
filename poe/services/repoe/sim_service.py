@@ -53,6 +53,12 @@ class SimService:
         affix_type: str | None = None,
         limit: int = 30,
     ) -> ModPoolResult:
+        if affix_type is not None:
+            affix_type = affix_type.casefold() if isinstance(affix_type, str) else affix_type
+            if affix_type not in {"prefix", "suffix"}:
+                raise SimDataError(
+                    f"Unknown affix_type: {affix_type!r}. Valid: 'prefix' or 'suffix'"
+                )
         resolved_influences: list[str] = []
         if influences:
             valid_map = {i.value.casefold(): i.value for i in Influence}

@@ -88,7 +88,7 @@ class Item(BaseModel):
     is_split: bool = False
     has_veiled_prefix: bool = False
     has_veiled_suffix: bool = False
-    quality: int = Field(default=0, ge=0, le=30)
+    quality: int = Field(default=0, ge=0, le=50)
     sockets: str = ""
     level_req: int = Field(default=0, ge=0)
     item_level: int = Field(default=0, ge=0, le=100)
@@ -200,7 +200,7 @@ class ItemSummary(BaseModel):
     rarity: str
     influences: list[str] = []
     sockets: str = ""
-    quality: int = Field(default=0, ge=0, le=30)
+    quality: int = Field(default=0, ge=0, le=50)
 
     @field_validator("rarity", mode="before")
     @classmethod

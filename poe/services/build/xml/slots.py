@@ -67,15 +67,12 @@ def normalize_slot(user_input: str) -> str | None:
     """Normalize a user-provided slot name to the canonical PoB slot name.
 
     Returns the canonical name, or ``None`` if no match is found.
-    Matching is case-insensitive and supports common aliases.
+    Matching is case-insensitive and supports common aliases. The alias
+    map is exhaustive — there is no substring fallback because partial
+    matches like "1" → "Weapon 1" or "on" → "Weapon 1" silently target
+    surprising slots when the user types a typo.
     """
     key = user_input.strip().casefold()
     if not key:
         return None
-    if key in _SLOT_ALIASES:
-        return _SLOT_ALIASES[key]
-    # Substring match as fallback.
-    for canonical in CANONICAL_SLOTS:
-        if key in canonical.casefold():
-            return canonical
-    return None
+    return _SLOT_ALIASES.get(key)

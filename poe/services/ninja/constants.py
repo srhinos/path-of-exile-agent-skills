@@ -32,6 +32,8 @@ NINJA_CACHE_SCHEMA_VERSION = 2
 
 NINJA_LOW_CONFIDENCE_THRESHOLD = 5
 
+NINJA_GAMES: frozenset[str] = frozenset({"poe1", "poe2"})
+
 NINJA_LANGUAGES: frozenset[str] = frozenset(
     {
         "en",

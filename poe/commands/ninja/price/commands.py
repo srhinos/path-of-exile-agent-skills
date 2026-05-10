@@ -16,8 +16,13 @@ price_app = cyclopts.App(name="price", help="Price checking and currency convers
 
 
 def _resolve_league(svc: DiscoveryService, league: str | None, game: str) -> str:
+    # Strip whitespace before validating — a paste with trailing newline
+    # would otherwise URL-encode and 404 against the league endpoint.
     if league:
-        return league
+        cleaned = league.strip()
+        if not cleaned:
+            raise NinjaError("--league is empty after stripping whitespace")
+        return cleaned
     current = svc.get_current_league(game=game)
     if not current:
         # NinjaError is a PoeError subclass, so app.run() catches it and emits

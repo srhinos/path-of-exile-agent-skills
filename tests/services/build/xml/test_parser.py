@@ -1099,7 +1099,9 @@ Hubris Circlet
         assert [i.id for i in build.items] == [2]
         assert any("non-positive id" in r.message for r in caplog.records)
 
-    def test_item_quality_above_30_clamped_with_warning(self, tmp_path, caplog):
+    def test_item_quality_above_50_clamped_with_warning(self, tmp_path, caplog):
+        # Quality cap is 50 (corrupted/imbued items go past the base-30 mark);
+        # values above 50 still clamp + warn so a malformed XML doesn't crash.
         xml = textwrap.dedent("""\
             <?xml version="1.0"?>
             <PathOfBuilding>
@@ -1116,8 +1118,27 @@ Quality: 99
         """)
         with caplog.at_level("WARNING", logger="poe.parser"):
             build = parse_build_file(_write_xml(tmp_path, xml))
-        assert build.items[0].quality == 30
+        assert build.items[0].quality == 50
         assert any("quality=99" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_item_quality_in_corrupted_range_preserved(self, tmp_path):
+        # Quality 40 (Hillock-imbued corrupted) round-trips without clamp.
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+Quality: 40
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].quality == 40
 
     def test_item_level_above_100_clamped_with_warning(self, tmp_path, caplog):
         xml = textwrap.dedent("""\

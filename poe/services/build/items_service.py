@@ -349,6 +349,26 @@ class ItemsService:
         rarity: str | None = None,
         file_path: str | None = None,
     ) -> list[EquippedItem]:
+        # Validate filters BEFORE loading the build so a typo'd --rarity or
+        # --influence raises a clear error instead of silently returning
+        # an empty list.
+        normalized_influence: str | None = None
+        if influence:
+            normalized_influence = _INFLUENCE_BY_CASEFOLD.get(influence.casefold())
+            if normalized_influence is None:
+                raise BuildValidationError(
+                    f"Unknown influence: {influence!r}. "
+                    f"Valid: {sorted(_INFLUENCE_BY_CASEFOLD.values())}"
+                )
+        normalized_rarity: str | None = None
+        if rarity:
+            normalized_rarity = _RARITY_BY_CASEFOLD.get(rarity.casefold())
+            if normalized_rarity is None:
+                raise BuildValidationError(
+                    f"Unknown rarity: {rarity!r}. "
+                    f"Valid: {sorted(_RARITY_BY_CASEFOLD.values())}"
+                )
+
         _, build_obj = self._build.load(name, file_path)
         equipped = build_obj.get_equipped_items()
         flask_slots = set(SLOT_TYPE_MAP["flask"])
@@ -358,11 +378,9 @@ class ItemsService:
                 continue
             if slot and not _slot_matches_type(slot_name, slot):
                 continue
-            if influence:
-                normalized = _INFLUENCE_BY_CASEFOLD.get(influence.casefold(), influence)
-                if normalized not in item.influences:
-                    continue
-            if rarity and item.rarity.casefold() != rarity.casefold():
+            if normalized_influence and normalized_influence not in item.influences:
+                continue
+            if normalized_rarity and item.rarity != normalized_rarity:
                 continue
             if mod:
                 mod_lower = mod.casefold()

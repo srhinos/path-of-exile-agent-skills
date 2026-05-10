@@ -14,7 +14,10 @@ atlas_app = cyclopts.App(name="atlas", help="Atlas tree search and analysis. PoE
 
 def _resolve_league(discovery: DiscoveryService, league: str | None) -> str:
     if league:
-        return league
+        cleaned = league.strip()
+        if not cleaned:
+            raise NinjaError("--league is empty after stripping whitespace")
+        return cleaned
     current = discovery.get_current_league()
     if not current:
         # NinjaError is a PoeError subclass — surfaces as clean JSON error.
