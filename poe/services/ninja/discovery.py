@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from poe.constants import PERCENTAGE_MAX
+from poe.constants import NINJA_LEAGUE_LIST_KEYS, PERCENTAGE_MAX
 from poe.models.ninja.discovery import (
     AtlasTreeIndexState,
     BuildIndexState,
@@ -20,15 +20,6 @@ if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
 
 _logger = logging.getLogger("poe.ninja.discovery")
-
-_LEAGUE_LIST_KEYS = (
-    "economy_leagues",
-    "old_economy_leagues",
-    "build_leagues",
-    "old_build_leagues",
-    "leagues",
-    "old_leagues",
-)
 
 
 def _camel_to_snake(name: str) -> str:
@@ -52,7 +43,7 @@ def _sanitize_leagues(data: Any) -> Any:
     """Drop league entries with empty name or url, logging warnings."""
     if not isinstance(data, dict):
         return data
-    for key in _LEAGUE_LIST_KEYS:
+    for key in NINJA_LEAGUE_LIST_KEYS:
         leagues = data.get(key)
         if not isinstance(leagues, list):
             continue

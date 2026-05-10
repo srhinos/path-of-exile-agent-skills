@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-VALID_CONFIG_INPUT_TYPES: frozenset[str] = frozenset({"boolean", "number", "string"})
+from poe.constants import VALID_CONFIG_INPUT_TYPES
 
 
 class ConfigEntry(BaseModel):

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from defusedxml import ElementTree as SafeET
 
-from poe.constants import VERSION_PATTERN
+from poe.constants import ITEM_INT_FIELD_BOUNDS, VERSION_PATTERN
 from poe.models.build.build import BuildDocument
 from poe.models.build.config import BuildConfig, ConfigEntry
 from poe.models.build.gems import Gem, GemGroup
@@ -500,21 +500,6 @@ def _parse_affix_slot(line: str, pattern: re.Pattern[str]) -> str | None | objec
     return slot_mod.group(2) if slot_mod else slot_val
 
 
-_ITEM_INT_FIELD_BOUNDS: dict[str, tuple[int, int | None]] = {
-    "armour": (0, None),
-    "evasion": (0, None),
-    "energy_shield": (0, None),
-    "ward": (0, None),
-    "quality": (0, 30),
-    "level_req": (0, None),
-    "item_level": (0, 100),
-    "catalyst_quality": (0, None),
-    "talisman_tier": (0, None),
-    "cluster_jewel_node_count": (0, None),
-    "limited_to": (0, None),
-}
-
-
 def _parse_metadata_line(item: Item, line: str) -> bool:
     """Parse a single metadata line (defenses, quality, sockets, etc.). Returns True if handled."""
     int_fields = {
@@ -533,7 +518,7 @@ def _parse_metadata_line(item: Item, line: str) -> bool:
     for prefix, field in int_fields.items():
         if line.startswith(prefix):
             raw = _safe_int(line.split(prefix, 1)[1])
-            bounds = _ITEM_INT_FIELD_BOUNDS.get(field)
+            bounds = ITEM_INT_FIELD_BOUNDS.get(field)
             if bounds is not None:
                 lo, hi = bounds
                 raw = _clamp_int(raw, lo=lo, hi=hi, field=field, context=f"item id={item.id}")
