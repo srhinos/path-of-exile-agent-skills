@@ -816,3 +816,31 @@ class TestResolveModName:
     def test_case_insensitive_resolution(self, sim_service, display_input):
         result = sim_service.resolve_mod_name(display_input, "Hubris Circlet")
         assert result == "IncreasedLife"
+
+    @pytest.mark.parametrize(
+        "display_input",
+        [
+            "+# to maximum Life",
+            "+50 to maximum Life",
+            "{0} to maximum Life",
+            "to maximum Life",
+            "maximum Life",
+        ],
+    )
+    def test_stat_translation_path(self, sim_service, display_input):
+        # Real RePoE mod.name values are flavor strings ("Hale", "of Calm")
+        # that substring-search misses. The stat_translations path must
+        # resolve canonical PoB display text to the right mod group.
+        result = sim_service.resolve_mod_name(display_input, "Hubris Circlet")
+        assert result == "IncreasedLife"
+
+    def test_stat_translation_resolves_resistance(self, sim_service):
+        result = sim_service.resolve_mod_name("+# to Cold Resistance", "Hubris Circlet")
+        assert result == "ColdResistance"
+
+    def test_resolve_returns_highest_weight_mod_group(self, sim_service):
+        # When multiple mods produce the same stat, the highest-weight one's
+        # group wins so target-mod selection matches what the simulator
+        # actually rolls most often.
+        result = sim_service.resolve_mod_name("to maximum Life", "Hubris Circlet")
+        assert result == "IncreasedLife"

@@ -14,10 +14,30 @@ from poe.services.repoe.constants import (
     INFLUENCE_TAG_MAP,
     MAX_RESONATOR_SOCKETS,
     RESONATOR_BY_SOCKETS,
+    STAT_TEMPLATE_NON_ALNUM_RE,
+    STAT_TEMPLATE_NUMERIC_RE,
+    STAT_TEMPLATE_PLACEHOLDER_RE,
+    STAT_TEMPLATE_WHITESPACE_RE,
 )
 from poe.services.repoe.sim import BestTier, ModPoolEntry
 
 _logger = logging.getLogger("poe.repoe")
+
+
+def _normalize_stat_template(text: str) -> str:
+    """Reduce a stat-translation template or user query to a comparable key.
+
+    Replaces both `{0}` placeholders and literal numbers with `#` so that
+    "{0} to maximum Life", "+50 to maximum Life", and "+# to maximum Life"
+    collapse to the same form. Strips signs and non-alphanumeric noise so
+    user input with extra punctuation still matches.
+    """
+    s = text.lower()
+    s = STAT_TEMPLATE_PLACEHOLDER_RE.sub("#", s)
+    s = STAT_TEMPLATE_NUMERIC_RE.sub("#", s)
+    s = STAT_TEMPLATE_NON_ALNUM_RE.sub(" ", s)
+    s = STAT_TEMPLATE_WHITESPACE_RE.sub(" ", s)
+    return s.strip()
 
 
 class RepoEData:
@@ -26,6 +46,7 @@ class RepoEData:
             Path(__file__).resolve().parent.parent.parent / "data" / "repoe"
         )
         self._cache: dict[str, dict | list] = {}
+        self._translation_index: dict[str, set[str]] | None = None
 
     def snapshot(self) -> RepoEData:
         clone = copy.copy(self)
@@ -34,6 +55,7 @@ class RepoEData:
         # A deep copy would duplicate the entire dataset and cause OOM under
         # heavy simulation workloads.
         object.__setattr__(clone, "_cache", dict(self._cache))
+        object.__setattr__(clone, "_translation_index", self._translation_index)
         return clone
 
     def _load(self, name: str) -> dict | list:
@@ -61,6 +83,45 @@ class RepoEData:
         return [
             {**bitem, "name": bname} for bname, bitem in base_items.items() if q in bname.casefold()
         ]
+
+    def _build_translation_index(self) -> dict[str, set[str]]:
+        translations = self._load("stat_translations")
+        index: dict[str, set[str]] = {}
+        if isinstance(translations, dict):
+            for stat_id, template in translations.items():
+                if not isinstance(template, str):
+                    continue
+                key = _normalize_stat_template(template)
+                if not key:
+                    continue
+                index.setdefault(key, set()).add(stat_id)
+        return index
+
+    def resolve_stat_ids(self, display: str) -> set[str]:
+        """Look up stat IDs whose display template matches `display`.
+
+        Tries exact normalized-template equality first; falls back to a
+        substring scan so partial queries ("maximum Life") still resolve.
+        Returns an empty set when nothing matches — callers should treat
+        that as "no stat-id match" and fall through to mod-name search.
+        """
+        if self._translation_index is None:
+            self._translation_index = self._build_translation_index()
+        query = _normalize_stat_template(display)
+        if not query:
+            return set()
+        exact = self._translation_index.get(query)
+        if exact:
+            return set(exact)
+        # Substring fallback: any template that contains the query, or
+        # vice versa, so "maximum life" matches "# to maximum life" and
+        # "{0} to maximum life" matches partial user queries that include
+        # placeholder text like "+# to maximum life".
+        matches: set[str] = set()
+        for key, ids in self._translation_index.items():
+            if query in key or key in query:
+                matches.update(ids)
+        return matches
 
     def get_mod_pool(
         self,
@@ -149,6 +210,7 @@ class RepoEData:
                     ),
                     implicit_tags=tuple(mod["implicit_tags"]),
                     influence=mod["influence"],
+                    stat_ids=tuple(s["id"] for s in mod["stats"] if "id" in s),
                 )
             )
 

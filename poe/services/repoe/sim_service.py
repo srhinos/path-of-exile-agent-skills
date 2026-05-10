@@ -600,6 +600,25 @@ class SimService:
         influences: list[str] | None = None,
     ) -> str | None:
         mods = self._data.get_mod_pool(base_name, influences=influences or [])
+
+        # Stat-translation path: user types canonical PoB display text like
+        # "+# to maximum Life" or "to maximum Life"; map it through
+        # stat_translations.json to a stat_id, then return the highest-weight
+        # mod in the pool that produces that stat. Real RePoE mod.name values
+        # are flavor strings ("Hale", "of Calm") that substring-search misses,
+        # so without this path display-name targets never resolve.
+        stat_ids = self._data.resolve_stat_ids(display_name)
+        if stat_ids:
+            best = max(
+                (m for m in mods if any(sid in stat_ids for sid in m.stat_ids)),
+                key=lambda m: m.weight,
+                default=None,
+            )
+            if best is not None:
+                return best.group
+
+        # Substring fallback covers flavor-name queries ("Hale", "of the
+        # Marksman") and tests where mod.name is the display text directly.
         name_cf = display_name.casefold()
         for mod in mods:
             if name_cf in mod.name.casefold():

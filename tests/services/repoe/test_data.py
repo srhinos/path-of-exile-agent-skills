@@ -427,6 +427,51 @@ class TestSearchBasesInvariants:
         assert len(names) == len(set(names))
 
 
+class TestStatTranslationNormalization:
+    def test_placeholder_and_number_collapse_to_same_key(self):
+        from poe.services.repoe.data import _normalize_stat_template
+
+        assert _normalize_stat_template("{0} to maximum Life") == _normalize_stat_template(
+            "+50 to maximum Life"
+        )
+        assert _normalize_stat_template("+# to maximum Life") == _normalize_stat_template(
+            "{0} to maximum Life"
+        )
+
+    def test_strips_signs_and_punctuation(self):
+        from poe.services.repoe.data import _normalize_stat_template
+
+        # Same semantic content, different surface punctuation.
+        assert _normalize_stat_template("+50% increased Life") == _normalize_stat_template(
+            "{0}% increased Life"
+        )
+
+    def test_empty_string_normalizes_to_empty(self):
+        from poe.services.repoe.data import _normalize_stat_template
+
+        assert _normalize_stat_template("") == ""
+
+
+class TestResolveStatIds:
+    def test_exact_template_match(self, repoe_data):
+        ids = repoe_data.resolve_stat_ids("+50 to maximum Life")
+        assert "base_maximum_life" in ids
+
+    def test_placeholder_input(self, repoe_data):
+        ids = repoe_data.resolve_stat_ids("{0} to maximum Life")
+        assert "base_maximum_life" in ids
+
+    def test_partial_input_uses_substring_fallback(self, repoe_data):
+        ids = repoe_data.resolve_stat_ids("maximum Life")
+        assert "base_maximum_life" in ids
+
+    def test_unknown_returns_empty_set(self, repoe_data):
+        assert repoe_data.resolve_stat_ids("ZZZ definitely not a stat") == set()
+
+    def test_empty_returns_empty_set(self, repoe_data):
+        assert repoe_data.resolve_stat_ids("") == set()
+
+
 class TestGetCraftCostFullKeyCoverage:
     @pytest.mark.parametrize(
         "method",

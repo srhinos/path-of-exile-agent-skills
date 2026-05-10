@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import re
+
 from poe.types import Rarity
 
 DEFAULT_ILVL = 84
 DEFAULT_ITERATIONS = 10000
 DEFAULT_MAX_ATTEMPTS = 1000
 DEFAULT_WORKERS = 4
+
+# Pre-compiled regexes used by data._normalize_stat_template to collapse
+# stat-translation templates and user queries into the same comparable key.
+STAT_TEMPLATE_PLACEHOLDER_RE = re.compile(r"\{\d+\}")
+STAT_TEMPLATE_NUMERIC_RE = re.compile(r"-?\d+(?:\.\d+)?")
+STAT_TEMPLATE_NON_ALNUM_RE = re.compile(r"[^a-z0-9# ]+")
+STAT_TEMPLATE_WHITESPACE_RE = re.compile(r"\s+")
 
 ESSENCE_TIER_PREFIXES: dict[str, int] = {
     "whispering": 1,

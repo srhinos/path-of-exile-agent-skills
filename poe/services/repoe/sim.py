@@ -53,6 +53,7 @@ class ModPoolEntry:
     best_tier: BestTier
     implicit_tags: tuple[str, ...]
     influence: str | None
+    stat_ids: tuple[str, ...] = ()
 
 
 @dataclass
