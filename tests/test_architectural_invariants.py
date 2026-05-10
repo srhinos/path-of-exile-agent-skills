@@ -114,10 +114,6 @@ CONSTANTS_PLACEMENT_ALLOWLIST: frozenset[str] = frozenset(
         "poe/services/build/items_service.py::_ITEM_TEXT_SKIP_PREFIXES",
         # services/ninja — single-file thresholds and config
         "poe/services/ninja/cache.py::TTL_BY_CATEGORY",
-        "poe/services/ninja/client.py::HTTP_TOO_MANY_REQUESTS",
-        "poe/services/ninja/client.py::HTTP_CLIENT_ERROR_MIN",
-        "poe/services/ninja/client.py::MAX_429_RETRIES",
-        "poe/services/ninja/client.py::RETRY_BASE_DELAY",
         "poe/services/ninja/comparison.py::POPULAR_THRESHOLD_PCT",
         "poe/services/ninja/comparison.py::DEFENSIVE_THRESHOLDS",
         "poe/services/ninja/history.py::CHAOS_PAIR_ID",
