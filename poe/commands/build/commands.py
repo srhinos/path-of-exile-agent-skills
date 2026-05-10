@@ -8,6 +8,7 @@ from typing import Annotated
 from xml.etree.ElementTree import ParseError as XMLParseError
 
 import cyclopts
+import httpx
 from defusedxml import ElementTree as SafeET
 
 from poe.commands.build.config import config_app
@@ -256,7 +257,10 @@ def builds_decode(
         Output raw JSON.
     """
     if file:
-        code = Path(file).read_text(encoding="utf-8").strip()
+        try:
+            code = Path(file).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as e:
+            raise CodecError(f"Could not read code file {file!r}: {e}") from e
     if not code:
         raise CodecError("Provide a build code as argument or via --file")
     try:
@@ -273,7 +277,10 @@ def builds_decode(
         claude_dir = get_claude_builds_path()
         filename = save if save.endswith(".xml") else save + ".xml"
         save_path = claude_dir / filename
-        save_path.write_text(xml_str, encoding="utf-8")
+        try:
+            save_path.write_text(xml_str, encoding="utf-8")
+        except OSError as e:
+            raise CodecError(f"Could not write decoded build to {save_path}: {e}") from e
         result["saved_to"] = str(save_path)
     _output(result, json_mode=json)
 
@@ -296,11 +303,13 @@ def builds_encode(name: str, *, file: str | None = None, json: bool = False) -> 
         xml_str = path.read_text(encoding="utf-8")
     except (FileNotFoundError, BuildNotFoundError):
         raise BuildNotFoundError(f"Build file not found: {file or name}") from None
+    except (OSError, UnicodeDecodeError) as e:
+        raise PoeError(f"Could not read build file {file or name}: {e}") from e
     _output({"status": "ok", "code": encode_build(xml_str)}, json_mode=json)
 
 
 @build_app.command(name="open")
-def builds_open(name: str, *, file: str | None = None) -> None:
+def builds_open(name: str, *, file: str | None = None, json: bool = False) -> None:
     """Open a build in Path of Building via pob:// protocol.
 
     Parameters
@@ -309,6 +318,8 @@ def builds_open(name: str, *, file: str | None = None) -> None:
         Build name or unique prefix.
     file
         Explicit file path.
+    json
+        Output raw JSON.
     """
     if sys.platform != "win32":
         raise PoeError("pob:// protocol requires Windows with PoB installed")
@@ -317,9 +328,11 @@ def builds_open(name: str, *, file: str | None = None) -> None:
         xml_str = path.read_text(encoding="utf-8")
     except (FileNotFoundError, BuildNotFoundError):
         raise BuildNotFoundError(f"Build file not found: {file or name}") from None
+    except (OSError, UnicodeDecodeError) as e:
+        raise PoeError(f"Could not read build file {file or name}: {e}") from e
     code = encode_build(xml_str)
     os.startfile(f"pob://{code}")
-    _output({"status": "ok", "code": code}, json_mode=True)
+    _output({"status": "ok", "code": code}, json_mode=json)
 
 
 @build_app.command(name="rename")
@@ -487,6 +500,8 @@ def builds_share(name: str, *, file: str | None = None, json: bool = False) -> N
         xml_str = path.read_text(encoding="utf-8")
     except (FileNotFoundError, BuildNotFoundError):
         raise BuildNotFoundError(f"Build file not found: {file or name}") from None
+    except (OSError, UnicodeDecodeError) as e:
+        raise PoeError(f"Could not read build file {file or name}: {e}") from e
     code = encode_build(xml_str)
     _output({"status": "ok", "code": code}, json_mode=json)
 
@@ -540,6 +555,10 @@ def builds_import(url_or_code: str, *, name: str, json: bool = False) -> None:
         )
     except (ValueError, zlib.error, OSError, UnicodeDecodeError) as e:
         raise CodecError(f"Failed to import build: {e}") from e
+    except httpx.HTTPError as e:
+        # Network failures fetching from pobb.in (404 / timeout / connect)
+        # bubble as raw httpx exceptions otherwise.
+        raise CodecError(f"Failed to fetch {url_or_code!r}: {e}") from e
     try:
         SafeET.fromstring(xml_str)
     except (XMLParseError, ValueError) as e:
@@ -547,5 +566,8 @@ def builds_import(url_or_code: str, *, name: str, json: bool = False) -> None:
     claude_dir = get_claude_builds_path()
     filename = name if name.endswith(".xml") else name + ".xml"
     save_path = claude_dir / filename
-    save_path.write_text(xml_str, encoding="utf-8")
+    try:
+        save_path.write_text(xml_str, encoding="utf-8")
+    except OSError as e:
+        raise CodecError(f"Could not write imported build to {save_path}: {e}") from e
     _output({"status": "ok", "name": name, "saved_to": str(save_path)}, json_mode=json)

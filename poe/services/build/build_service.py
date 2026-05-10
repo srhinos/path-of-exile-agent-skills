@@ -7,7 +7,7 @@ from xml.etree.ElementTree import ParseError as XMLParseError
 
 from defusedxml import ElementTree as SafeET
 
-from poe.exceptions import BuildNotFoundError, BuildValidationError, CodecError
+from poe.exceptions import BuildNotFoundError, BuildValidationError, CodecError, PoeError
 from poe.models.build.build import (
     BuildComparison,
     BuildDocument,
@@ -160,8 +160,11 @@ class BuildService:
             item_sets=[ItemSet(id="1")],
             config_sets=[BuildConfig(id="1", title="Default")],
         )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        write_build_file(build_obj, path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_build_file(build_obj, path)
+        except OSError as e:
+            raise PoeError(f"Could not create build at {path}: {e}") from e
         return MutationResult(path=str(path))
 
     def delete(
@@ -192,7 +195,10 @@ class BuildService:
             )
         if not confirm:
             raise BuildValidationError("Use --confirm to delete")
-        path.unlink()
+        try:
+            path.unlink()
+        except OSError as e:
+            raise PoeError(f"Could not delete {path}: {e}") from e
         return MutationResult(deleted=str(path))
 
     def analyze(self, name: str) -> BuildDocument:
