@@ -227,11 +227,15 @@ class TestFixMyBuildErrors:
         result = fix_my_build("test", "TestChar", _mock_builds(), _mock_economy(), "Mirage")
         assert result.workflow == "fix_my_build"
 
-    def test_propagates_unexpected_exceptions(self):
+    def test_ninja_error_recorded_not_propagated(self):
+        """_try now catches PoeError (NinjaError parent). The workflow
+        records the error in result.errors and degrades gracefully rather
+        than crashing the whole flow on a single transient failure."""
         builds = _mock_builds()
-        builds.get_character.side_effect = NinjaError("not caught")
-        with pytest.raises(NinjaError):
-            fix_my_build("test", "TestChar", builds, _mock_economy(), "Mirage")
+        builds.get_character.side_effect = NinjaError("transient")
+        result = fix_my_build("test", "TestChar", builds, _mock_economy(), "Mirage")
+        assert result.success is False
+        assert any("transient" in e for e in result.errors)
 
     @pytest.mark.parametrize("game", ["poe1", "poe2"])
     def test_passes_game_through(self, game):
@@ -250,12 +254,13 @@ class TestWhatToFarmEdgeCases:
         assert "top_strategies" not in result.data
         assert "popular_atlas_nodes" not in result.data
 
-    def test_ninja_error_in_estimate_profit_propagates(self):
+    def test_ninja_error_in_estimate_profit_recorded(self):
         atlas = MagicMock()
         atlas.estimate_profit.side_effect = NinjaError("no scarab prices")
         atlas.get_popular_nodes.return_value = []
-        with pytest.raises(NinjaError):
-            what_to_farm(atlas, _mock_economy(), "Mirage")
+        result = what_to_farm(atlas, _mock_economy(), "Mirage")
+        assert any("no scarab prices" in e for e in result.errors)
+        assert "top_strategies" not in result.data
 
     def test_truncates_top_strategies_to_ten(self):
         atlas = MagicMock()

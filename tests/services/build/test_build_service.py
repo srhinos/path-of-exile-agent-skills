@@ -252,9 +252,18 @@ class TestBuildSetClass:
         assert result.status == "ok"
         assert result.class_name == "Ranger"
 
-    def test_set_ascendancy(self, rich_build):
+    def test_set_ascendancy_alone_rejects_class_mismatch(self, rich_build):
+        """Previous behavior silently re-classed the build when ascendancy
+        belonged to a different class. Now requires explicit --class."""
         svc = BuildService()
-        result = svc.set_class("ignored", ascendancy="Deadeye", file_path=str(rich_build))
+        with pytest.raises(BuildValidationError, match="does not belong"):
+            svc.set_class("ignored", ascendancy="Deadeye", file_path=str(rich_build))
+
+    def test_set_class_and_ascendancy_explicit(self, rich_build):
+        svc = BuildService()
+        result = svc.set_class(
+            "ignored", class_name="Ranger", ascendancy="Deadeye", file_path=str(rich_build)
+        )
         assert result.status == "ok"
         assert result.ascendancy == "Deadeye"
 

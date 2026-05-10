@@ -615,11 +615,13 @@ class TestSimulateMethodRequirementsNegative:
         data = copy.deepcopy(REPOE_DATA)
         data["base_items"]["Hubris Circlet"]["max_prefixes"] = 0  # no prefix slots
         svc = SimService(repoe_data=make_repoe_data(data=data))
+        # Use a different group as target so the target/existing-overlap gate
+        # doesn't fire first.
         with pytest.raises(SimDataError, match=r"Too many existing prefixes"):
             await svc.simulate(
                 "Hubris Circlet",
                 method="chaos",
-                target=["IncreasedLife"],
+                target=["ColdResistance"],
                 iterations=1,
                 existing_mods=["IncreasedLife"],
             )

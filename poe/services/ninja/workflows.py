@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from poe.exceptions import PoeError
 from poe.services.ninja.comparison import compare_to_meta
 from poe.services.ninja.costing import cost_build, find_budget_alternatives
 from poe.services.ninja.patches import diff_snapshots
@@ -197,6 +198,9 @@ def what_changed(
 def _try(result: WorkflowResult, step: str, fn: Any) -> Any:
     try:
         return fn()
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, PoeError) as e:
+        # PoeError covers NinjaError, RateLimitError, ApiSchemaError, NetworkError —
+        # the actual transport/schema failures the workflow exists to tolerate.
+        # Without it, any of those crashed the whole workflow mid-flow.
         result.errors.append(f"{step}: {e}")
         return None

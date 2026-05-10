@@ -246,9 +246,31 @@ class SimService:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         workers: int | None = None,
     ) -> SimulationResult:
+        # Normalize before validation so --method Chaos / FOSSIL / Essence
+        # all hit the canonical lowercase enum values.
+        method = method.casefold() if isinstance(method, str) else method
+        match = match.casefold() if isinstance(match, str) else match
         valid_methods = {m.value for m in CraftMethod}
         if method not in valid_methods:
             raise SimDataError(f"Unknown craft method: {method!r}. Valid: {sorted(valid_methods)}")
+        if not target:
+            raise SimDataError(
+                "--target is required (empty target makes match='all' trivially True "
+                "and match='any' trivially False, both of which produce meaningless results)"
+            )
+        if iterations < 1:
+            raise SimDataError(f"iterations must be >= 1, got {iterations}")
+        if max_attempts < 1:
+            raise SimDataError(f"max_attempts must be >= 1, got {max_attempts}")
+        if existing_mods:
+            target_set = {t.casefold() for t in target}
+            existing_set = {e.casefold() for e in existing_mods}
+            overlap = target_set & existing_set
+            if overlap:
+                raise SimDataError(
+                    f"target and existing_mods overlap on {sorted(overlap)}; "
+                    "pinned-as-target makes simulation degenerate (always-hit)"
+                )
         if method == CraftMethod.ESSENCE and not essence:
             raise SimDataError("--essence is required when method is 'essence'")
         if method == CraftMethod.FOSSIL and not fossils:

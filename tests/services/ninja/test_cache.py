@@ -242,15 +242,17 @@ class TestEnvOverrideEdgeCases:
         assert not ninja_cache.is_fresh(tmp_path, "test", "index")
         assert not ninja_cache.is_fresh(tmp_path, "test", "economy")
 
-    def test_invalid_integer_string_raises(self, monkeypatch):
+    def test_invalid_integer_string_falls_back_to_default(self, monkeypatch, caplog):
         monkeypatch.setenv("POE_NINJA_CACHE_TTL", "not-a-number")
-        with pytest.raises(ValueError, match="invalid literal"):
-            ninja_cache.ttl_for_category("index")
+        with caplog.at_level("WARNING", logger="poe.ninja.cache"):
+            assert ninja_cache.ttl_for_category("index") == NINJA_TTL_INDEX_STATE
+        assert any("not-a-number" in r.message for r in caplog.records)
 
-    def test_float_string_raises(self, monkeypatch):
+    def test_float_string_falls_back_to_default(self, monkeypatch, caplog):
         monkeypatch.setenv("POE_NINJA_CACHE_TTL", "10.5")
-        with pytest.raises(ValueError, match="invalid literal"):
-            ninja_cache.ttl_for_category("index")
+        with caplog.at_level("WARNING", logger="poe.ninja.cache"):
+            assert ninja_cache.ttl_for_category("index") == NINJA_TTL_INDEX_STATE
+        assert any("10.5" in r.message for r in caplog.records)
 
     def test_empty_string_uses_default(self, monkeypatch):
         # Empty string is falsy; override path is skipped.

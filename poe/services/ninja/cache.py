@@ -45,7 +45,14 @@ def meta_path(cf: Path) -> Path:
 def ttl_for_category(category: str) -> int:
     override = os.environ.get("POE_NINJA_CACHE_TTL")
     if override:
-        return int(override)
+        try:
+            return int(override)
+        except ValueError:
+            _logger.warning(
+                "POE_NINJA_CACHE_TTL=%r is not an integer, using category default for %r",
+                override,
+                category,
+            )
     return TTL_BY_CATEGORY.get(category, NINJA_TTL_ECONOMY)
 
 

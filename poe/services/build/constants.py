@@ -93,6 +93,7 @@ BASE64_PAD = 4
 GEAR_SLOTS = ("Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt")
 
 FLASK_SLOT_NAMES: tuple[str, ...] = ("Flask 1", "Flask 2", "Flask 3", "Flask 4", "Flask 5")
+FLASK_SLOT_BY_CASEFOLD: dict[str, str] = {s.casefold(): s for s in FLASK_SLOT_NAMES}
 
 POB_CONFIG_KEYS: dict[str, dict[str, str]] = {
     "useFrenzyCharges": {"type": "boolean", "desc": "Enable Frenzy Charges"},

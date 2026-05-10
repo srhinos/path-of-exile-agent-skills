@@ -386,6 +386,26 @@ class BuildService:
             working_copy=str(path) if cloned_from else None,
         )
 
+    @staticmethod
+    def _canonical_class_or_raise(class_name: str | None) -> str | None:
+        if class_name is None:
+            return None
+        canonical = {c.casefold(): c for c in CLASS_IDS}.get(class_name.casefold())
+        if canonical is None:
+            raise BuildValidationError(f"Unknown class: {class_name!r}. Valid: {sorted(CLASS_IDS)}")
+        return canonical
+
+    @staticmethod
+    def _canonical_ascendancy_or_raise(ascendancy: str | None) -> str | None:
+        if ascendancy is None:
+            return None
+        canonical = {a.casefold(): a for a in ASCENDANCY_IDS}.get(ascendancy.casefold())
+        if canonical is None:
+            raise BuildValidationError(
+                f"Unknown ascendancy: {ascendancy!r}. Valid: {sorted(ASCENDANCY_IDS)}"
+            )
+        return canonical
+
     def set_class(
         self,
         name: str,
@@ -396,6 +416,8 @@ class BuildService:
     ) -> MutationResult:
         if not class_name and not ascendancy:
             raise BuildValidationError("Provide at least one of --class or --ascendancy")
+        class_name = self._canonical_class_or_raise(class_name)
+        ascendancy = self._canonical_ascendancy_or_raise(ascendancy)
         if class_name and ascendancy:
             asc = ASCENDANCY_IDS.get(ascendancy)
             class_id = CLASS_IDS.get(class_name)
@@ -407,6 +429,20 @@ class BuildService:
                 )
         path, build_obj, cloned_from = self.load_for_write(name, file_path)
         spec = build_obj.get_active_spec()
+        if ascendancy and not class_name:
+            # Reject when ascendancy is given alone but doesn't match the
+            # current class. Prior behavior silently re-classed the build,
+            # invalidating the passive tree (Marauder build → Trickster
+            # ascendancy → silently became Shadow with Marauder nodes).
+            asc = ASCENDANCY_IDS.get(ascendancy)
+            if asc and spec and spec.class_id != asc[0]:
+                expected_class = CLASS_ID_TO_NAME.get(asc[0], "?")
+                current_class = CLASS_ID_TO_NAME.get(spec.class_id, build_obj.class_name)
+                raise BuildValidationError(
+                    f"Ascendancy {ascendancy!r} does not belong to current class "
+                    f"{current_class!r} (belongs to {expected_class}). "
+                    "Pass --class explicitly to switch classes."
+                )
         if class_name:
             class_id = CLASS_IDS.get(class_name)
             if class_id is None:
@@ -440,10 +476,13 @@ class BuildService:
         )
 
     def set_bandit(self, name: str, bandit: str, *, file_path: str | None = None) -> MutationResult:
-        if bandit not in VALID_BANDITS:
+        bandit_by_casefold = {b.casefold(): b for b in VALID_BANDITS}
+        canonical = bandit_by_casefold.get(bandit.casefold())
+        if canonical is None:
             raise BuildValidationError(
                 f"Unknown bandit: {bandit!r}. Valid: {sorted(VALID_BANDITS)}"
             )
+        bandit = canonical
         path, build_obj, cloned_from = self.load_for_write(name, file_path)
         build_obj.bandit = bandit if bandit != "None" else None
         self.save(build_obj, path)
@@ -462,14 +501,24 @@ class BuildService:
         minor: str | None = None,
         file_path: str | None = None,
     ) -> MutationResult:
-        if major is not None and major not in VALID_PANTHEON_MAJOR:
-            raise BuildValidationError(
-                f"Unknown major pantheon: {major!r}. Valid: {sorted(VALID_PANTHEON_MAJOR - {''})}"
-            )
-        if minor is not None and minor not in VALID_PANTHEON_MINOR:
-            raise BuildValidationError(
-                f"Unknown minor pantheon: {minor!r}. Valid: {sorted(VALID_PANTHEON_MINOR - {''})}"
-            )
+        major_by_casefold = {p.casefold(): p for p in VALID_PANTHEON_MAJOR}
+        minor_by_casefold = {p.casefold(): p for p in VALID_PANTHEON_MINOR}
+        if major is not None:
+            canonical_major = major_by_casefold.get(major.casefold())
+            if canonical_major is None:
+                raise BuildValidationError(
+                    f"Unknown major pantheon: {major!r}. "
+                    f"Valid: {sorted(VALID_PANTHEON_MAJOR - {''})}"
+                )
+            major = canonical_major
+        if minor is not None:
+            canonical_minor = minor_by_casefold.get(minor.casefold())
+            if canonical_minor is None:
+                raise BuildValidationError(
+                    f"Unknown minor pantheon: {minor!r}. "
+                    f"Valid: {sorted(VALID_PANTHEON_MINOR - {''})}"
+                )
+            minor = canonical_minor
         path, build_obj, cloned_from = self.load_for_write(name, file_path)
         if major is not None:
             build_obj.pantheon_major = major

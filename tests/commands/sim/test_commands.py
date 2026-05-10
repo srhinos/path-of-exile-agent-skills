@@ -1274,13 +1274,11 @@ class TestSimulateExistingModMultiple:
                     "IncreasedLife",
                     "--existing-mod",
                     "ColdResistance",
-                    "--existing-mod",
-                    "IncreasedLife",
                 ],
             )
         assert result.exit_code == 0
         call_kwargs = eng.simulate.call_args
-        assert call_kwargs.kwargs.get("existing_mods") == ["ColdResistance", "IncreasedLife"]
+        assert call_kwargs.kwargs.get("existing_mods") == ["ColdResistance"]
 
     def test_existing_mod_default_is_none(self):
         cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)

@@ -83,9 +83,13 @@ class JewelsService:
         explicits: list[str] | None = None,
         file_path: str | None = None,
     ) -> MutationResult:
-        if base not in JEWEL_BASE_TYPES:
+        # Case-insensitive lookup so user input "cobalt jewel" matches canonical "Cobalt Jewel".
+        base_by_casefold = {b.casefold(): b for b in JEWEL_BASE_TYPES}
+        canonical_base = base_by_casefold.get(base.casefold())
+        if canonical_base is None:
             valid = sorted(JEWEL_BASE_TYPES)
             raise BuildValidationError(f"Invalid jewel base type {base!r}. Valid types: {valid}")
+        base = canonical_base
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         next_id = max((i.id for i in build_obj.items), default=0) + 1
         item = Item(

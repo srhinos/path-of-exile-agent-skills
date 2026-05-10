@@ -119,7 +119,7 @@ class TestFlasksSlotEnumCoverage:
 
     @pytest.mark.parametrize(
         "bad_slot",
-        ["Flask 0", "Flask 6", "Ring 1", "Helmet", "flask 1", "Flask1"],
+        ["Flask 0", "Flask 6", "Ring 1", "Helmet", "Flask1"],
     )
     def test_invalid_slot_rejected(self, rich_build, bad_slot):
         from poe.exceptions import SlotError
@@ -132,6 +132,18 @@ class TestFlasksSlotEnumCoverage:
                 slot=bad_slot,
                 file_path=str(rich_build),
             )
+
+    @pytest.mark.parametrize("good_slot", ["flask 1", "FLASK 2", "Flask 3"])
+    def test_slot_case_insensitive(self, rich_build, good_slot):
+        """User-typed casing should normalize to canonical 'Flask N'."""
+        svc = FlasksService()
+        result = svc.add_flask(
+            "ignored",
+            base="Diamond Flask",
+            slot=good_slot,
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
 
     def test_empty_slot_should_be_rejected(self, rich_build):
         from poe.exceptions import SlotError

@@ -155,10 +155,13 @@ class ConfigService:
         *,
         file_path: str | None = None,
     ) -> MutationResult:
-        if preset not in CONFIG_PRESETS:
+        preset_by_casefold = {p.casefold(): p for p in CONFIG_PRESETS}
+        canonical = preset_by_casefold.get(preset.casefold())
+        if canonical is None:
             raise BuildValidationError(
                 f"Unknown preset: {preset!r}. Valid: {sorted(CONFIG_PRESETS)}"
             )
+        preset = canonical
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         cfg = build_obj.get_active_config()
         if not cfg:
