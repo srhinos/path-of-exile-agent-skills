@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import copy
 import dataclasses
+import logging
 import os
 import random
 import typing
@@ -25,6 +25,8 @@ from poe.types import CraftMethod, Rarity
 
 if typing.TYPE_CHECKING:
     from poe.services.repoe.data import RepoEData
+
+_logger = logging.getLogger("poe.sim")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1290,9 +1292,16 @@ class CraftingEngine:
         essence_name: str | None,
     ) -> float:
         """Calculate the chaos-equivalent cost per crafting attempt."""
+        # Narrow the suppression: only data-availability errors should hide
+        # here. A bare Exception swallow masked schema mismatches and
+        # programming bugs. SimDataError covers data-layer surprises;
+        # FileNotFoundError covers a missing bundled JSON; OSError covers
+        # disk read failures.
         prices = None
-        with contextlib.suppress(Exception):
+        try:
             prices = self.data.get_prices()
+        except (SimDataError, FileNotFoundError, OSError) as e:
+            _logger.warning("get_prices unavailable, defaulting cost: %s", e)
 
         if method == CraftMethod.FOSSIL and fossils:
             return self.data.get_craft_cost("fossil", prices=prices, fossils=fossils)

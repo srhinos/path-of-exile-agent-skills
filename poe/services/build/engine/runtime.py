@@ -139,6 +139,14 @@ class PoBEngine:
         if not self._initialized:
             return {"error": "Engine not initialized"}
 
+        # PoB sets mainObject.promptMsg whenever it hits a runtime error
+        # (missing data file, mod parse failure). Without this check, get_*
+        # ran on a corrupted Lua state and returned silently empty / wrong
+        # numbers — silent corruption.
+        err = self._check_init_error()
+        if err:
+            return {"error": f"PoB runtime error: {err}"}
+
         orig_cwd = Path.cwd()
         try:
             os.chdir(self.pob_path)
@@ -182,6 +190,10 @@ class PoBEngine:
         if not self._initialized:
             return {"error": "Engine not initialized"}
 
+        err = self._check_init_error()
+        if err:
+            return {"error": f"PoB runtime error: {err}"}
+
         orig_cwd = Path.cwd()
         try:
             os.chdir(self.pob_path)
@@ -219,6 +231,12 @@ class PoBEngine:
 
     def recalculate(self) -> None:
         if not self._initialized:
+            return
+
+        err = self._check_init_error()
+        if err:
+            # Don't silently recalculate against a broken state.
+            _logger.warning("recalculate skipped: PoB runtime error: %s", err)
             return
 
         orig_cwd = Path.cwd()

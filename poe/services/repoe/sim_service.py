@@ -610,7 +610,13 @@ class SimService:
         influence: list[str] | None = None,
         iterations: int = DEFAULT_ITERATIONS,
     ) -> list[dict]:
-        methods_to_try = ["chaos", "alt"]
+        # Alt orb forces 1p/1s on Magic items, so for any 2+ mod target
+        # (every realistic compare) it produces a hardcoded 0% row that
+        # sorts to the bottom but is still presented as a real comparison.
+        # Restrict alt to single-target compares where it can plausibly hit.
+        methods_to_try = ["chaos"]
+        if len(target) <= 1:
+            methods_to_try.append("alt")
         if fossils:
             methods_to_try.append("fossil")
         if essence:

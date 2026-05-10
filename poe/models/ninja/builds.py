@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DefensiveStats(BaseModel):
@@ -165,7 +165,10 @@ class CharacterResponse(BaseModel):
     flasks: list[CharacterFlask] = Field(default_factory=list)
     jewels: list[CharacterJewel] = Field(default_factory=list)
     charms: list[CharacterCharm] = Field(default_factory=list)
-    cluster_jewels: dict | list = Field(default_factory=dict, alias="clusterJewels")
+    # Normalized to dict regardless of whether the API sends list or dict.
+    # The bare `dict | list` type previously made every consumer
+    # isinstance-check or crash on the wrong shape — a schema-drift footgun.
+    cluster_jewels: dict = Field(default_factory=dict, alias="clusterJewels")
     passive_selection: list[int] = Field(default_factory=list, alias="passiveSelection")
     passive_tree_name: str = Field("", alias="passiveTreeName")
     atlas_tree_name: str = Field("", alias="atlasTreeName")
@@ -185,6 +188,20 @@ class CharacterResponse(BaseModel):
     last_seen_utc: str = Field("", alias="lastSeenUtc")
     updated_utc: str = Field("", alias="updatedUtc")
     last_checked_utc: str = Field("", alias="lastCheckedUtc")
+
+    @field_validator("cluster_jewels", mode="before")
+    @classmethod
+    def _normalize_cluster_jewels(cls, v: object) -> dict:
+        # poe.ninja sometimes ships cluster_jewels as a list (when no jewels
+        # are present) and sometimes as a dict keyed by jewel id. Normalize
+        # to dict so consumers don't have to isinstance-check.
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, list):
+            return {str(i): entry for i, entry in enumerate(v)}
+        if v is None:
+            return {}
+        return {}
 
 
 class TooltipMod(BaseModel):

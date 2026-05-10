@@ -405,6 +405,7 @@ class TestGetBuildInfo:
         ]
         engine.lua = MagicMock()
         engine.lua.eval.return_value = mock_table
+        engine._check_init_error = MagicMock(return_value=None)
 
         result = engine.get_build_info()
         assert result["className"] == "Witch"
@@ -432,6 +433,7 @@ class TestGetStats:
         ]
         engine.lua = MagicMock()
         engine.lua.eval.return_value = mock_table
+        engine._check_init_error = MagicMock(return_value=None)
 
         result = engine.get_stats()
         assert result["Life"] == 5000
@@ -449,6 +451,7 @@ class TestGetStats:
         ]
         engine.lua = MagicMock()
         engine.lua.eval.return_value = mock_table
+        engine._check_init_error = MagicMock(return_value=None)
 
         result = engine.get_stats(fields=["Life"])
         assert result == {"Life": 5000}
@@ -468,9 +471,23 @@ class TestRecalculate:
         engine.pob_path = str(tmp_path)
         engine._initialized = True
         engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value=None)
 
         engine.recalculate()
         engine.lua.execute.assert_called_once()
+
+    def test_skips_when_init_error_present(self, tmp_path):
+        # New behavior: recalculate must not run against a corrupted Lua
+        # state. A non-None _check_init_error means PoB hit a runtime
+        # error since last load; warn and skip.
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value="data file missing")
+
+        engine.recalculate()
+        engine.lua.execute.assert_not_called()
 
 
 # ── PoBEngine properties ────────────────────────────────────────────────────
@@ -773,9 +790,24 @@ class TestGetStatsEdgeCases:
         mock_table = MagicMock()
         mock_table.items.return_value = [("Life", 5000)]
         engine.lua.eval.return_value = mock_table
+        engine._check_init_error = MagicMock(return_value=None)
         # Filter for nonexistent field
         result = engine.get_stats(fields=["Mana"])
         assert result == {}
+
+    def test_get_stats_returns_error_on_init_error(self, tmp_path):
+        # New behavior: get_stats refuses to run against a corrupted Lua
+        # state. PoB's promptMsg surfacing means data files / mods failed
+        # to load and any output would be silently wrong.
+        engine = PoBEngine.__new__(PoBEngine)
+        engine.pob_path = str(tmp_path)
+        engine._initialized = True
+        engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value="data file missing")
+
+        result = engine.get_stats()
+        assert "error" in result
+        assert "data file missing" in result["error"]
 
 
 # ── PoBEngine.get_build_info fallback path ──────────────────────────────────
@@ -796,6 +828,7 @@ class TestGetBuildInfoFallback:
         engine._initialized = True
         engine._last_build_name = "test"
         engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value=None)
 
         mock_table = MagicMock()
         mock_table.items.return_value = [
@@ -819,6 +852,7 @@ class TestGetBuildInfoFallback:
         engine._initialized = True
         engine._last_build_name = "test"
         engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value=None)
 
         mock_table = MagicMock()
         mock_table.items.return_value = [
@@ -841,6 +875,7 @@ class TestGetBuildInfoFallback:
         engine._initialized = True
         engine._last_build_name = "test"
         engine.lua = MagicMock()
+        engine._check_init_error = MagicMock(return_value=None)
 
         mock_table = MagicMock()
         mock_table.items.return_value = [
