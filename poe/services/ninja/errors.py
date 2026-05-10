@@ -15,10 +15,6 @@ class StaleDataError(NinjaError):
     """Raised when cached data is stale and no refresh is possible."""
 
 
-class ProtobufDecodeError(NinjaError):
-    """Raised when protobuf response cannot be decoded."""
-
-
 class ApiSchemaError(NinjaError):
     """Raised when API response has unexpected format."""
 

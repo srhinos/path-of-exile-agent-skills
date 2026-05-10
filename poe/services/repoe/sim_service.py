@@ -28,6 +28,8 @@ from poe.services.repoe.constants import (
     DEFAULT_ILVL,
     DEFAULT_ITERATIONS,
     DEFAULT_MAX_ATTEMPTS,
+    MAX_ILVL,
+    MIN_ILVL,
     RARITY_PRODUCED,
     RARITY_REQUIRED,
 )
@@ -36,6 +38,14 @@ from poe.services.repoe.sim import CraftingEngine
 from poe.types import CraftMethod, Influence, MatchMode, Rarity
 
 _logger = logging.getLogger("poe.sim")
+
+
+def _validate_ilvl(ilvl: int) -> int:
+    if not isinstance(ilvl, int) or isinstance(ilvl, bool):
+        raise SimDataError(f"ilvl must be an integer, got {ilvl!r}")
+    if ilvl < MIN_ILVL or ilvl > MAX_ILVL:
+        raise SimDataError(f"ilvl must be in [{MIN_ILVL}, {MAX_ILVL}], got {ilvl}")
+    return ilvl
 
 
 class SimService:
@@ -53,6 +63,7 @@ class SimService:
         affix_type: str | None = None,
         limit: int = 30,
     ) -> ModPoolResult:
+        ilvl = _validate_ilvl(ilvl)
         if affix_type is not None:
             affix_type = affix_type.casefold() if isinstance(affix_type, str) else affix_type
             if affix_type not in {"prefix", "suffix"}:
@@ -92,6 +103,7 @@ class SimService:
         )
 
     def get_tiers(self, mod_id: str, base_name: str, *, ilvl: int = DEFAULT_ILVL) -> ModTierResult:
+        ilvl = _validate_ilvl(ilvl)
         tiers = self._data.get_mod_tiers(mod_id, base_name, ilvl=ilvl)
         if not tiers:
             pool = self._data.get_mod_pool(base_name, ilvl=ilvl)
@@ -290,6 +302,7 @@ class SimService:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         workers: int | None = None,
     ) -> SimulationResult:
+        ilvl = _validate_ilvl(ilvl)
         # Normalize before validation so --method Chaos / FOSSIL / Essence
         # all hit the canonical lowercase enum values.
         method = method.casefold() if isinstance(method, str) else method
@@ -397,6 +410,7 @@ class SimService:
         influence: list[str] | None = None,
         match: str = "all",
     ) -> dict:
+        ilvl = _validate_ilvl(ilvl)
         # Mirror the simulate() boundary discipline so multistep can't bypass
         # the same gates: validate match against MatchMode, casefold + validate
         # each step's method, reject iterations<1, strip empty targets.
@@ -704,6 +718,7 @@ class SimService:
         influences: list[str] | None = None,
         limit: int = 20,
     ) -> list[dict]:
+        ilvl = _validate_ilvl(ilvl)
         mods = self._data.get_mod_pool(
             base_name,
             ilvl=ilvl,

@@ -4,6 +4,8 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from poe.constants import NINJA_LEAGUE_LIST_KEYS, PERCENTAGE_MAX
 from poe.models.ninja.discovery import (
     AtlasTreeIndexState,
@@ -151,25 +153,43 @@ class DiscoveryService:
         if force:
             ninja_cache.invalidate_all(self._cache_dir)
         raw = self._fetch_cached_json(cache_key, NINJA_ENDPOINTS["poe1_index_state"])
-        return Poe1IndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
+        try:
+            return Poe1IndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
+        except ValidationError as e:
+            _logger.warning("poe1 index-state schema mismatch: %s — returning empty", e)
+            return Poe1IndexState()
 
     def get_poe2_index_state(self, *, force: bool = False) -> Poe2IndexState:
         cache_key = "poe2_index_state"
         if force:
             ninja_cache.invalidate_all(self._cache_dir)
         raw = self._fetch_cached_json(cache_key, NINJA_ENDPOINTS["poe2_index_state"])
-        return Poe2IndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
+        try:
+            return Poe2IndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
+        except ValidationError as e:
+            _logger.warning("poe2 index-state schema mismatch: %s — returning empty", e)
+            return Poe2IndexState()
 
     def get_build_index_state(self, *, game: str = "poe1") -> BuildIndexState:
         key = f"{game}_build_index_state"
         raw = self._fetch_cached_json(key, NINJA_ENDPOINTS[key])
         sanitized = _sanitize_build_index(_sanitize_leagues(_convert_keys(raw)))
-        return BuildIndexState.model_validate(sanitized)
+        try:
+            return BuildIndexState.model_validate(sanitized)
+        except ValidationError as e:
+            _logger.warning(
+                "build index-state schema mismatch (game=%r): %s — returning empty", game, e
+            )
+            return BuildIndexState()
 
     def get_atlas_tree_index_state(self) -> AtlasTreeIndexState:
         cache_key = "poe1_atlas_tree_index_state"
         raw = self._fetch_cached_json(cache_key, NINJA_ENDPOINTS["poe1_atlas_tree_index_state"])
-        return AtlasTreeIndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
+        try:
+            return AtlasTreeIndexState.model_validate(_sanitize_leagues(_convert_keys(raw)))
+        except ValidationError as e:
+            _logger.warning("atlas-tree index-state schema mismatch: %s — returning empty", e)
+            return AtlasTreeIndexState()
 
     def get_current_league(self, *, game: str = "poe1") -> LeagueInfo | None:
         state = self.get_poe2_index_state() if game == "poe2" else self.get_poe1_index_state()

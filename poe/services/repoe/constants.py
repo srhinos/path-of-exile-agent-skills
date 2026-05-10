@@ -9,6 +9,13 @@ DEFAULT_ITERATIONS = 10000
 DEFAULT_MAX_ATTEMPTS = 1000
 DEFAULT_WORKERS = 4
 
+# Game ilvl ceiling. RePoE mod required_level fields cap at 100 in practice;
+# anything past is meaningless (no mod has required_level > 100), and a
+# negative ilvl produces empty mod pools that surface as "No mods found"
+# without telling the user the input was wrong.
+MIN_ILVL = 1
+MAX_ILVL = 100
+
 # Pre-compiled regexes used by data._normalize_stat_template to collapse
 # stat-translation templates and user queries into the same comparable key.
 STAT_TEMPLATE_PLACEHOLDER_RE = re.compile(r"\{\d+\}")

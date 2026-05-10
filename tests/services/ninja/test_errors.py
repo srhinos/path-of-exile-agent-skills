@@ -7,10 +7,10 @@ from poe.services.ninja.errors import (
     ApiSchemaError,
     NetworkError,
     NinjaError,
-    ProtobufDecodeError,
     RateLimitError,
     StaleDataError,
 )
+from poe.services.ninja.protobuf import ProtobufDecodeError
 
 
 class TestErrorHierarchy:

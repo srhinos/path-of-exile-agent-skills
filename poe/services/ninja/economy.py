@@ -19,7 +19,6 @@ from poe.services.ninja.constants import (
     CURRENCY_ALIASES,
     NINJA_DETAILS_BASE,
     NINJA_ENDPOINTS,
-    NINJA_GAMES,
     NINJA_LOW_CONFIDENCE_THRESHOLD,
     NINJA_POE1_CURRENCY_STASH_TYPES,
     NINJA_POE1_STASH_TYPES,
@@ -27,26 +26,12 @@ from poe.services.ninja.constants import (
     TYPE_CANONICAL,
 )
 from poe.services.ninja.errors import ApiSchemaError, NinjaError
+from poe.services.ninja.validators import normalize_game
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
 
 _logger = logging.getLogger("poe.ninja.economy")
-
-
-def _normalize_game(game: str) -> str:
-    """Casefold + validate `--game` against {poe1, poe2}.
-
-    Without this, any non-"poe2" value silently routed to poe1 endpoints
-    via `game == "poe2"` checks scattered across the service. A user typing
-    `--game POE1` or `--game garbage` got poe1 results either way.
-    """
-    if not isinstance(game, str):
-        raise NinjaError(f"--game must be 'poe1' or 'poe2', got {game!r}")
-    normalized = game.casefold()
-    if normalized not in NINJA_GAMES:
-        raise NinjaError(f"--game must be 'poe1' or 'poe2', got {game!r}")
-    return normalized
 
 
 def _normalize_type_key(item_type: str) -> str:
@@ -162,7 +147,7 @@ class EconomyService:
     def get_exchange_overview(
         self, league: str, item_type: str, *, game: str = "poe1"
     ) -> ExchangeOverviewResponse:
-        game = _normalize_game(game)
+        game = normalize_game(game)
         cache_key = f"exchange_{game}_{league}_{item_type}"
         endpoint_key = "poe2_exchange_overview" if game == "poe2" else "poe1_exchange_overview"
         path = NINJA_ENDPOINTS[endpoint_key]
@@ -189,7 +174,7 @@ class EconomyService:
         game: str = "poe1",
         language: str = "en",
     ) -> list[PriceResult]:
-        game = _normalize_game(game)
+        game = normalize_game(game)
         route, canonical_type = _route_type(item_type, game=game)
 
         if route == "poe1_stash_currency":

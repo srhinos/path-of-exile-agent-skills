@@ -18,6 +18,7 @@ from poe.models.ninja.builds import (
 from poe.models.ninja.protobuf import Dictionary, NinjaSearchResult
 from poe.services.ninja import cache as ninja_cache
 from poe.services.ninja.errors import NinjaError
+from poe.services.ninja.validators import normalize_game
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
@@ -56,6 +57,7 @@ class BuildsService:
         game: str = "poe1",
         snapshot_type: str = "exp",
     ) -> CharacterResponse | None:
+        game = normalize_game(game)
         snap = self._discovery.get_current_snapshot(game=game, snapshot_type=snapshot_type)
         if not snap:
             return None
@@ -94,6 +96,7 @@ class BuildsService:
         tooltip_type: str = "exp",
         snapshot_type: str = "exp",
     ) -> TooltipResponse | None:
+        game = normalize_game(game)
         snap = self._discovery.get_current_snapshot(game=game, snapshot_type=snapshot_type)
         if not snap:
             return None
@@ -135,6 +138,7 @@ class BuildsService:
             return None
 
     def get_meta_summary(self, *, game: str = "poe1") -> MetaSummary:
+        game = normalize_game(game)
         state = self._discovery.get_build_index_state(game=game)
 
         if not state.league_builds:
@@ -179,6 +183,7 @@ class BuildsService:
         pantheon: str | None = None,
         linked_gems: dict[str, str] | None = None,
     ) -> SearchResults | None:
+        game = normalize_game(game)
         snap = self._discovery.get_current_snapshot(game=game, snapshot_type=snapshot_type)
         if not snap:
             return None

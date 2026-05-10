@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from poe.models.ninja.analysis import BuildCost, SlotCost, UpgradeSuggestion
+from poe.services.ninja.errors import NinjaError
 
 if TYPE_CHECKING:
     from poe.models.ninja.builds import CharacterItem, CharacterJewel, CharacterResponse
@@ -105,7 +106,10 @@ def find_budget_alternatives(
             prices = economy.get_prices(league, item_type, game=game)
             for p in prices:
                 all_prices[p.name.lower()] = p.chaos_value
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, NinjaError):
+            # NinjaError covers transient 5xx that survived client retries
+            # plus schema mismatches; without it the workflow fails on the
+            # first bad type instead of skipping it and continuing.
             continue
 
     for slot in build_cost.slots:
@@ -159,6 +163,6 @@ def _lookup_item_price(
             match = next((p for p in prices if p.name.lower() == name_lower), None)
             if match:
                 return match.chaos_value
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, NinjaError):
             continue
     return 0.0

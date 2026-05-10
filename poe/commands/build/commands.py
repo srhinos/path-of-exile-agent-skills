@@ -20,7 +20,7 @@ from poe.commands.build.jewels import jewels_app
 from poe.commands.build.tree import tree_app
 from poe.exceptions import BuildNotFoundError, CodecError, PoeError
 from poe.output import render as _output
-from poe.paths import resolve_build_file, validate_build_name
+from poe.paths import resolve_build_file, validate_build_name, validate_file_path
 from poe.safety import get_claude_builds_path
 from poe.services.build.build_service import BuildService
 from poe.services.build.xml.codec import decode_build, encode_build, fetch_build_code
@@ -257,6 +257,7 @@ def builds_decode(
         Output raw JSON.
     """
     if file:
+        validate_file_path(file)
         try:
             code = Path(file).read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError) as e:
@@ -298,6 +299,8 @@ def builds_encode(name: str, *, file: str | None = None, json: bool = False) -> 
     json
         Output raw JSON.
     """
+    if file:
+        validate_file_path(file)
     try:
         path = Path(file) if file else resolve_build_file(name)
         xml_str = path.read_text(encoding="utf-8")
@@ -323,6 +326,8 @@ def builds_open(name: str, *, file: str | None = None, json: bool = False) -> No
     """
     if sys.platform != "win32":
         raise PoeError("pob:// protocol requires Windows with PoB installed")
+    if file:
+        validate_file_path(file)
     try:
         path = Path(file) if file else resolve_build_file(name)
         xml_str = path.read_text(encoding="utf-8")
@@ -495,6 +500,8 @@ def builds_share(name: str, *, file: str | None = None, json: bool = False) -> N
     json
         Output raw JSON.
     """
+    if file:
+        validate_file_path(file)
     try:
         path = Path(file) if file else resolve_build_file(name)
         xml_str = path.read_text(encoding="utf-8")

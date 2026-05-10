@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import struct
 
-from poe.exceptions import PoeError
 from poe.services.ninja.constants import (
     SIGNED_INT64_MAX,
     UNSIGNED_INT64_OVERFLOW,
@@ -13,10 +12,19 @@ from poe.services.ninja.constants import (
     WIRE_LENGTH_DELIMITED,
     WIRE_VARINT,
 )
+from poe.services.ninja.errors import NinjaError
 
 
-class ProtobufDecodeError(PoeError):
-    """Raised when a protobuf payload is truncated or malformed."""
+class ProtobufDecodeError(NinjaError):
+    """Raised when a protobuf payload is truncated or malformed.
+
+    Inherits from NinjaError so callers using `except NinjaError:` catch
+    protobuf decode failures alongside HTTP / schema errors. The audit
+    found two distinct ProtobufDecodeError classes (a dead one in
+    errors.py inheriting from NinjaError and a live one in this module
+    inheriting from PoeError directly) — anything catching NinjaError
+    missed the live class. Consolidated to a single hierarchy.
+    """
 
 
 def decode_varint(buf: bytes, pos: int) -> tuple[int, int]:
