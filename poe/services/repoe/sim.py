@@ -9,11 +9,14 @@ import random
 import typing
 from dataclasses import dataclass, field
 
+from poe.exceptions import SimDataError
 from poe.services.repoe.constants import (
+    CONQUEROR_EXCLUSIONS,
     DEFAULT_ILVL,
     DEFAULT_ITERATIONS,
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_WORKERS,
+    MAX_INFLUENCES,
     RECOMBINATOR_TRANSFER_CHANCE,
     TAINTED_OUTCOME_CHANCE,
     VALUE_RANGE_LENGTH,
@@ -120,6 +123,70 @@ class CraftableItem:
     @property
     def crafted_mod_count(self) -> int:
         return sum(1 for m in self.prefixes + self.suffixes if m.is_crafted)
+
+    def check_invariants(self) -> None:
+        """Assert game-rule invariants on the current item state.
+
+        CraftableItem is @dataclass (not Pydantic) so field assignments
+        don't trigger validators. Mutation paths in the engine collectively
+        enforce these rules at their entry points; this method is the
+        forcing function that catches any path that bypasses them. Raises
+        SimDataError on violation so simulator workers fail loudly rather
+        than silently producing impossible items.
+        """
+        if self.max_prefixes < 0 or self.max_suffixes < 0 or self.max_crafted_mods < 0:
+            msg = (
+                f"Negative slot capacity: max_prefixes={self.max_prefixes} "
+                f"max_suffixes={self.max_suffixes} "
+                f"max_crafted_mods={self.max_crafted_mods}"
+            )
+            raise SimDataError(msg)
+
+        prefix_total = len(self.prefixes) + sum(
+            1 for m in self.fractured_mods if m.affix == "prefix"
+        )
+        if prefix_total > self.max_prefixes:
+            msg = f"prefixes={prefix_total} exceeds max_prefixes={self.max_prefixes}"
+            raise SimDataError(msg)
+
+        suffix_total = len(self.suffixes) + sum(
+            1 for m in self.fractured_mods if m.affix == "suffix"
+        )
+        if suffix_total > self.max_suffixes:
+            msg = f"suffixes={suffix_total} exceeds max_suffixes={self.max_suffixes}"
+            raise SimDataError(msg)
+
+        if self.crafted_mod_count > self.max_crafted_mods:
+            msg = (
+                f"crafted_mod_count={self.crafted_mod_count} exceeds "
+                f"max_crafted_mods={self.max_crafted_mods}"
+            )
+            raise SimDataError(msg)
+
+        if len(self.influences) > MAX_INFLUENCES:
+            msg = (
+                f"influences={self.influences!r} exceeds max of {MAX_INFLUENCES} "
+                f"(game rule: at most 2 influences per item)"
+            )
+            raise SimDataError(msg)
+
+        for inf in self.influences:
+            excluded = CONQUEROR_EXCLUSIONS.get(inf)
+            if excluded and excluded in self.influences:
+                msg = (
+                    f"Conqueror influences {inf!r} and {excluded!r} are mutually "
+                    f"exclusive (Shaper+Elder, Crusader+Warlord, Hunter+Redeemer)"
+                )
+                raise SimDataError(msg)
+
+        prefix_groups = {m.group for m in self.prefixes}
+        if len(prefix_groups) != len(self.prefixes):
+            msg = f"duplicate prefix mod group on item: {[m.group for m in self.prefixes]}"
+            raise SimDataError(msg)
+        suffix_groups = {m.group for m in self.suffixes}
+        if len(suffix_groups) != len(self.suffixes):
+            msg = f"duplicate suffix mod group on item: {[m.group for m in self.suffixes]}"
+            raise SimDataError(msg)
 
 
 @dataclass
@@ -308,6 +375,7 @@ class CraftingEngine:
             raise ValueError("Cannot craft on a mirrored item")
         if item.is_corrupted:
             raise ValueError("Cannot craft on a corrupted item")
+        item.check_invariants()
 
     def _pick_excluding_groups(
         self,
@@ -769,32 +837,21 @@ class CraftingEngine:
     # pairs are mutually exclusive (Shaper+Elder, Crusader+Warlord,
     # Hunter+Redeemer cannot coexist). Eldritch (Searing Exarch / Eater of
     # Worlds) are added via different mechanics, not via this method.
-    _MAX_INFLUENCES: typing.ClassVar[int] = 2
-    _CONQUEROR_EXCLUSIONS: typing.ClassVar[dict[str, str]] = {
-        "Shaper": "Elder",
-        "Elder": "Shaper",
-        "Crusader": "Warlord",
-        "Warlord": "Crusader",
-        "Hunter": "Redeemer",
-        "Redeemer": "Hunter",
-    }
-
     def conqueror_exalt(self, item: CraftableItem, influence: str) -> RolledMod | None:
         self._check_craftable(item)
         if item.rarity != Rarity.RARE:
             raise ValueError("Conqueror Exalt requires a Rare item")
-        if influence not in self._CONQUEROR_EXCLUSIONS:
+        if influence not in CONQUEROR_EXCLUSIONS:
             raise ValueError(
-                f"Unknown conqueror influence: {influence!r}. "
-                f"Valid: {sorted(self._CONQUEROR_EXCLUSIONS)}"
+                f"Unknown conqueror influence: {influence!r}. Valid: {sorted(CONQUEROR_EXCLUSIONS)}"
             )
-        excluded = self._CONQUEROR_EXCLUSIONS[influence]
+        excluded = CONQUEROR_EXCLUSIONS[influence]
         if excluded in item.influences:
             raise ValueError(
                 f"Influence {influence!r} is mutually exclusive with "
                 f"existing influence {excluded!r}"
             )
-        if influence not in item.influences and len(item.influences) >= self._MAX_INFLUENCES:
+        if influence not in item.influences and len(item.influences) >= MAX_INFLUENCES:
             raise ValueError(
                 f"Item already has {len(item.influences)} influences (max 2): {item.influences}"
             )

@@ -51,6 +51,20 @@ INFLUENCE_TAG_MAP: dict[str, str] = {
 # {tag}_searing_exarch spawn-weight entries in mods.json.
 ELDRITCH_INFLUENCES: frozenset[str] = frozenset({"Searing Exarch", "Eater of Worlds"})
 
+# Game rule: items can carry at most two influences, and certain conqueror
+# pairs are mutually exclusive (Shaper+Elder, Crusader+Warlord,
+# Hunter+Redeemer cannot coexist). Used by both CraftingEngine.conqueror_exalt
+# and CraftableItem.check_invariants.
+MAX_INFLUENCES = 2
+CONQUEROR_EXCLUSIONS: dict[str, str] = {
+    "Shaper": "Elder",
+    "Elder": "Shaper",
+    "Crusader": "Warlord",
+    "Warlord": "Crusader",
+    "Hunter": "Redeemer",
+    "Redeemer": "Hunter",
+}
+
 # RePoE base_items.json tags 2h axes only as ("axe", "two_hand_weapon", ...),
 # but mods.json spawn-weights use "2h_axe_shaper" etc. The pipeline strips
 # the influence suffix and looks up the residual in base_tags — without

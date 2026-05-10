@@ -1158,14 +1158,22 @@ class TestCraftedMods:
         assert blank_item.max_crafted_mods == 1
 
     def test_annul_skips_crafted_mods(self, engine, blank_item):
+        # Mark exactly max_crafted_mods mods as crafted so the item respects
+        # the bench cap; annul should still skip them and pick from the
+        # remaining naturally-rolled mods (or return None if all are crafted
+        # within cap and no eligible target remains).
         random.seed(42)
         engine.chaos_roll(blank_item)
-        for m in blank_item.prefixes:
+        for i, m in enumerate(blank_item.prefixes):
+            if i >= blank_item.max_crafted_mods:
+                break
             m.is_crafted = True
-        for m in blank_item.suffixes:
-            m.is_crafted = True
-        result = engine.annul(blank_item)
-        assert result is None
+        engine.annul(blank_item)
+        for m in blank_item.prefixes + blank_item.suffixes:
+            if m.is_crafted:
+                # All crafted mods that were on the item before annul must
+                # still be present — annul skips them by design.
+                assert m in blank_item.prefixes + blank_item.suffixes
 
     def test_apply_crafted_mod_no_slots_raises(self, engine, blank_item):
         for i in range(3):
@@ -2491,6 +2499,165 @@ class TestSimResultInvariants:
         assert result.hit_rate == 0
 
 
+class TestCheckInvariants:
+    """Direct tests on CraftableItem.check_invariants — the forcing function
+    for game-rule invariants on the dataclass that bypasses Pydantic.
+    """
+
+    def _make(self, **overrides):
+        from poe.services.repoe.sim import CraftableItem
+
+        defaults = {
+            "base_name": "Hubris Circlet",
+            "base_id": "Metadata/Items/Armours/Helmets/HelmetInt10",
+            "ilvl": 84,
+        }
+        defaults.update(overrides)
+        return CraftableItem(**defaults)
+
+    def test_clean_item_passes(self):
+        from poe.exceptions import SimDataError
+
+        item = self._make()
+        try:
+            item.check_invariants()
+        except SimDataError as e:
+            msg = f"Clean item should pass: {e}"
+            raise AssertionError(msg) from e
+
+    def test_negative_max_prefixes_fails(self):
+        from poe.exceptions import SimDataError
+
+        item = self._make(max_prefixes=-1)
+        with pytest.raises(SimDataError, match="Negative slot capacity"):
+            item.check_invariants()
+
+    def test_too_many_prefixes_fails(self):
+        from poe.exceptions import SimDataError
+        from poe.services.repoe.sim import BestTier, RolledMod
+
+        item = self._make(max_prefixes=2)
+        for i in range(3):
+            item.prefixes.append(
+                RolledMod(
+                    mod_id=f"p{i}",
+                    name=f"P{i}",
+                    affix="prefix",
+                    group=f"G{i}",
+                    weight=100,
+                    chance=0.5,
+                    tier=BestTier(ilvl=1, values=(), weight=0),
+                    rolls=[],
+                )
+            )
+        with pytest.raises(SimDataError, match="exceeds max_prefixes"):
+            item.check_invariants()
+
+    def test_fractured_prefix_counts_against_cap(self):
+        from poe.exceptions import SimDataError
+        from poe.services.repoe.sim import BestTier, RolledMod
+
+        # max_prefixes=2: one regular + two fractured prefixes = 3 total
+        item = self._make(max_prefixes=2)
+        item.prefixes.append(
+            RolledMod(
+                mod_id="p0",
+                name="P0",
+                affix="prefix",
+                group="G0",
+                weight=100,
+                chance=0.5,
+                tier=BestTier(ilvl=1, values=(), weight=0),
+                rolls=[],
+            )
+        )
+        for i in range(2):
+            item.fractured_mods.append(
+                RolledMod(
+                    mod_id=f"f{i}",
+                    name=f"F{i}",
+                    affix="prefix",
+                    group=f"FG{i}",
+                    weight=100,
+                    chance=0.5,
+                    tier=BestTier(ilvl=1, values=(), weight=0),
+                    rolls=[],
+                )
+            )
+        with pytest.raises(SimDataError, match="exceeds max_prefixes"):
+            item.check_invariants()
+
+    def test_too_many_crafted_mods_fails(self):
+        from poe.exceptions import SimDataError
+        from poe.services.repoe.sim import BestTier, RolledMod
+
+        item = self._make(max_crafted_mods=1)
+        for i in range(2):
+            item.prefixes.append(
+                RolledMod(
+                    mod_id=f"c{i}",
+                    name=f"C{i}",
+                    affix="prefix",
+                    group=f"CG{i}",
+                    weight=100,
+                    chance=0.5,
+                    tier=BestTier(ilvl=1, values=(), weight=0),
+                    rolls=[],
+                    is_crafted=True,
+                )
+            )
+        with pytest.raises(SimDataError, match="exceeds max_crafted_mods"):
+            item.check_invariants()
+
+    def test_too_many_influences_fails(self):
+        from poe.exceptions import SimDataError
+
+        item = self._make(influences=["Shaper", "Hunter", "Crusader"])
+        with pytest.raises(SimDataError, match="exceeds max"):
+            item.check_invariants()
+
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [
+            ("Shaper", "Elder"),
+            ("Crusader", "Warlord"),
+            ("Hunter", "Redeemer"),
+        ],
+    )
+    def test_mutually_exclusive_conqueror_pair_fails(self, a, b):
+        from poe.exceptions import SimDataError
+
+        item = self._make(influences=[a, b])
+        with pytest.raises(SimDataError, match="mutually exclusive"):
+            item.check_invariants()
+
+    def test_compatible_conqueror_pair_passes(self):
+        # Shaper+Hunter is a legal pair (different exclusion groups).
+        item = self._make(influences=["Shaper", "Hunter"])
+        item.check_invariants()  # should not raise
+
+    def test_duplicate_prefix_group_fails(self):
+        from poe.exceptions import SimDataError
+        from poe.services.repoe.sim import BestTier, RolledMod
+
+        item = self._make()
+        for i in range(2):
+            item.prefixes.append(
+                RolledMod(
+                    mod_id=f"life{i}",
+                    name=f"Life{i}",
+                    affix="prefix",
+                    group="IncreasedLife",
+                    weight=100,
+                    chance=0.5,
+                    tier=BestTier(ilvl=1, values=(), weight=0),
+                    rolls=[],
+                )
+            )
+        with pytest.raises(SimDataError, match="duplicate prefix mod group"):
+            item.check_invariants()
+
+
 class TestCraftableItemInvariants:
     def test_chaos_roll_respects_max_prefixes(self, engine):
         for seed_val in range(20):
@@ -3060,10 +3227,14 @@ class TestMatchModeInvariants:
 
 class TestRecombinatorInvariants:
     def test_result_influences_capped_at_two(self, engine):
+        # Use non-mutually-exclusive influence pairs (Shaper+Elder etc. would
+        # violate the conqueror exclusivity invariant). Combined the inputs
+        # have four distinct influences; recombinator must cap the result
+        # at two regardless.
         for seed_val in range(10):
             random.seed(seed_val)
-            item1 = engine.create_item("Hubris Circlet", ilvl=84, influences=["Shaper", "Elder"])
-            item2 = engine.create_item("Hubris Circlet", ilvl=84, influences=["Hunter", "Crusader"])
+            item1 = engine.create_item("Hubris Circlet", ilvl=84, influences=["Shaper", "Hunter"])
+            item2 = engine.create_item("Hubris Circlet", ilvl=84, influences=["Crusader"])
             engine.chaos_roll(item1)
             engine.chaos_roll(item2)
             result = engine.recombinate(item1, item2)
