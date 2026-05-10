@@ -130,13 +130,18 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
 
     timeless_el = el.find("TimelessData")
     if timeless_el is not None:
+        # Attributes go into the top dict; child elements live under a
+        # "children" subdict keyed by tag. Without this namespacing, a
+        # child tag matching an attribute name (e.g. <TimelessData
+        # SearchResult="42"><SearchResult node="100"/></TimelessData>)
+        # silently dropped the child because the attribute was already
+        # set as a string and the isinstance(list) guard skipped append.
         build.timeless_data = dict(timeless_el.attrib.items())
+        children: dict[str, list[dict]] = {}
         for child in timeless_el:
-            tag = child.tag
-            if tag not in build.timeless_data:
-                build.timeless_data[tag] = []
-            if isinstance(build.timeless_data[tag], list):
-                build.timeless_data[tag].append(dict(child.attrib.items()))
+            children.setdefault(child.tag, []).append(dict(child.attrib.items()))
+        if children:
+            build.timeless_data["children"] = children
 
 
 def _parse_stat_element(stat_el: Element) -> StatEntry | None:

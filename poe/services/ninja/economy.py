@@ -344,15 +344,20 @@ class EconomyService:
         to_currency: str,
         *,
         game: str = "poe1",
+        include_low_confidence: bool = False,
     ) -> float:
+        game = normalize_game(game)
         if not math.isfinite(amount) or amount <= 0:
             raise NinjaError(f"Amount must be a finite positive number, got {amount!r}")
         prices = self.get_prices(league, "Currency", game=game)
+        # Skip low-confidence prices by default — thinly-traded entries
+        # produce wildly off conversions that look authoritative. Caller
+        # can opt in via include_low_confidence=True.
+        if not include_low_confidence:
+            prices = [p for p in prices if not p.low_confidence]
         # Build the lookup with both canonical names and every alias that
         # resolves to a canonical name. This way a user passing "exalted",
-        # "exalt", or "exalted orb" all hit the same price entry — without
-        # the alias loop, only inputs whose alias-resolution exactly matches
-        # a PriceResult.name would work.
+        # "exalt", or "exalted orb" all hit the same price entry.
         price_map: dict[str, float] = {}
         for p in prices:
             price_map[p.name.lower()] = p.chaos_value
@@ -360,8 +365,17 @@ class EconomyService:
             chaos = price_map.get(canonical.lower())
             if chaos is not None:
                 price_map.setdefault(alias.lower(), chaos)
-        price_map["chaos orb"] = 1.0
-        price_map["chaos"] = 1.0
+        # PoE1 quotes everything in chaos. PoE2 quotes in exalted; the
+        # API's exchange.core.primary tells us which currency is the unit.
+        # For now, hard-code the per-game base; future-proof if poe.ninja
+        # changes the unit currency.
+        if game == "poe2":
+            price_map["exalted orb"] = 1.0
+            price_map["exalted"] = 1.0
+            price_map["exalt"] = 1.0
+        else:
+            price_map["chaos orb"] = 1.0
+            price_map["chaos"] = 1.0
 
         from_chaos = price_map.get(from_currency.lower())
         if from_chaos is None or from_chaos <= 0:

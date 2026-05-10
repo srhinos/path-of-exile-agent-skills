@@ -113,16 +113,38 @@ def _write_build_section(root: ET.Element, build: BuildDocument) -> None:
 
 
 def _write_timeless_data(parent: ET.Element, data: dict) -> None:
-    """Write <TimelessData> element with attributes and children."""
+    """Write <TimelessData> element with attributes and children.
+
+    Parser stores child elements under a "children" subdict so a child
+    tag matching an attribute name can't collide. The writer mirrors this:
+    attributes live in the top dict, children come from data["children"]
+    (a dict[str, list[dict[str, str]]]).
+    """
     td_el = ET.SubElement(parent, "TimelessData")
+    children = data.get("children") or {}
     for k, v in data.items():
+        if k == "children":
+            continue
+        # Legacy shape: list values at the top dict level were treated as
+        # children. Tolerate this on write so old-shape in-memory builds
+        # still serialize correctly.
         if isinstance(v, list):
             for child_attrs in v:
-                child_el = ET.SubElement(td_el, k)
-                for ck, cv in child_attrs.items():
-                    child_el.set(ck, str(cv))
+                if isinstance(child_attrs, dict):
+                    child_el = ET.SubElement(td_el, k)
+                    for ck, cv in child_attrs.items():
+                        child_el.set(ck, str(cv))
         else:
             td_el.set(k, str(v))
+    if isinstance(children, dict):
+        for tag, entries in children.items():
+            if not isinstance(entries, list):
+                continue
+            for child_attrs in entries:
+                if isinstance(child_attrs, dict):
+                    child_el = ET.SubElement(td_el, tag)
+                    for ck, cv in child_attrs.items():
+                        child_el.set(ck, str(cv))
 
 
 def _write_tree_section(root: ET.Element, build: BuildDocument) -> None:

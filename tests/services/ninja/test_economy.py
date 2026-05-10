@@ -503,9 +503,18 @@ class TestPriceList:
 
 class TestCurrencyConvert:
     def test_convert(self, tmp_path):
+        # Divine Orb in fixture has receive=None which marks it
+        # low_confidence; opt in so the fixture-driven assertion still works.
         svc = _make_service(tmp_path, {"currency/overview": CURRENCY_RESPONSE})
-        result = svc.currency_convert("Mirage", 10, "Exalted Orb", "Divine Orb")
+        result = svc.currency_convert(
+            "Mirage", 10, "Exalted Orb", "Divine Orb", include_low_confidence=True
+        )
         assert result == pytest.approx(10 * 17.5 / 150.0, rel=0.01)
+
+    def test_convert_skips_low_confidence_by_default(self, tmp_path):
+        svc = _make_service(tmp_path, {"currency/overview": CURRENCY_RESPONSE})
+        with pytest.raises(NinjaError, match="not found"):
+            svc.currency_convert("Mirage", 10, "Exalted Orb", "Divine Orb")
 
     def test_convert_to_chaos(self, tmp_path):
         svc = _make_service(tmp_path, {"currency/overview": CURRENCY_RESPONSE})
@@ -534,7 +543,9 @@ class TestCurrencyConvert:
 
     def test_short_name_aliases(self, tmp_path):
         svc = _make_service(tmp_path, {"currency/overview": CURRENCY_RESPONSE})
-        result = svc.currency_convert("Mirage", 10, "exalted", "divine")
+        result = svc.currency_convert(
+            "Mirage", 10, "exalted", "divine", include_low_confidence=True
+        )
         assert result == pytest.approx(10 * 17.5 / 150.0, rel=0.01)
 
 
