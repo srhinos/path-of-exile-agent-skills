@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import typing
 from pathlib import Path
 
 from poe.exceptions import SimDataError
 from poe.services.repoe.constants import (
     CURRENCY_PATH_NAMES,
+    ELDRITCH_INFLUENCES,
     ESSENCE_TIER_PREFIXES,
     INFLUENCE_TAG_MAP,
     MAX_RESONATOR_SOCKETS,
     RESONATOR_BY_SOCKETS,
 )
 from poe.services.repoe.sim import BestTier, ModPoolEntry
+
+_logger = logging.getLogger("poe.repoe")
 
 
 class RepoEData:
@@ -77,13 +81,34 @@ class RepoEData:
         mod_ids = mod_pool.get(base_id, [])
         allowed_influences: set[str | None] = {None}
         inf_tags: set[str] = set()
-        inv_influence_map = {v: k for k, v in INFLUENCE_TAG_MAP.items()}
+        # Accept input as either a display name ("Warlord") or a codename
+        # ("adjudicator"), in any case. casefolded → (display, codename).
+        codename_to_display = INFLUENCE_TAG_MAP
+        display_to_codename = {v: k for k, v in INFLUENCE_TAG_MAP.items()}
+        casefold_lookup = {
+            **{k.casefold(): (v, k) for k, v in codename_to_display.items()},
+            **{k.casefold(): (k, v) for k, v in display_to_codename.items()},
+        }
+        eldritch_casefold = {e.casefold() for e in ELDRITCH_INFLUENCES}
         for inf in influences or []:
-            display = INFLUENCE_TAG_MAP.get(inf.casefold(), inf.title())
+            key = inf.casefold()
+            if key in eldritch_casefold:
+                # Eldritch influences are added via eldritch implicits, not
+                # spawn-weight tags; they have no entry in INFLUENCE_TAG_MAP.
+                # Skip silently — the caller may have passed them through from
+                # a build that has both conqueror and eldritch influences.
+                continue
+            entry = casefold_lookup.get(key)
+            if entry is None:
+                _logger.warning(
+                    "unknown influence %r — no codename mapping; skipping for mod pool",
+                    inf,
+                )
+                continue
+            display, actual_codename = entry
             allowed_influences.add(display)
-            codename = inv_influence_map.get(display, inf.casefold())
             for tag in bitem["tags"]:
-                inf_tags.add(f"{tag}_{codename}")
+                inf_tags.add(f"{tag}_{actual_codename}")
 
         group_tier_counts: dict[str, int] = {}
         for mid in mod_ids:

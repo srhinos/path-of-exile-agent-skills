@@ -12,8 +12,15 @@ from poe.services.build.xml.writer import write_build_file
 pytestmark = pytest.mark.integration
 
 
-class TestVariantFiltering:
-    def test_comma_separated_variant_keeps_matching_mods(self, tmp_path):
+class TestVariantPreservation:
+    """Parser must preserve all variant mods so writer can round-trip them.
+
+    Filtering at parse time was silent data loss: write→reparse would lose
+    the inactive variants. Consumers (display, stat compute) filter by the
+    selected variant at the consumption layer instead.
+    """
+
+    def test_comma_separated_variant_mods_preserved(self, tmp_path):
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<PathOfBuilding>\n"
@@ -43,9 +50,9 @@ class TestVariantFiltering:
         assert "+(20-30)% to all Elemental Resistances" in texts
         assert "10% chance to Freeze, Shock and Ignite" in texts
         assert "All variants mod" in texts
-        assert "Only variant 1 mod" not in texts
+        assert "Only variant 1 mod" in texts
 
-    def test_single_variant_still_works(self, tmp_path):
+    def test_single_variant_mods_preserved(self, tmp_path):
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<PathOfBuilding>\n"
@@ -70,7 +77,7 @@ class TestVariantFiltering:
         build = parse_build_file(path)
         texts = [m.text for m in build.items[0].explicits]
         assert "Variant 2 only" in texts
-        assert "Variant 1 only" not in texts
+        assert "Variant 1 only" in texts
 
 
 class TestFlaskBaseType:
@@ -317,16 +324,20 @@ class TestValidationStatNames:
         assert len(move) == 1
 
 
-class TestNotesColorStripping:
-    def test_pob_color_codes_stripped(self, pob_builder):
+class TestNotesColorPreserved:
+    """Parser must preserve PoB color codes verbatim — stripping at parse
+    time was silent data loss on round-trip. Display layer (notes_get)
+    strips for human output."""
+
+    def test_pob_color_codes_preserved(self, pob_builder):
         path = (
             pob_builder.with_class("Witch", level=90)
             .with_notes("^xE05030Red text^7 normal ^x70FF70green^7 end")
             .write("color_notes.xml")
         )
         build = parse_build_file(path)
-        assert "^x" not in build.notes
-        assert "^7" not in build.notes
+        assert "^xE05030" in build.notes
+        assert "^7" in build.notes
         assert "Red text" in build.notes
         assert "normal" in build.notes
         assert "green" in build.notes

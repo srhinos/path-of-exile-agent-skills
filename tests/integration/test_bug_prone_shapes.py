@@ -95,8 +95,8 @@ Implicits: 0
         reparsed = parse_build_file(out)
 
         item = reparsed.items[0]
-        text_combined = "\n".join(m.text for m in item.implicits + item.explicits)
-        assert "Anger" in text_combined and "Hatred" in text_combined and "Wrath" in text_combined, (
+        text = "\n".join(m.text for m in item.implicits + item.explicits)
+        assert "Anger" in text and "Hatred" in text and "Wrath" in text, (
             "All three variant mods must round-trip; inactive variants are part "
             "of the unique's identity, not optional decoration."
         )
@@ -236,17 +236,26 @@ Implicits: 0
 class TestEnumLookupAgreement:
     """Enums and the lookup tables that depend on them must stay in sync."""
 
-    def test_influence_enum_matches_tag_map(self):
-        from poe.services.repoe.data import INFLUENCE_TAG_MAP
+    def test_every_influence_is_classified(self):
+        """Every Influence enum value must be either a conqueror (in TAG_MAP)
+        or eldritch (in ELDRITCH_INFLUENCES). No silent fallthrough.
+        """
+        from poe.services.repoe.constants import ELDRITCH_INFLUENCES, INFLUENCE_TAG_MAP
         from poe.types import Influence
 
-        enum_values = {i.value for i in Influence}
-        map_keys = set(INFLUENCE_TAG_MAP)
-        casefold_enum = {v.casefold() for v in enum_values}
-        casefold_map = {k.casefold() for k in map_keys}
-        missing = casefold_enum - casefold_map
-        assert not missing, (
-            f"Influence enum has values not in INFLUENCE_TAG_MAP: {sorted(missing)}. "
-            "Each enum value must have a codename mapping or get_mod_pool will "
-            "produce wrong tags via inf.title() fallback."
+        conqueror_values = set(INFLUENCE_TAG_MAP.values())
+        classified = conqueror_values | set(ELDRITCH_INFLUENCES)
+        unclassified = {i.value for i in Influence} - classified
+        assert not unclassified, (
+            f"Influence enum has values not classified as conqueror or eldritch: "
+            f"{sorted(unclassified)}. Add to INFLUENCE_TAG_MAP (conqueror) or "
+            f"ELDRITCH_INFLUENCES (eldritch implicit) so get_mod_pool handles them."
         )
+
+    def test_eldritch_influences_skipped_in_mod_pool(self, repoe_data):
+        """get_mod_pool must skip eldritch influences without crashing or
+        producing garbage codenames."""
+        # Should not raise; should treat as no-influence query effectively.
+        pool = repoe_data.get_mod_pool("Hubris Circlet", ilvl=84, influences=["Searing Exarch"])
+        # Eldritch influence is skipped — pool is whatever non-influenced mods exist.
+        assert isinstance(pool, list)

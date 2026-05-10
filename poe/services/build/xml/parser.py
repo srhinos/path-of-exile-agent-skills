@@ -4,6 +4,7 @@ import contextlib
 import functools
 import json
 import logging
+import math
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from defusedxml import ElementTree as SafeET
 
+from poe.constants import VERSION_PATTERN
 from poe.models.build.build import BuildDocument
 from poe.models.build.config import BuildConfig, ConfigEntry
 from poe.models.build.gems import Gem, GemGroup
@@ -25,7 +27,6 @@ from poe.services.build.constants import (
     METADATA_PREFIXES,
     MIN_KEYWORD_LENGTH,
     MOD_KEYWORD_NOISE,
-    POB_COLOR_RE,
     PREFIX_RE,
     SLOT_MOD_RE,
     SUFFIX_RE,
@@ -92,8 +93,14 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
     raw_bandit = el.get("bandit", "")
     build.bandit = raw_bandit if raw_bandit and raw_bandit != "None" else None
     build.view_mode = el.get("viewMode", "TREE")
-    build.target_version = el.get("targetVersion", "3_0")
-    build.main_socket_group = int(el.get("mainSocketGroup", "1"))
+    raw_target = el.get("targetVersion", "3_0")
+    if raw_target and not VERSION_PATTERN.match(raw_target):
+        _logger.warning(
+            "targetVersion=%r does not match X_Y format, defaulting to '3_0'", raw_target
+        )
+        raw_target = "3_0"
+    build.target_version = raw_target or "3_0"
+    build.main_socket_group = _safe_int(el.get("mainSocketGroup", "1"), 1)
     build.pantheon_major = el.get("pantheonMajorGod", "")
     build.pantheon_minor = el.get("pantheonMinorGod", "")
     build.character_level_auto_mode = el.get("characterLevelAutoMode", "false").casefold() == "true"
@@ -133,7 +140,11 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
 
 
 def _parse_stat_element(stat_el: Element) -> StatEntry | None:
-    """Parse a <PlayerStat>/<MinionStat>. Returns None and warns when 'stat' is empty."""
+    """Parse a <PlayerStat>/<MinionStat>. Returns None on empty stat or non-finite value.
+
+    PoB writes inf for capped stats (over-cap, infinite recoup) and nan for
+    divide-by-zero. Both cases warn and skip rather than crashing the parse.
+    """
     name = stat_el.get("stat", "")
     if not name:
         _logger.warning("stat element missing 'stat' attribute, skipping")
@@ -142,7 +153,11 @@ def _parse_stat_element(stat_el: Element) -> StatEntry | None:
     try:
         val = float(val_str)
     except ValueError:
-        val = 0.0
+        _logger.warning("stat %r: non-numeric value %r, skipping", name, val_str)
+        return None
+    if not math.isfinite(val):
+        _logger.warning("stat %r: non-finite value %r, skipping", name, val_str)
+        return None
     return StatEntry(stat=name, value=val)
 
 
@@ -152,19 +167,39 @@ def _parse_tree_section(root: Element, build: BuildDocument) -> None:
     if tree_el is None:
         return
 
-    build.active_spec = int(tree_el.get("activeSpec", "1"))
+    raw_active = _safe_int(tree_el.get("activeSpec", "1"), 1)
+    build.active_spec = _clamp_int(raw_active, lo=1, hi=None, field="activeSpec", context="tree")
 
     for spec_el in tree_el.findall("Spec"):
         spec = TreeSpec()
         spec.title = spec_el.get("title", "")
         spec.tree_version = spec_el.get("treeVersion", "")
-        spec.class_id = int(spec_el.get("classId", "0"))
-        spec.ascend_class_id = int(spec_el.get("ascendClassId", "0"))
+        raw_class = _safe_int(spec_el.get("classId", "0"), 0)
+        spec.class_id = _clamp_int(
+            raw_class, lo=0, hi=None, field="classId", context=f"spec {spec.title!r}"
+        )
+        raw_ascend = _safe_int(spec_el.get("ascendClassId", "0"), 0)
+        spec.ascend_class_id = _clamp_int(
+            raw_ascend, lo=0, hi=None, field="ascendClassId", context=f"spec {spec.title!r}"
+        )
         spec.secondary_ascend_class_id = _safe_int(spec_el.get("secondaryAscendClassId", "0"))
 
         nodes_str = spec_el.get("nodes", "")
         if nodes_str:
-            spec.nodes = [int(n) for n in nodes_str.split(",") if n.strip()]
+            raw_nodes = [_safe_int(n, 0) for n in nodes_str.split(",") if n.strip()]
+            seen: set[int] = set()
+            deduped: list[int] = []
+            for n in raw_nodes:
+                if n in seen:
+                    _logger.warning(
+                        "spec %r: duplicate node id %d, dropping duplicate",
+                        spec.title,
+                        n,
+                    )
+                    continue
+                seen.add(n)
+                deduped.append(n)
+            spec.nodes = deduped
 
         # Parse mastery effects: "{nodeId,effectId},{nodeId,effectId}"
         mastery_str = spec_el.get("masteryEffects", "")
@@ -638,7 +673,6 @@ def _parse_item_text(item: Item) -> None:
         item.name = item.base_type
 
     _assign_affix_metadata(item)
-    _filter_variant_mods(item)
 
 
 @functools.cache
@@ -802,8 +836,19 @@ def _parse_mod_line(line: str) -> ItemMod | None:
         elif marker_content.startswith("tags:"):
             tags = [t.strip() for t in marker_content[5:].split(",") if t.strip()]
         elif marker_content.startswith("range:"):
-            with contextlib.suppress(ValueError):
-                range_value = float(marker_content[6:])
+            try:
+                raw_range = float(marker_content[6:])
+            except ValueError:
+                pass
+            else:
+                if raw_range < 0.0:
+                    _logger.warning("mod range %r below 0.0, clamping", raw_range)
+                    range_value = 0.0
+                elif raw_range > 1.0:
+                    _logger.warning("mod range %r above 1.0, clamping", raw_range)
+                    range_value = 1.0
+                else:
+                    range_value = raw_range
         elif marker_content.startswith("variant:"):
             variant = marker_content[8:]
         line = line[marker_end:]
@@ -883,11 +928,15 @@ def _parse_config_input(el) -> ConfigEntry | None:
 
 
 def _parse_notes(root: Element, build: BuildDocument) -> None:
-    """Parse the <Notes> section, stripping PoB color codes."""
+    """Parse the <Notes> section, preserving PoB color codes verbatim.
+
+    Stripping color codes here would be silent data loss on round-trip
+    (parse → write → parse). The notes_get() service strips for display;
+    the writer round-trips raw bytes.
+    """
     notes_el = root.find("Notes")
     if notes_el is not None:
-        raw = (notes_el.text or "").strip()
-        build.notes = POB_COLOR_RE.sub("", raw)
+        build.notes = (notes_el.text or "").strip()
 
 
 def _parse_import(root: Element, build: BuildDocument) -> None:

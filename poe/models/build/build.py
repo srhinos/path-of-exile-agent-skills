@@ -108,7 +108,7 @@ class BuildDocument(BaseModel):
     @field_validator("target_version")
     @classmethod
     def _validate_target_version(cls, v: str) -> str:
-        if not VERSION_PATTERN.match(v):
+        if v and not VERSION_PATTERN.match(v):
             raise ValueError(f"target_version must match X_Y format (e.g. '3_25'), got {v!r}")
         return v
 

@@ -34,6 +34,12 @@ INFLUENCE_TAG_MAP: dict[str, str] = {
     "eyrie": "Redeemer",
 }
 
+# Eldritch influences (Searing Exarch, Eater of Worlds) are added via
+# eldritch implicits, not via spawn-weight tags. They are valid Influence
+# enum values but get_mod_pool() must skip them — there are no
+# {tag}_searing_exarch spawn-weight entries in mods.json.
+ELDRITCH_INFLUENCES: frozenset[str] = frozenset({"Searing Exarch", "Eater of Worlds"})
+
 MAX_PREFIXES_BY_CLASS: dict[str, int] = {
     "Jewel": 2,
     "AbyssJewel": 2,
