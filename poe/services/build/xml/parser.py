@@ -765,39 +765,6 @@ def _set_affix(mod: ItemMod, *, is_prefix: bool) -> None:
     mod.is_suffix = not is_prefix
 
 
-def _filter_variant_mods(item: Item) -> None:
-    """Remove explicit mods that belong to a non-selected variant.
-
-    PoB unique items with variants store all variant mods in the item text,
-    tagged with {variant:N}. Only mods matching the selected variant (or
-    the variantAlt fields for that slot position) should be kept.
-    """
-    if not item.variant and not item.selected_variant:
-        return
-    selected = str(item.selected_variant) if item.selected_variant else item.variant
-    alt_variants = {
-        item.variant_alt,
-        item.variant_alt2,
-        item.variant_alt3,
-        item.variant_alt4,
-        item.variant_alt5,
-    }
-    active_variants = {selected} | {v for v in alt_variants if v}
-    active_variants.discard("")
-    if not active_variants:
-        return
-    item.explicits = [
-        m
-        for m in item.explicits
-        if not m.variant or any(v.strip() in active_variants for v in m.variant.split(","))
-    ]
-    item.implicits = [
-        m
-        for m in item.implicits
-        if not m.variant or any(v.strip() in active_variants for v in m.variant.split(","))
-    ]
-
-
 _BOOL_MARKERS = frozenset(
     {
         "crafted",
