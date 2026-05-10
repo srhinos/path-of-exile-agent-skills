@@ -591,14 +591,10 @@ class TestSetPantheonNegative:
 
 
 _PANTHEON_MAJORS = [
-    "Brine King",
+    "TheBrineKing",
     "Lunaris",
     "Solaris",
     "Arakaali",
-    "Soul of the Brine King",
-    "Soul of Lunaris",
-    "Soul of Solaris",
-    "Soul of Arakaali",
 ]
 
 _PANTHEON_MINORS = [
@@ -610,14 +606,6 @@ _PANTHEON_MINORS = [
     "Tukohama",
     "Ralakesh",
     "Ryslatha",
-    "Soul of Abberath",
-    "Soul of Garukhan",
-    "Soul of Gruthkul",
-    "Soul of Yugul",
-    "Soul of Shakari",
-    "Soul of Tukohama",
-    "Soul of Ralakesh",
-    "Soul of Ryslatha",
 ]
 
 

@@ -120,16 +120,15 @@ class TestExtractStatsInvariants:
 
 
 class TestExtractStatsBoolFiltering:
-    def test_bool_filtered_or_coerced(self):
-        # In Python, bool is a subclass of int. The implementation uses
-        # isinstance(v, (int, float)) which includes bool. Check the actual
-        # behavior is consistent with the dict[str, float] contract.
-        mock_table = {"BoolField": True, "Life": 5000}
+    def test_bool_excluded_from_stats(self):
+        """bool is a subclass of int; without an explicit exclusion, Lua's
+        `output.HasFlask = true` silently becomes a stats[...] = 1.0 entry.
+        Stats should be numeric-only — booleans belong elsewhere."""
+        mock_table = {"BoolField": True, "AnotherBool": False, "Life": 5000}
         result = extract_stats(mock_table)
-        # If bool passes the int check, it becomes 1.0/0.0; the semantic
-        # invariant is that all values must be float-compatible
-        for v in result.stats.values():
-            assert isinstance(v, float)
+        assert "BoolField" not in result.stats
+        assert "AnotherBool" not in result.stats
+        assert result.stats == {"Life": 5000.0}
 
 
 class TestLuaTableToDictNegativePaths:

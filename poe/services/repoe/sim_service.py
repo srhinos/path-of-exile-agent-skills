@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import math
 import re
 
@@ -34,6 +35,8 @@ from poe.services.repoe.data import RepoEData
 from poe.services.repoe.sim import CraftingEngine
 from poe.types import CraftMethod, Influence
 
+_logger = logging.getLogger("poe.sim")
+
 
 class SimService:
     """Owns crafting business logic."""
@@ -50,19 +53,20 @@ class SimService:
         affix_type: str | None = None,
         limit: int = 30,
     ) -> ModPoolResult:
+        resolved_influences: list[str] = []
         if influences:
             valid_map = {i.value.casefold(): i.value for i in Influence}
-            for idx, inf in enumerate(influences):
+            for inf in influences:
                 matched = valid_map.get(inf.casefold())
                 if not matched:
                     raise SimDataError(
                         f"Unknown influence: {inf!r}. Valid: {sorted(valid_map.values())}"
                     )
-                influences[idx] = matched
+                resolved_influences.append(matched)
         mods = self._data.get_mod_pool(
             base_name,
             ilvl=ilvl,
-            influences=influences or [],
+            influences=resolved_influences,
             affix_type=affix_type,
         )
         if not mods:
@@ -75,7 +79,7 @@ class SimService:
         return ModPoolResult(
             base=base_name,
             ilvl=ilvl,
-            influences=influences or ["none"],
+            influences=resolved_influences or ["none"],
             filter=affix_type or "all",
             total_mods=len(mods),
             mods=[dataclasses.asdict(m) for m in mods[:limit]],
@@ -203,20 +207,21 @@ class SimService:
             raise SimDataError("--essence is required when method is 'essence'")
         if method == CraftMethod.FOSSIL and not fossils:
             raise SimDataError("--fossils is required when method is 'fossil'")
+        resolved_influences: list[str] = []
         if influence:
             valid_map = {i.value.casefold(): i.value for i in Influence}
-            for idx, inf in enumerate(influence):
+            for inf in influence:
                 matched = valid_map.get(inf.casefold())
                 if not matched:
                     raise SimDataError(
                         f"Unknown influence: {inf!r}. Valid: {sorted(valid_map.values())}"
                     )
-                influence[idx] = matched
-        mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=influence or [])
+                resolved_influences.append(matched)
+        mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=resolved_influences)
         pool_groups = {mod.group.casefold() for mod in mod_pool}
         resolved_targets = []
         for t in target:
-            resolved = self.resolve_mod_name(t, base_name, influences=influence)
+            resolved = self.resolve_mod_name(t, base_name, influences=resolved_influences)
             final = resolved or t
             if final.casefold() not in pool_groups:
                 available = sorted({mod.group for mod in mod_pool})[:20]
@@ -227,7 +232,9 @@ class SimService:
             resolved_targets.append(final)
         if existing_mods:
             for em in existing_mods:
-                resolved_em = self.resolve_mod_name(em, base_name, influences=influence) or em
+                resolved_em = (
+                    self.resolve_mod_name(em, base_name, influences=resolved_influences) or em
+                )
                 if resolved_em.casefold() not in pool_groups:
                     available = sorted({mod.group for mod in mod_pool})[:20]
                     raise SimDataError(
@@ -242,7 +249,7 @@ class SimService:
                 method=method,
                 target_mods=resolved_targets,
                 iterations=iterations,
-                influences=influence or [],
+                influences=resolved_influences,
                 fossils=fossils,
                 match_mode=match,
                 essence_name=essence,
@@ -581,5 +588,10 @@ class SimService:
                 result = crafting.model_dump()
                 result["league"] = resolved
                 return result
-        except NinjaError:
+        except NinjaError as e:
+            _logger.warning(
+                "ninja unavailable for league=%r (%s); falling back to bundled RePoE prices",
+                league,
+                e,
+            )
             return self._data.get_prices(league=league)

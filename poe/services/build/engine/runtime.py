@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,6 +10,8 @@ from defusedxml import ElementTree as SafeET
 
 from poe.paths import get_pob_path, resolve_build_file
 from poe.services.build.engine.stubs import register_stubs
+
+_logger = logging.getLogger("poe.engine")
 
 if TYPE_CHECKING:
     from lupa import LuaRuntime
@@ -238,7 +241,13 @@ class PoBEngine:
 
 
 def lua_table_to_dict(lua_table) -> dict:
-    """Convert a lupa Lua table to a Python dict."""
+    """Convert a lupa Lua table to a Python dict.
+
+    On iteration failure (AttributeError/TypeError), logs a warning and
+    returns {"_raw": str(...)} as a degraded fallback. Without the warn,
+    a refactor that breaks Lua-table iteration silently returns empty
+    stats with no signal to the caller.
+    """
     if lua_table is None:
         return {}
     try:
@@ -251,7 +260,8 @@ def lua_table_to_dict(lua_table) -> dict:
                 result[key] = list(v)
             else:
                 result[key] = v
-    except (AttributeError, TypeError):
+    except (AttributeError, TypeError) as e:
+        _logger.warning("lua_table_to_dict failed to iterate %r: %s", type(lua_table).__name__, e)
         return {"_raw": str(lua_table)}
     else:
         return result

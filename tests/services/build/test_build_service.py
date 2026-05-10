@@ -289,7 +289,7 @@ class TestBuildSetPantheon:
         svc = BuildService()
         result = svc.set_pantheon(
             "ignored",
-            major="Brine King",
+            major="TheBrineKing",
             minor="Garukhan",
             file_path=str(rich_build),
         )
@@ -402,8 +402,8 @@ class TestSetPantheonValidation:
 
     def test_accepts_valid_major(self, build_file):
         svc = BuildService()
-        result = svc.set_pantheon("ignored", major="Soul of Lunaris", file_path=str(build_file))
-        assert result.pantheon_major == "Soul of Lunaris"
+        result = svc.set_pantheon("ignored", major="Lunaris", file_path=str(build_file))
+        assert result.pantheon_major == "Lunaris"
 
 
 class TestNewAscendancies:

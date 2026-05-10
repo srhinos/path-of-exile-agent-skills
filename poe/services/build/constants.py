@@ -50,20 +50,18 @@ VALID_BANDITS: frozenset[str] = frozenset({"None", "Alira", "Kraityn", "Oak"})
 VALID_PANTHEON_MAJOR: frozenset[str] = frozenset(
     {
         "",
-        "Brine King",
+        "None",
+        "TheBrineKing",
         "Lunaris",
         "Solaris",
         "Arakaali",
-        "Soul of the Brine King",
-        "Soul of Lunaris",
-        "Soul of Solaris",
-        "Soul of Arakaali",
     }
 )
 
 VALID_PANTHEON_MINOR: frozenset[str] = frozenset(
     {
         "",
+        "None",
         "Abberath",
         "Garukhan",
         "Gruthkul",
@@ -72,14 +70,6 @@ VALID_PANTHEON_MINOR: frozenset[str] = frozenset(
         "Tukohama",
         "Ralakesh",
         "Ryslatha",
-        "Soul of Abberath",
-        "Soul of Garukhan",
-        "Soul of Gruthkul",
-        "Soul of Yugul",
-        "Soul of Shakari",
-        "Soul of Tukohama",
-        "Soul of Ralakesh",
-        "Soul of Ryslatha",
     }
 )
 

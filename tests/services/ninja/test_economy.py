@@ -296,6 +296,19 @@ class TestRouteType:
         assert _route_type("FOSSIL", game="poe1") == _route_type("Fossil", game="poe1")
         assert _route_type("uniquearmour", game="poe1") == _route_type("UniqueArmour", game="poe1")
 
+    def test_separators_ignored(self):
+        """Underscores, spaces, and hyphens in user input must match canonical
+        keys (e.g. divinationcard). Strict matching was rejecting common forms
+        like 'divination_card' and 'unique-armour'."""
+        canon = _route_type("DivinationCard", game="poe1")
+        assert _route_type("divination_card", game="poe1") == canon
+        assert _route_type("divination card", game="poe1") == canon
+        assert _route_type("Divination-Card", game="poe1") == canon
+
+        unique_armour = _route_type("UniqueArmour", game="poe1")
+        assert _route_type("unique_armour", game="poe1") == unique_armour
+        assert _route_type("unique armour", game="poe1") == unique_armour
+
 
 class TestExchangeChaosValue:
     def test_chaos_primary_passthrough(self):

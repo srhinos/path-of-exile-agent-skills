@@ -230,7 +230,56 @@ Implicits: 0
         assert len(build.items) == 1, "Out-of-range marker must clamp, not drop the whole item"
 
 
-# ── Enum/lookup agreement ───────────────────────────────────────────────────
+# ── Service-level normalization ─────────────────────────────────────────────
+
+
+class TestAffixReassignmentDoesNotTriggerExclusiveValidator:
+    """ItemMod._check_affix_exclusive raises if both is_prefix and is_suffix
+    are True. The parser's affix-assignment helper must clear both first so
+    re-assigning a previously-tagged mod (e.g. from suffix back to prefix)
+    doesn't pass through the (True, True) intermediate state."""
+
+    def test_double_assign_via_helper(self):
+        from poe.models.build.items import ItemMod
+        from poe.services.build.xml.parser import _set_affix
+
+        mod = ItemMod(text="x", is_suffix=True)
+        _set_affix(mod, is_prefix=True)  # would crash without the helper's clear-first
+        assert mod.is_prefix and not mod.is_suffix
+
+        _set_affix(mod, is_prefix=False)
+        assert mod.is_suffix and not mod.is_prefix
+
+
+class TestPantheonNamesMatchPoBExports:
+    """set_pantheon must accept the same names PoB writes to XML.
+
+    PoB stores major pantheon as e.g. "TheBrineKing" (no spaces), minor as
+    bare names like "Garukhan". A user inspecting `summary` then copying
+    that value to `set-pantheon` should succeed.
+    """
+
+    def test_major_pantheon_pob_internal_names_accepted(self, tmp_path):
+        from poe.services.build.constants import VALID_PANTHEON_MAJOR, VALID_PANTHEON_MINOR
+
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="90" className="Witch" ascendClassName=""
+                       pantheonMajorGod="TheBrineKing" pantheonMinorGod="Garukhan"/>
+            </PathOfBuilding>
+        """)
+        p = _write_xml(tmp_path, xml, "pantheon.xml")
+        build = parse_build_file(p)
+        assert build.pantheon_major == "TheBrineKing"
+        assert build.pantheon_minor == "Garukhan"
+
+        # The values PoB writes must round-trip through set_pantheon.
+        assert "TheBrineKing" in VALID_PANTHEON_MAJOR, (
+            "set_pantheon would reject the value PoB just wrote: TheBrineKing. "
+            "VALID_PANTHEON_MAJOR must use PoB internal names, not curated forms."
+        )
+        assert "Garukhan" in VALID_PANTHEON_MINOR
 
 
 class TestEnumLookupAgreement:

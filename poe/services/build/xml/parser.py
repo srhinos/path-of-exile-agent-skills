@@ -725,10 +725,10 @@ def _assign_affix_metadata(item: Item) -> None:
         prefix_count = len(filled_prefixes)
         for i, mod in enumerate(regular):
             if i < prefix_count:
-                mod.is_prefix = True
+                _set_affix(mod, is_prefix=True)
                 mod.mod_id = filled_prefixes[i]
             elif i - prefix_count < len(filled_suffixes):
-                mod.is_suffix = True
+                _set_affix(mod, is_prefix=False)
                 mod.mod_id = filled_suffixes[i - prefix_count]
         return
 
@@ -749,8 +749,20 @@ def _assign_affix_metadata(item: Item) -> None:
         if best_idx >= 0:
             claimed_mods.add(best_idx)
             regular[best_idx].mod_id = mod_id
-            regular[best_idx].is_prefix = is_prefix
-            regular[best_idx].is_suffix = not is_prefix
+            _set_affix(regular[best_idx], is_prefix=is_prefix)
+
+
+def _set_affix(mod: ItemMod, *, is_prefix: bool) -> None:
+    """Atomically assign prefix/suffix flag.
+
+    Clears both first to avoid the transient (True, True) state that
+    `_check_affix_exclusive` would reject if a mod is being reassigned
+    from suffix to prefix or vice versa. Today no caller does that, but
+    setattr ordering is one logic edit away from triggering the validator.
+    """
+    mod.is_suffix = False
+    mod.is_prefix = is_prefix
+    mod.is_suffix = not is_prefix
 
 
 def _filter_variant_mods(item: Item) -> None:

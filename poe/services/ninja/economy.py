@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from poe.models.ninja.economy import (
@@ -26,17 +27,33 @@ from poe.services.ninja.errors import ApiSchemaError, NinjaError
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
 
+_logger = logging.getLogger("poe.ninja.economy")
+
+
+def _normalize_type_key(item_type: str) -> str:
+    """Strip whitespace, underscores, and hyphens; lowercase.
+
+    So 'divination_card', 'divination card', 'Divination-Card',
+    'DIVINATIONCARD' all match the same canonical key 'divinationcard'.
+    """
+    return "".join(c for c in item_type.lower() if c.isalnum())
+
 
 def _route_type(item_type: str, *, game: str) -> tuple[str, str]:
+    key = _normalize_type_key(item_type)
     if game == "poe2":
-        canonical_poe2 = POE2_TYPE_CANONICAL.get(item_type.lower())
+        # POE2_TYPE_CANONICAL keys are already lowercased; normalize them too
+        # so user input like "exotic_currency" matches "exoticcurrency".
+        poe2_normalized = {_normalize_type_key(k): v for k, v in POE2_TYPE_CANONICAL.items()}
+        canonical_poe2 = poe2_normalized.get(key)
         if canonical_poe2 is None:
             valid = sorted(POE2_TYPE_CANONICAL.values())
             raise ApiSchemaError(
                 f"Unknown item type '{item_type}' for {game}. Valid types: {valid}"
             )
         return "poe2_exchange", canonical_poe2
-    canonical = TYPE_CANONICAL.get(item_type.lower())
+    poe1_normalized = {_normalize_type_key(k): v for k, v in TYPE_CANONICAL.items()}
+    canonical = poe1_normalized.get(key)
     if canonical is None:
         valid = sorted(TYPE_CANONICAL.values())
         raise ApiSchemaError(f"Unknown item type '{item_type}' for {game}. Valid types: {valid}")
@@ -302,11 +319,18 @@ class EconomyService:
             for item_type, _route in type_routes:
                 try:
                     prices = self.get_prices(league, item_type, game="poe1", language=language)
-                    for p in prices:
-                        if p.chaos_value > 0:
-                            category_prices[p.name] = p.chaos_value
-                except NinjaError:
-                    pass
+                except NinjaError as e:
+                    _logger.warning(
+                        "get_crafting_prices: category=%r type=%r failed: %s; "
+                        "category will be partial or empty",
+                        category,
+                        item_type,
+                        e,
+                    )
+                    continue
+                for p in prices:
+                    if p.chaos_value > 0:
+                        category_prices[p.name] = p.chaos_value
             result[category] = category_prices
         return CraftingPrices.model_validate(result)
 
