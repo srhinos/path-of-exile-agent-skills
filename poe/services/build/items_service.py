@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 from poe.exceptions import BuildValidationError, SlotError
 from poe.models.build.build import MutationResult
 from poe.models.build.items import (
+    _INFLUENCE_BY_CASEFOLD,
+    _RARITY_BY_CASEFOLD,
     VALID_RARITIES,
     EquippedItem,
     Item,
@@ -235,10 +237,13 @@ class ItemsService:
         remove_explicit = remove_explicit or []
         add_implicit = add_implicit or []
         remove_implicit = remove_implicit or []
-        if set_rarity is not None and set_rarity not in VALID_RARITIES:
-            raise BuildValidationError(
-                f"Invalid rarity: {set_rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
-            )
+        if set_rarity is not None:
+            normalized = _RARITY_BY_CASEFOLD.get(set_rarity.casefold(), set_rarity)
+            if normalized not in VALID_RARITIES:
+                raise BuildValidationError(
+                    f"Invalid rarity: {set_rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
+                )
+            set_rarity = normalized
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         target_item = _find_item_in_slot(build_obj, slot)
         if target_item is None:
@@ -348,8 +353,10 @@ class ItemsService:
                 continue
             if slot and not _slot_matches_type(slot_name, slot):
                 continue
-            if influence and influence not in item.influences:
-                continue
+            if influence:
+                normalized = _INFLUENCE_BY_CASEFOLD.get(influence.casefold(), influence)
+                if normalized not in item.influences:
+                    continue
             if rarity and item.rarity.casefold() != rarity.casefold():
                 continue
             if mod:

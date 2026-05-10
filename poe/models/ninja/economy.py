@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from math import isfinite
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SparkLine(BaseModel):
@@ -213,6 +215,15 @@ class PriceResult(BaseModel):
     category: str = ""
     fetched_at: str | None = None
     cache_age_seconds: float | None = None
+
+    @field_validator("chaos_value")
+    @classmethod
+    def _validate_chaos_value(cls, v: float) -> float:
+        if not isfinite(v):
+            raise ValueError("chaos_value must be finite (not NaN or +/-inf)")
+        if v < 0:
+            raise ValueError(f"chaos_value must be non-negative, got {v}")
+        return v
 
 
 class CraftingPrices(BaseModel):

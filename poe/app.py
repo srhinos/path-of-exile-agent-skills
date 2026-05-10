@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -49,6 +50,15 @@ def _check_skill_version() -> None:
 
 
 def run() -> None:
+    # Without basicConfig, every _logger.warning(...) we emit (parser
+    # coercion, ninja sanitize, cache clock skew, sim fallbacks, etc.)
+    # is silently dropped. Wire stderr at WARNING by default so users
+    # actually see when the boundary is doing translation work.
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(name)s: %(message)s",
+        stream=sys.stderr,
+    )
     _check_skill_version()
     try:
         app()

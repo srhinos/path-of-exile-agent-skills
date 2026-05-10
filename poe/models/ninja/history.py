@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from math import isfinite
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HistoryPoint(BaseModel):
@@ -11,6 +13,13 @@ class HistoryPoint(BaseModel):
     count: int = 0
     value: float = 0.0
     days_ago: int = Field(0, alias="daysAgo")
+
+    @field_validator("value")
+    @classmethod
+    def _validate_value_finite(cls, v: float) -> float:
+        if not isfinite(v):
+            raise ValueError("value must be finite (not NaN or +/-inf)")
+        return v
 
 
 class CurrencyPairHistoryEntry(BaseModel):

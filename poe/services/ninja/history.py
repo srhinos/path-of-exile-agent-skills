@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -16,6 +17,8 @@ from poe.services.ninja.constants import (
     NINJA_ENDPOINTS,
     NINJA_POE1_CURRENCY_STASH_TYPES,
 )
+
+_logger = logging.getLogger("poe.ninja.history")
 
 CHAOS_PAIR_ID = "chaos"
 
@@ -198,9 +201,25 @@ class HistoryService:
                 return None
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=UTC)
+            # int(NaN) and int(inf) raise ValueError/OverflowError; rate
+            # arithmetic on inf/nan propagates downstream into TrendAnalysis.
+            # Drop entries with non-finite numerics so a single bad row
+            # doesn't take down the whole history fetch.
+            try:
+                volume = entry.volume_primary_value
+                rate = entry.rate
+            except AttributeError:
+                return None
+            if not math.isfinite(volume) or not math.isfinite(rate):
+                _logger.warning(
+                    "history entry has non-finite values, skipping: volume=%r rate=%r",
+                    volume,
+                    rate,
+                )
+                return None
             return HistoryPoint(
-                count=int(entry.volume_primary_value),
-                value=entry.rate,
+                count=int(volume),
+                value=rate,
                 days_ago=(now - ts).days,
             )
 

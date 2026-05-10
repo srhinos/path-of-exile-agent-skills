@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from poe.constants import NINJA_LEAGUE_LIST_KEYS, PERCENTAGE_MAX
@@ -93,8 +94,18 @@ def _sanitize_build_index(data: Any) -> Any:
                 )
                 continue
             pct = stat.get("percentage")
-            if isinstance(pct, (int, float)):
-                if pct < 0:
+            if isinstance(pct, (int, float)) and not isinstance(pct, bool):
+                # NaN slips both `< 0` and `> MAX` (NaN comparisons are always
+                # False), so isfinite() must come first or NaN reaches the
+                # strict model validator and crashes the whole response.
+                if not math.isfinite(pct):
+                    _logger.warning(
+                        "build stat percentage=%r non-finite, defaulting to 0.0 (class=%r)",
+                        pct,
+                        class_name,
+                    )
+                    stat["percentage"] = 0.0
+                elif pct < 0:
                     _logger.warning(
                         "build stat percentage=%r below 0, clamping (class=%r)",
                         pct,

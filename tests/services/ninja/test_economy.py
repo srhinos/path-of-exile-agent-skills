@@ -1047,19 +1047,17 @@ class TestPricingInvariants:
 
 
 class TestPriceResultSemanticInvariants:
-    def test_accepts_negative_chaos_value(self):
-        pr = PriceResult(name="Anomaly", chaos_value=-1.0)
-        assert pr.chaos_value == -1.0
+    def test_rejects_negative_chaos_value(self):
+        with pytest.raises((ValueError, TypeError)):
+            PriceResult(name="Anomaly", chaos_value=-1.0)
 
-    def test_accepts_inf_chaos_value(self):
-        pr = PriceResult(name="Anomaly", chaos_value=float("inf"))
-        assert pr.chaos_value == float("inf")
+    def test_rejects_inf_chaos_value(self):
+        with pytest.raises((ValueError, TypeError)):
+            PriceResult(name="Anomaly", chaos_value=float("inf"))
 
-    def test_accepts_nan_chaos_value(self):
-        import math
-
-        pr = PriceResult(name="Anomaly", chaos_value=float("nan"))
-        assert math.isnan(pr.chaos_value)
+    def test_rejects_nan_chaos_value(self):
+        with pytest.raises((ValueError, TypeError)):
+            PriceResult(name="Anomaly", chaos_value=float("nan"))
 
     def test_accepts_negative_listing_count(self):
         pr = PriceResult(name="Anomaly", chaos_value=1.0, listing_count=-50)

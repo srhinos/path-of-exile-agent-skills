@@ -428,9 +428,21 @@ class TestEditItemRarityCoverage:
         assert result.status == "ok"
 
     @pytest.mark.parametrize(
-        "bad",
-        ["normal", "magic", "rare", "unique", "RAREE", "Mythic", "EPIC"],
+        "lower",
+        ["normal", "magic", "rare", "unique", "Rare", "RArE"],
     )
+    def test_edit_set_rarity_case_insensitive(self, rich_build, lower):
+        """Service-level rarity check now normalizes case before rejecting."""
+        svc = ItemsService()
+        result = svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_rarity=lower,
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    @pytest.mark.parametrize("bad", ["RAREE", "Mythic", "EPIC", "garbage"])
     def test_edit_set_rarity_invalid(self, rich_build, bad):
         svc = ItemsService()
         with pytest.raises(BuildValidationError, match=r"rarity|Invalid"):

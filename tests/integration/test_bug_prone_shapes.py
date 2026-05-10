@@ -251,6 +251,30 @@ class TestAffixReassignmentDoesNotTriggerExclusiveValidator:
         assert mod.is_suffix and not mod.is_prefix
 
 
+class TestNaNSlipsThroughBuildIndexSanitizer:
+    """`pct < 0` and `pct > MAX` are both False for NaN (NaN comparisons are
+    always False). Without an isfinite() check first, NaN reaches the strict
+    BuildStat.percentage validator and crashes the whole BuildIndexState."""
+
+    def test_nan_percentage_coerced_to_zero(self):
+        from poe.services.ninja.discovery import _sanitize_build_index
+
+        nan = float("nan")
+        data = {
+            "league_builds": [
+                {
+                    "league_name": "Mirage",
+                    "league_url": "mirage",
+                    "total": 100,
+                    "statistics": [{"class": "Witch", "skill": "Fireball", "percentage": nan}],
+                }
+            ]
+        }
+        sanitized = _sanitize_build_index(data)
+        pct = sanitized["league_builds"][0]["statistics"][0]["percentage"]
+        assert pct == 0.0
+
+
 class TestPantheonNamesMatchPoBExports:
     """set_pantheon must accept the same names PoB writes to XML.
 
