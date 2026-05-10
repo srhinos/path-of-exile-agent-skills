@@ -4,6 +4,7 @@ from typing import Annotated, Any
 
 import cyclopts
 
+from poe.exceptions import SimDataError
 from poe.output import render as _output
 from poe.services.repoe.constants import DEFAULT_ILVL, DEFAULT_ITERATIONS, DEFAULT_MAX_ATTEMPTS
 from poe.services.repoe.sim_service import SimService
@@ -254,12 +255,22 @@ def craft_simulate_multistep(
     json
         Output raw JSON.
     """
+    # Step syntax: "method:k=v,k=v" — fossils use "+" between names so they
+    # don't collide with the comma kv-separator. shlex-style parsing would
+    # let users quote values that contain `,` or `=`; for now keep the
+    # simple parser but escape-document the limitation so values with `,`
+    # or `=` are rejected explicitly rather than silently corrupted.
     steps: list[dict[str, Any]] = []
     for s in step:
         parts = s.split(":", 1)
         d: dict[str, Any] = {"method": parts[0]}
         if len(parts) > 1:
             for kv in parts[1].split(","):
+                if "=" not in kv:
+                    raise SimDataError(
+                        f"step kv pair {kv!r} must be 'key=value'; "
+                        "use '+' between fossil names (e.g. fossils=Bound+Pristine)"
+                    )
                 k, _, v = kv.partition("=")
                 d[k.strip()] = v.strip()
             if "fossils" in d:

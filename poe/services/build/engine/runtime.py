@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError as XMLParseError
@@ -13,6 +15,25 @@ from poe.services.build.constants import LUA_TABLE_MAX_DEPTH, LUA_TABLE_MAX_KEYS
 from poe.services.build.engine.stubs import register_stubs
 
 _logger = logging.getLogger("poe.engine")
+
+# os.chdir is process-global, not thread-local. Concurrent PoBEngine
+# methods running on the same process (pytest-xdist, a future MCP server,
+# any async caller) would see each other's cwd. Serialize all chdir
+# regions through a module-level lock so the contract becomes
+# "PoBEngine is not safe to use re-entrantly but is safe across threads".
+_chdir_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _pob_cwd(pob_path: str):
+    """Context manager: chdir into PoB folder under the chdir lock."""
+    with _chdir_lock:
+        orig_cwd = Path.cwd()
+        try:
+            os.chdir(pob_path)
+            yield
+        finally:
+            os.chdir(orig_cwd)
 
 if TYPE_CHECKING:
     from lupa import LuaRuntime
@@ -71,10 +92,7 @@ class PoBEngine:
                            package.path
         """)
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
-
+        with _pob_cwd(self.pob_path):
             launch_path = Path(self.pob_path) / "Launch.lua"
             launch_code = launch_path.read_text(encoding="utf-8")
 
@@ -89,8 +107,6 @@ class PoBEngine:
             self.lua.execute("runCallback('OnFrame')")
 
             self._initialized = True
-        finally:
-            os.chdir(orig_cwd)
 
     def _check_init_error(self) -> str | None:
         try:
@@ -112,10 +128,7 @@ class PoBEngine:
         self._last_build_name = build_name
         xml_content = build_path.read_text(encoding="utf-8")
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
-
+        with _pob_cwd(self.pob_path):
             lua = self._require_lua()
             lua.globals()["_loadBuildName"] = build_path.stem
             lua.globals()["_loadBuildXml"] = xml_content
@@ -131,9 +144,7 @@ class PoBEngine:
             """)
 
             self._build_loaded = True
-            return self.get_build_info()
-        finally:
-            os.chdir(orig_cwd)
+        return self.get_build_info()
 
     def get_build_info(self) -> dict:
         if not self._initialized:
@@ -147,9 +158,7 @@ class PoBEngine:
         if err:
             return {"error": f"PoB runtime error: {err}"}
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
+        with _pob_cwd(self.pob_path):
             info = self._require_lua().eval("""
                 (function()
                     local main = mainObject and mainObject.main
@@ -165,12 +174,10 @@ class PoBEngine:
                     }
                 end)()
             """)
-            result = lua_table_to_dict(info)
-            if result.get("className") in ("Scion", "Unknown", "") and self._last_build_name:
-                result = self._fallback_class_from_xml(result)
-            return result
-        finally:
-            os.chdir(orig_cwd)
+        result = lua_table_to_dict(info)
+        if result.get("className") in ("Scion", "Unknown", "") and self._last_build_name:
+            result = self._fallback_class_from_xml(result)
+        return result
 
     def _fallback_class_from_xml(self, result: dict) -> dict:
         try:
@@ -194,9 +201,7 @@ class PoBEngine:
         if err:
             return {"error": f"PoB runtime error: {err}"}
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
+        with _pob_cwd(self.pob_path):
             result = self._require_lua().eval("""
                 (function()
                     local main = mainObject and mainObject.main
@@ -220,14 +225,12 @@ class PoBEngine:
                     return stats
                 end)()
             """)
-            stats = lua_table_to_dict(result)
+        stats = lua_table_to_dict(result)
 
-            if fields:
-                stats = {k: v for k, v in stats.items() if k in fields}
+        if fields:
+            stats = {k: v for k, v in stats.items() if k in fields}
 
-            return stats
-        finally:
-            os.chdir(orig_cwd)
+        return stats
 
     def recalculate(self) -> None:
         if not self._initialized:
@@ -239,9 +242,7 @@ class PoBEngine:
             _logger.warning("recalculate skipped: PoB runtime error: %s", err)
             return
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
+        with _pob_cwd(self.pob_path):
             self._require_lua().execute("""
                 local main = mainObject and mainObject.main
                 local build = main and main.modes and main.modes["BUILD"]
@@ -250,8 +251,6 @@ class PoBEngine:
                     runCallback('OnFrame')
                 end
             """)
-        finally:
-            os.chdir(orig_cwd)
 
     @property
     def initialized(self) -> bool:
