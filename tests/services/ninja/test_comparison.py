@@ -40,9 +40,11 @@ def _make_search_results(
             )
         )
     if gems:
+        # comparison.py now matches dim.id == "skills" exactly (canonical
+        # poe.ninja ID). Substring matching was a future-drift footgun.
         dims.append(
             ResolvedDimension(
-                id="gem",
+                id="skills",
                 entries=[
                     DimensionEntry(name=name, count=int(pct * 10), percentage=pct)
                     for name, pct in gems

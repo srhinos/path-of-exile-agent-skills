@@ -336,17 +336,21 @@ class RepoEData:
 
         results = []
         for name, ess in essences.items():
-            tier_name, tier_num = self._extract_essence_tier(name)
+            tier_name, tier_num = self._extract_essence_tier(name, ess.get("tier", 0))
             if base_name and bitem and item_class:
                 mod_id = ess["mods"].get(item_class)
                 if not mod_id:
                     continue
                 mod = mods_data.get(mod_id) if mods_data else None
                 mod_text = mod["name"] if mod else mod_id
+                # total_slots emitted regardless of code path so consumers
+                # see a stable schema. Audit found this key disappeared
+                # when base_name was supplied.
                 results.append(
                     {
                         "name": name,
                         "mods": [{"slot": item_class, "mod": mod_text}],
+                        "total_slots": len(ess["mods"]),
                         "tier": tier_name,
                         "tier_num": tier_num,
                     }
@@ -371,12 +375,15 @@ class RepoEData:
         return results
 
     @staticmethod
-    def _extract_essence_tier(name: str) -> tuple[str, int]:
+    def _extract_essence_tier(name: str, stored_tier: int = 0) -> tuple[str, int]:
+        # Name-prefix lookup misses corruption-only essences (Delirium /
+        # Horror / Hysteria / Insanity) which start with "Essence of …";
+        # fall back to the stored tier value for those.
         name_lower = name.casefold()
         for prefix, tier_num in ESSENCE_TIER_PREFIXES.items():
             if name_lower.startswith(prefix):
                 return prefix.title(), tier_num
-        return "", 0
+        return "", stored_tier
 
     def get_bench_crafts(self, base_name: str) -> list[dict]:
         base_items = self._load("base_items")

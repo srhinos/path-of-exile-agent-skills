@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DefensiveStats(BaseModel):
@@ -245,6 +247,17 @@ class IntegerRange(BaseModel):
     id: str
     min_value: int = 0
     max_value: int = 0
+
+    @model_validator(mode="after")
+    def _check_min_le_max(self) -> Self:
+        if self.min_value > self.max_value:
+            msg = (
+                f"IntegerRange {self.id!r} has min_value={self.min_value} > "
+                f"max_value={self.max_value}; downstream percentile math would "
+                "mask this with 50.0 fallback"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class SearchCharacter(BaseModel):

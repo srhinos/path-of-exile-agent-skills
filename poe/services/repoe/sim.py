@@ -101,6 +101,10 @@ class CraftableItem:
     is_corrupted: bool = False
     catalyst_type: str = ""
     catalyst_quality: int = 0
+    # Mutated by apply_metamod for "cannot_roll_attack_mods" /
+    # "cannot_roll_caster_mods". _build_mod_pool unions these with any
+    # method-specific blocked_tags (fossils) so tagged mods can't roll.
+    blocked_tags: set[str] = field(default_factory=set)
 
     @property
     def all_mods(self) -> list[RolledMod]:
@@ -284,6 +288,16 @@ class CraftingEngine:
         open_prefixes = item.open_prefixes
         open_suffixes = item.open_suffixes
 
+        # Union method-specific blocked tags (fossils) with item-level
+        # blocked tags applied via metamods. apply_metamod populates
+        # item.blocked_tags from _METAMOD_BLOCKED_TAGS so cannot_roll_*
+        # actually filter the rollable pool.
+        effective_blocked: set[str] = set()
+        if blocked_tags:
+            effective_blocked.update(blocked_tags)
+        if item.blocked_tags:
+            effective_blocked.update(item.blocked_tags)
+
         for mod in all_mods:
             if mod.group in existing_groups:
                 continue
@@ -298,9 +312,9 @@ class CraftingEngine:
             if affix == "suffix" and open_suffixes <= 0:
                 continue
 
-            if blocked_tags and mod.implicit_tags:
+            if effective_blocked and mod.implicit_tags:
                 mod_tags = [t.casefold() for t in mod.implicit_tags]
-                if any(t in blocked_tags for t in mod_tags):
+                if any(t in effective_blocked for t in mod_tags):
                     continue
 
             if fossil_weights and mod.implicit_tags:
@@ -465,6 +479,9 @@ class CraftingEngine:
                 self._add_mod(item, picked)
 
         if require_both_affixes and num_mods >= self._MIN_MODS_FOR_BOTH_AFFIXES:
+            # Run prefix-fix and suffix-fix independently — both can be empty
+            # when small pools exhaust via group-exclusion. The previous
+            # if/elif structure only forced one side.
             if not item.prefixes and item.open_prefixes > 0:
                 picked = self._pick_excluding_groups(
                     full_pool,
@@ -477,7 +494,7 @@ class CraftingEngine:
                 )
                 if picked:
                     self._add_mod(item, picked)
-            elif not item.suffixes and item.open_suffixes > 0:
+            if not item.suffixes and item.open_suffixes > 0:
                 picked = self._pick_excluding_groups(
                     full_pool,
                     item.groups,
@@ -690,6 +707,14 @@ class CraftingEngine:
         if lock_attr:
             setattr(item, lock_attr, True)
 
+        # cannot_roll_attack_mods / cannot_roll_caster_mods don't lock an
+        # affix side; they block tagged mods from rolling. Surfacing the
+        # blocked tags onto the item lets _build_mod_pool consult them.
+        blocked = self._METAMOD_BLOCKED_TAGS.get(metamod_type)
+        if blocked:
+            existing = getattr(item, "blocked_tags", set()) or set()
+            item.blocked_tags = existing | blocked
+
         rolled = RolledMod(
             mod_id=f"metamod_{metamod_type}",
             name=metamod_type.replace("_", " ").title(),
@@ -828,9 +853,11 @@ class CraftingEngine:
 
     def divine(self, item: CraftableItem) -> None:
         self._check_craftable(item)
-        if not item.prefixes and not item.suffixes:
+        if not item.prefixes and not item.suffixes and not item.fractured_mods:
             raise ValueError("No mods to reroll values on")
-        for mod in item.prefixes + item.suffixes:
+        # Fractured mods can be divined: only the group is locked, not the
+        # rolled values. Skipping fractured_mods left them frozen on divines.
+        for mod in item.prefixes + item.suffixes + item.fractured_mods:
             mod.rolls = self._roll_values(mod.tier)
 
     def blessed(self, item: CraftableItem) -> None:
@@ -845,7 +872,7 @@ class CraftingEngine:
         item: CraftableItem,
         *,
         tag: str | None = None,
-        multiplier: float = 1.0,
+        multiplier: float = 10.0,
     ) -> None:
         self._check_craftable(item)
         item.rarity = Rarity.RARE
@@ -1166,6 +1193,8 @@ class CraftingEngine:
             mod.rolls = self._roll_values(mod.tier)
 
     def tainted_chaos(self, item: CraftableItem) -> str:
+        if item.is_mirrored:
+            raise ValueError("Mirrored items cannot be tainted-chaos'd")
         if not item.is_corrupted:
             raise ValueError("Tainted Chaos requires a corrupted item")
         if self._rng.random() < TAINTED_OUTCOME_CHANCE:
@@ -1184,6 +1213,8 @@ class CraftingEngine:
         return "removed"
 
     def tainted_exalt(self, item: CraftableItem) -> str:
+        if item.is_mirrored:
+            raise ValueError("Mirrored items cannot be tainted-exalt'd")
         if not item.is_corrupted:
             raise ValueError("Tainted Exalt requires a corrupted item")
         if self._rng.random() < TAINTED_OUTCOME_CHANCE:
@@ -1667,14 +1698,13 @@ class CraftingEngine:
                         n_suffix += 1
 
                 if not is_alt and num_mods >= min_both:
-                    missing_filter = (
-                        CraftingEngine._FILTER_PREFIX
-                        if n_prefix == 0 and n_prefix < max_p
-                        else CraftingEngine._FILTER_SUFFIX
-                        if n_suffix == 0 and n_suffix < max_s
-                        else CraftingEngine._FILTER_ANY
-                    )
-                    if missing_filter:
+                    # Run prefix-fix and suffix-fix independently so an item
+                    # that rolled zero prefixes AND zero suffixes (rare but
+                    # possible when small pools collide on existing groups)
+                    # gets one of EACH forced, mirroring the slow path's
+                    # require_both_affixes behavior. The previous if/elif
+                    # only ever forced a single side.
+                    if n_prefix == 0 and n_prefix < max_p:
                         idx = fast_pick(
                             *pick_args,
                             rolled_groups,
@@ -1684,10 +1714,26 @@ class CraftingEngine:
                             max_s,
                             rng_randint,
                             *weight_args,
-                            affix_filter=missing_filter,
+                            affix_filter=CraftingEngine._FILTER_PREFIX,
                         )
                         if idx >= 0:
                             rolled_groups.add(groups[idx])
+                            n_prefix += 1
+                    if n_suffix == 0 and n_suffix < max_s:
+                        idx = fast_pick(
+                            *pick_args,
+                            rolled_groups,
+                            n_prefix,
+                            n_suffix,
+                            max_p,
+                            max_s,
+                            rng_randint,
+                            *weight_args,
+                            affix_filter=CraftingEngine._FILTER_SUFFIX,
+                        )
+                        if idx >= 0:
+                            rolled_groups.add(groups[idx])
+                            n_suffix += 1
 
                 if match_all:
                     hit = target_set <= rolled_groups

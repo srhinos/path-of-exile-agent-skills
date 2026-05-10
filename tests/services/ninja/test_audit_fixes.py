@@ -224,7 +224,7 @@ class TestMasteryAnointmentGapDetection:
             total=1000,
             dimensions=[
                 ResolvedDimension(
-                    id="mastery",
+                    id="masteries",
                     entries=[
                         DimensionEntry(name="Life Mastery", count=900, percentage=90.0),
                         DimensionEntry(name="Mana Mastery", count=850, percentage=85.0),
@@ -253,7 +253,7 @@ class TestMasteryAnointmentGapDetection:
             total=1000,
             dimensions=[
                 ResolvedDimension(
-                    id="mastery",
+                    id="masteries",
                     entries=[
                         DimensionEntry(name="Life Mastery", count=900, percentage=90.0),
                         DimensionEntry(name="Mana Mastery", count=850, percentage=85.0),
@@ -511,7 +511,7 @@ class TestMetaComparisonInvariants:
             total=1000,
             dimensions=[
                 ResolvedDimension(
-                    id="mastery",
+                    id="masteries",
                     entries=[
                         DimensionEntry(name="LowPopMastery", count=10, percentage=1.0),
                     ],

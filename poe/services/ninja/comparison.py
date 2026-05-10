@@ -122,8 +122,10 @@ def _find_missing_keystones(
 ) -> list[GapEntry]:
     char_keystones = {k.name.lower() for k in character.keystones}
 
+    # Match the canonical dim ID exactly. Substring "key in d.id.lower()"
+    # would match a future dim ID like "keyword" and silently mis-route.
     ks_dim = next(
-        (d for d in search_results.dimensions if "key" in d.id.lower()),
+        (d for d in search_results.dimensions if d.id == "keypassives"),
         None,
     )
     if not ks_dim:
@@ -156,7 +158,7 @@ def _find_missing_gems(
             char_gems.add(gem.name.lower())
 
     gem_dim = next(
-        (d for d in search_results.dimensions if "gem" in d.id.lower()),
+        (d for d in search_results.dimensions if d.id == "skills"),
         None,
     )
     if not gem_dim:
@@ -186,7 +188,7 @@ def _find_missing_masteries(
     char_masteries = {m.name.lower() for m in character.masteries}
 
     mastery_dim = next(
-        (d for d in search_results.dimensions if "master" in d.id.lower()),
+        (d for d in search_results.dimensions if d.id == "masteries"),
         None,
     )
     if not mastery_dim:
@@ -205,15 +207,26 @@ def _find_missing_masteries(
 
 
 def _find_missing_anointments(
-    _character: CharacterResponse,
+    character: CharacterResponse,
     search_results: SearchResults,
 ) -> list[GapEntry]:
     anoint_dim = next(
-        (d for d in search_results.dimensions if "anoint" in d.id.lower()),
+        (d for d in search_results.dimensions if d.id == "anointed"),
         None,
     )
     if not anoint_dim:
         return []
+
+    # CharacterResponse doesn't carry a structured anointment list, but
+    # masteries-with-name-prefix "Anointed" appears in some snapshots, and
+    # the keystones list can include anointment-granted keystones. Build
+    # the present-set from both signals so we don't report user-owned
+    # anointments as missing.
+    char_anointments: set[str] = set()
+    for m in character.masteries:
+        char_anointments.add(m.name.casefold())
+    for k in character.keystones:
+        char_anointments.add(k.name.casefold())
 
     return [
         GapEntry(
@@ -224,6 +237,7 @@ def _find_missing_anointments(
         )
         for entry in anoint_dim.entries
         if entry.percentage >= POPULAR_THRESHOLD_PCT
+        and entry.name.casefold() not in char_anointments
     ]
 
 
