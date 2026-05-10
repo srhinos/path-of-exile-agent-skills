@@ -4,6 +4,7 @@ from pathlib import Path
 
 import cyclopts
 
+from poe.exceptions import PoeError
 from poe.output import render as _output
 from poe.services.repoe.pipeline.pipeline import RepoEPipeline
 
@@ -24,7 +25,8 @@ def build_data(*, json: bool = False) -> None:
         Output raw JSON.
     """
     if not VENDOR_DIR.is_dir():
-        raise FileNotFoundError(
+        # PoeError so app.run() emits clean JSON instead of raw traceback.
+        raise PoeError(
             f"Vendor data not found at {VENDOR_DIR}. "
             "This command must be run from a source checkout of poe-cli."
         )

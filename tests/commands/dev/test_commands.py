@@ -36,11 +36,14 @@ class TestBuildData:
         assert result.exit_code != 0
 
     def test_missing_vendor_dir(self, tmp_path):
+        from poe.exceptions import PoeError
+
         missing = tmp_path / "nonexistent"
         with patch(_PATCH_VENDOR_DIR, missing):
             result = invoke_cli(cli, ["dev", "build-data"])
         assert result.exit_code != 0
-        assert isinstance(result.exception, FileNotFoundError)
+        # PoeError so app.run() emits clean JSON instead of a raw traceback.
+        assert isinstance(result.exception, PoeError)
         assert "Vendor data not found" in str(result.exception)
 
 

@@ -37,16 +37,18 @@ def _check_skill_version() -> None:
     version_file = Path.home() / ".claude" / "skills" / "poe" / "version.md"
     if not version_file.exists():
         return
+    # Best-effort: every failure here just means we can't tell the user about a
+    # skill mismatch. Never let it block CLI startup with a traceback.
     try:
         installed_skill = version_file.read_text().strip()
         current = _pkg_version("poe-tools")
-        if installed_skill != current:
-            print(
-                f"Skill outdated ({installed_skill} → {current}). Run: poe install-skill --force",
-                file=sys.stderr,
-            )
-    except PackageNotFoundError:
-        pass
+    except (PackageNotFoundError, OSError, UnicodeDecodeError):
+        return
+    if installed_skill != current:
+        print(
+            f"Skill outdated ({installed_skill} → {current}). Run: poe install-skill --force",
+            file=sys.stderr,
+        )
 
 
 def run() -> None:

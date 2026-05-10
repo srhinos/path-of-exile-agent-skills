@@ -286,15 +286,17 @@ class TestVarintParametrized:
 
 
 class TestDecodeFieldsInvariants:
-    def test_unknown_wire_type_breaks_loop(self):
-        # Wire type 3 (start group, deprecated) and 4 (end group) break the loop.
-        # Using 0x1B = field 3 wire type 3, then garbage.
+    def test_unknown_wire_type_raises(self):
+        """Unknown wire types now raise ProtobufDecodeError instead of
+        silently breaking the loop. A "break" lets garbage payloads partially
+        decode and silently return wrong-shaped results; raising surfaces
+        the corruption to the caller."""
+        from poe.services.ninja.protobuf import ProtobufDecodeError
+
+        # Wire type 3 (deprecated start group), 4 (end group) — invalid in our use.
         data = b"\x08\x01\x1b\xff\xff"
-        fields = decode_fields(data)
-        # Should have decoded the first field then broken on unknown wire type.
-        assert len(fields) == 1
-        fn, _, _ = fields[0]
-        assert fn == 1
+        with pytest.raises(ProtobufDecodeError, match="unknown wire type"):
+            decode_fields(data)
 
     def test_field_numbers_preserved(self):
         # field 1 = varint, field 2 = string, field 3 = varint

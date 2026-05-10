@@ -158,21 +158,23 @@ class TestNinjaErrorDeadCode:
             f"{offenders}. Update tests to assert the raise path."
         )
 
-    def test_protobuf_decode_error_is_not_raised_anywhere_in_production(self):
-        # Same documentation pattern for ProtobufDecodeError.
-        import re
-        from pathlib import Path
-
-        poe_dir = Path(__file__).resolve().parents[3] / "poe"
-        offenders: list[str] = []
-        for py in poe_dir.rglob("*.py"):
-            text = py.read_text(encoding="utf-8")
-            if re.search(r"\braise\s+ProtobufDecodeError\b", text):
-                offenders.append(str(py))
-        assert offenders == [], (
-            "ProtobufDecodeError used to be dead code — production now raises it: "
-            f"{offenders}. Update tests to assert the raise path."
+    def test_protobuf_decode_error_is_raised_on_truncated_payloads(self):
+        """ProtobufDecodeError is now raised by decode_fields/decode_varint
+        when a payload is truncated or has unknown wire types. This replaces
+        the previous silent-break behavior that let garbage partially decode."""
+        from poe.services.ninja.protobuf import (
+            ProtobufDecodeError,
+            decode_fields,
+            decode_varint,
         )
+
+        # Truncated varint mid-byte sequence (high bit set with no continuation).
+        with pytest.raises(ProtobufDecodeError, match="truncated"):
+            decode_varint(b"\xff", 0)
+
+        # Length-delimited field whose declared length exceeds remaining bytes.
+        with pytest.raises(ProtobufDecodeError, match="truncated"):
+            decode_fields(b"\x0a\xff\x01" + b"too-short")
 
 
 class TestNinjaErrorChaining:
