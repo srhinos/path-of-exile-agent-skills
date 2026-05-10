@@ -2499,6 +2499,40 @@ class TestSimResultInvariants:
         assert result.hit_rate == 0
 
 
+class TestBestTierConstruction:
+    """Direct negative tests for BestTier.__post_init__ — without these,
+    the inverted-range gate (added so a malformed RePoE entry surfaces
+    at load time instead of killing a worker mid-simulation) is uncovered.
+    """
+
+    def test_clean_pair_passes(self):
+        from poe.services.repoe.sim import BestTier
+
+        BestTier(ilvl=84, values=((10, 20), (5, 8)), weight=1000)
+
+    def test_inverted_pair_rejected(self):
+        from poe.services.repoe.sim import BestTier
+
+        with pytest.raises(ValueError, match="min <= max"):
+            BestTier(ilvl=84, values=((20, 10),), weight=1000)
+
+    def test_wrong_pair_length_rejected(self):
+        from poe.services.repoe.sim import BestTier
+
+        with pytest.raises(ValueError, match="min <= max"):
+            BestTier(ilvl=84, values=((1, 2, 3),), weight=1000)  # type: ignore[arg-type]
+
+    def test_empty_values_pass(self):
+        from poe.services.repoe.sim import BestTier
+
+        BestTier(ilvl=0, values=(), weight=0)
+
+    def test_equal_min_max_pass(self):
+        from poe.services.repoe.sim import BestTier
+
+        BestTier(ilvl=84, values=((5, 5),), weight=1000)
+
+
 class TestCheckInvariants:
     """Direct tests on CraftableItem.check_invariants — the forcing function
     for game-rule invariants on the dataclass that bypasses Pydantic.

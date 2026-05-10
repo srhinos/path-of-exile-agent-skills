@@ -90,9 +90,7 @@ class TestIsFresh:
         mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test", "index"))
         old_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         mf.write_text(
-            json.dumps(
-                {"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION}
-            )
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
         )
         assert not ninja_cache.is_fresh(tmp_path, "test", "index")
 
@@ -105,15 +103,11 @@ class TestIsFresh:
         from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
 
         ninja_cache.write_cache(tmp_path, "dict_abc", {"values": []}, "dictionary")
-        mf = ninja_cache.meta_path(
-            ninja_cache.cache_file(tmp_path, "dict_abc", "dictionary")
-        )
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "dict_abc", "dictionary"))
         # 31 days old — past the 30-day dictionary cap.
         old_time = (datetime.now(UTC) - timedelta(days=31)).isoformat()
         mf.write_text(
-            json.dumps(
-                {"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION}
-            )
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
         )
         assert not ninja_cache.is_fresh(tmp_path, "dict_abc", "dictionary")
 
@@ -188,9 +182,7 @@ class TestGetFreshness:
         mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test", "index"))
         old_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         mf.write_text(
-            json.dumps(
-                {"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION}
-            )
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
         )
         f = ninja_cache.get_freshness(tmp_path, "test", "index")
         assert f["is_stale"] is True
@@ -215,9 +207,7 @@ class TestGetFreshness:
         mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "skewed", "index"))
         future_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         mf.write_text(
-            json.dumps(
-                {"fetched_at": future_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION}
-            )
+            json.dumps({"fetched_at": future_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
         )
         with caplog.at_level("WARNING", logger="poe.ninja.cache"):
             f = ninja_cache.get_freshness(tmp_path, "skewed", "index")
@@ -344,14 +334,10 @@ class TestIsFreshDictionaryBoundary:
         from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
 
         ninja_cache.write_cache(tmp_path, "dict_key", {"v": 1}, "dictionary")
-        mf = ninja_cache.meta_path(
-            ninja_cache.cache_file(tmp_path, "dict_key", "dictionary")
-        )
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "dict_key", "dictionary"))
         old_time = (datetime.now(UTC) - timedelta(days=365)).isoformat()
         mf.write_text(
-            json.dumps(
-                {"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION}
-            )
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
         )
         assert ninja_cache.is_fresh(tmp_path, "dict_key", "dictionary") is False
 
@@ -401,9 +387,7 @@ class TestCacheInvariants:
 
     def test_write_creates_meta_file(self, tmp_path):
         ninja_cache.write_cache(tmp_path, "with_meta", {"a": 1}, "index")
-        mf = ninja_cache.meta_path(
-            ninja_cache.cache_file(tmp_path, "with_meta", "index")
-        )
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "with_meta", "index"))
         assert mf.exists()
         info = json.loads(mf.read_text())
         assert "fetched_at" in info
@@ -412,9 +396,7 @@ class TestCacheInvariants:
 
     def test_write_bytes_creates_meta_file(self, tmp_path):
         ninja_cache.write_cache_bytes(tmp_path, "bin_meta", b"\x01\x02", "dictionary")
-        mf = ninja_cache.meta_path(
-            ninja_cache.cache_file(tmp_path, "bin_meta", "dictionary")
-        )
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "bin_meta", "dictionary"))
         assert mf.exists()
 
     def test_empty_dict_writes_and_reads(self, tmp_path):
@@ -451,9 +433,7 @@ class TestGetFreshnessAdditionalBoundaries:
         ttl = NINJA_TTL_INDEX_STATE
         old_time = (datetime.now(UTC) - timedelta(seconds=ttl + 5)).isoformat()
         mf.write_text(
-            json.dumps(
-                {"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION}
-            )
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
         )
         f = ninja_cache.get_freshness(tmp_path, "edge", "index")
         assert f["is_stale"] is True

@@ -106,9 +106,7 @@ def write_cache(base_dir: Path, key: str, data: Any, category: str = "default") 
     _write_meta(cf)
 
 
-def write_cache_bytes(
-    base_dir: Path, key: str, data: bytes, category: str = "default"
-) -> None:
+def write_cache_bytes(base_dir: Path, key: str, data: bytes, category: str = "default") -> None:
     cf = cache_file(base_dir, key, category)
     bin_path = cf.with_suffix(".bin")
     _atomic_write_bytes(bin_path, data)

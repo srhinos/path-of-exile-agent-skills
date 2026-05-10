@@ -21,12 +21,23 @@ class TestGetPobPath:
     def test_env_override(self, tmp_path, monkeypatch):
         pob_dir = tmp_path / "PoB"
         pob_dir.mkdir()
+        # Launch.lua presence is the marker of a valid PoB directory.
+        (pob_dir / "Launch.lua").write_text("-- placeholder")
         monkeypatch.setenv("POB_PATH", str(pob_dir))
         assert get_pob_path() == pob_dir
+
+    def test_env_dir_without_launch_lua_raises(self, tmp_path, monkeypatch):
+        pob_dir = tmp_path / "wrong-dir"
+        pob_dir.mkdir()
+        monkeypatch.setenv("POB_PATH", str(pob_dir))
+        monkeypatch.delenv("APPDATA", raising=False)
+        with pytest.raises(BuildNotFoundError, match=r"Launch\.lua"):
+            get_pob_path()
 
     def test_appdata_fallback(self, tmp_path, monkeypatch):
         pob_dir = tmp_path / "Path of Building Community"
         pob_dir.mkdir()
+        (pob_dir / "Launch.lua").write_text("-- placeholder")
         monkeypatch.delenv("POB_PATH", raising=False)
         monkeypatch.setenv("APPDATA", str(tmp_path))
         assert get_pob_path() == pob_dir

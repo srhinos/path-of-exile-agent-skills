@@ -32,16 +32,26 @@ def validate_build_name(name: str) -> None:
 
 
 def get_pob_path() -> Path:
+    # Verify Launch.lua exists rather than just .exists() — a misconfigured
+    # POB_PATH pointing at /tmp or an unrelated directory previously slipped
+    # past, then PoBEngine.init() crashed mid-Lua-load with a misleading
+    # "missing Launch.lua" instead of a clear "POB_PATH is wrong".
     env = os.environ.get("POB_PATH")
     if env:
         p = Path(env)
-        if p.exists():
+        if p.is_dir() and (p / "Launch.lua").is_file():
             return p
+        if p.exists():
+            raise BuildNotFoundError(
+                f"POB_PATH={env!r} does not contain Launch.lua. "
+                "Set POB_PATH to the Path of Building installation directory "
+                "(the folder containing Launch.lua)."
+            )
 
     appdata = os.environ.get("APPDATA", "")
     if appdata:
         p = Path(appdata) / "Path of Building Community"
-        if p.exists():
+        if p.is_dir() and (p / "Launch.lua").is_file():
             return p
 
     raise BuildNotFoundError(

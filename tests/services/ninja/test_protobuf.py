@@ -398,6 +398,53 @@ class TestStringInvalidUtf8:
         assert ss == ["�"]
 
 
+class TestDecodeRaisePaths:
+    """Direct tests for every ProtobufDecodeError raise path. Without these,
+    the bounds-check + truncation guards added at the protobuf boundary are
+    enforced only by the 'unknown wire type' test.
+    """
+
+    def test_truncated_varint_raises(self):
+        from poe.services.ninja.protobuf import ProtobufDecodeError
+
+        # 0x80 means "more bytes follow" but the buffer ends here.
+        with pytest.raises(ProtobufDecodeError, match="truncated varint"):
+            decode_varint(b"\x80", 0)
+
+    def test_truncated_length_delimited_raises(self):
+        from poe.services.ninja.protobuf import ProtobufDecodeError
+
+        # tag = field 1, wire-type 2 (length-delimited), declared length=10,
+        # only 3 bytes of payload — should reject rather than read past EOF.
+        payload = b"\x0a\x0a" + b"abc"
+        with pytest.raises(ProtobufDecodeError, match="truncated length-delimited"):
+            decode_fields(payload)
+
+    def test_truncated_64bit_raises(self):
+        from poe.services.ninja.protobuf import ProtobufDecodeError
+
+        # tag = field 1, wire-type 1 (64-bit), only 4 bytes of payload.
+        payload = b"\x09" + b"\x01\x02\x03\x04"
+        with pytest.raises(ProtobufDecodeError, match="truncated 64-bit"):
+            decode_fields(payload)
+
+    def test_truncated_32bit_raises(self):
+        from poe.services.ninja.protobuf import ProtobufDecodeError
+
+        # tag = field 1, wire-type 5 (32-bit), only 2 bytes of payload.
+        payload = b"\x0d" + b"\x01\x02"
+        with pytest.raises(ProtobufDecodeError, match="truncated 32-bit"):
+            decode_fields(payload)
+
+    def test_unknown_wire_type_raises(self):
+        from poe.services.ninja.protobuf import ProtobufDecodeError
+
+        # wire-type 6 is reserved; any value 6 or 7 should reject.
+        payload = b"\x0e"
+        with pytest.raises(ProtobufDecodeError, match="unknown wire type"):
+            decode_fields(payload)
+
+
 def _encode_varint(value: int) -> bytes:
     out = bytearray()
     while True:
