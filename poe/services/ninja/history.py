@@ -5,6 +5,8 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from poe.models.ninja.history import (
     CurrencyDetailsResponse,
     CurrencyHistoryResponse,
@@ -188,7 +190,16 @@ class HistoryService:
             "id": currency_slug,
         }
         raw = self._fetch_cached(cache_key, path, params)
-        details = CurrencyDetailsResponse.model_validate(raw)
+        try:
+            details = CurrencyDetailsResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning(
+                "currency-history schema mismatch (league=%r slug=%r): %s — returning empty",
+                league,
+                currency_slug,
+                e,
+            )
+            return CurrencyHistoryResponse()
         chaos_pair = next((p for p in details.pairs if p.id == CHAOS_PAIR_ID), None)
         if chaos_pair is None:
             return CurrencyHistoryResponse()
@@ -217,8 +228,10 @@ class HistoryService:
                     rate,
                 )
                 return None
+            # Negative volume on a "count" reading is nonsense; clamp to 0
+            # rather than feeding poisoned negatives into trend analysis.
             return HistoryPoint(
-                count=int(volume),
+                count=max(int(volume), 0),
                 value=rate,
                 days_ago=(now - ts).days,
             )
@@ -227,15 +240,16 @@ class HistoryService:
             p for entry in chaos_pair.history if (p := _to_history_point(entry)) is not None
         ]
         # The exchange rate is "1 of this currency = N chaos". The pay direction
-        # ("how many of this currency for 1 chaos") is 1/rate.
-        pay_points = [
-            HistoryPoint(
-                count=p.count,
-                value=1.0 / p.value if p.value else 0.0,
-                days_ago=p.days_ago,
-            )
-            for p in receive_points
-        ]
+        # ("how many of this currency for 1 chaos") is 1/rate. Tiny positive
+        # rates make 1/rate overflow to inf, which the finite validator rejects
+        # — drop the offending point rather than crash the whole response.
+        pay_points: list[HistoryPoint] = []
+        for p in receive_points:
+            inv = 1.0 / p.value if p.value else 0.0
+            if not math.isfinite(inv):
+                _logger.warning("pay-point inverse non-finite (rate=%r); skipping", p.value)
+                continue
+            pay_points.append(HistoryPoint(count=p.count, value=inv, days_ago=p.days_ago))
         return CurrencyHistoryResponse(
             receive_currency_graph_data=receive_points,
             pay_currency_graph_data=pay_points,
@@ -255,9 +269,19 @@ class HistoryService:
             "id": str(item_id),
         }
         raw = self._fetch_cached(cache_key, path, params)
-        if isinstance(raw, list):
-            return [HistoryPoint.model_validate(p) for p in raw]
-        return []
+        if not isinstance(raw, list):
+            return []
+        # Per-row try/except so a single non-finite value doesn't take down
+        # the whole history series.
+        points: list[HistoryPoint] = []
+        for p in raw:
+            try:
+                points.append(HistoryPoint.model_validate(p))
+            except ValidationError as e:
+                _logger.warning(
+                    "skipping item-history row league=%r item=%s: %s", league, item_id, e
+                )
+        return points
 
     def get_price_history(
         self,

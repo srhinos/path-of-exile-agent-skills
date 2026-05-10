@@ -2622,19 +2622,17 @@ class TestCheckInvariants:
             ("Shaper", "Elder"),
             ("Crusader", "Warlord"),
             ("Hunter", "Redeemer"),
+            ("Shaper", "Hunter"),
+            ("Crusader", "Hunter"),
         ],
     )
-    def test_mutually_exclusive_conqueror_pair_fails(self, a, b):
-        from poe.exceptions import SimDataError
-
+    def test_two_influence_pairs_pass(self, a, b):
+        # Conqueror exclusivity (Shaper+Elder etc.) is enforced at the
+        # conqueror_exalt entry point, not as a permanent state invariant —
+        # Awakener's Orb legitimately produces Shaper+Elder items. Any pair
+        # that fits within MAX_INFLUENCES is a legal item state.
         item = self._make(influences=[a, b])
-        with pytest.raises(SimDataError, match="mutually exclusive"):
-            item.check_invariants()
-
-    def test_compatible_conqueror_pair_passes(self):
-        # Shaper+Hunter is a legal pair (different exclusion groups).
-        item = self._make(influences=["Shaper", "Hunter"])
-        item.check_invariants()  # should not raise
+        item.check_invariants()
 
     def test_duplicate_prefix_group_fails(self):
         from poe.exceptions import SimDataError

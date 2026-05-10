@@ -1301,7 +1301,11 @@ class TestSimulateExistingModMultiple:
                 ],
             )
         call_kwargs = eng.simulate.call_args
-        assert call_kwargs.kwargs.get("existing_mods") is None
+        # SimService now resolves existing_mods through resolve_mod_name and
+        # passes the resolved list to the engine; an unspecified --existing-mod
+        # produces an empty list (rather than None), but with the same intent
+        # of "no mods pinned".
+        assert not call_kwargs.kwargs.get("existing_mods")
 
 
 class TestSimulateMethodCaseVariants:

@@ -170,14 +170,11 @@ class CraftableItem:
             )
             raise SimDataError(msg)
 
-        for inf in self.influences:
-            excluded = CONQUEROR_EXCLUSIONS.get(inf)
-            if excluded and excluded in self.influences:
-                msg = (
-                    f"Conqueror influences {inf!r} and {excluded!r} are mutually "
-                    f"exclusive (Shaper+Elder, Crusader+Warlord, Hunter+Redeemer)"
-                )
-                raise SimDataError(msg)
+        # Conqueror exclusivity (Shaper+Elder etc.) is an entry rule for
+        # conqueror_exalt, NOT a permanent state invariant — Awakener's Orb
+        # legitimately combines a Shaper item and an Elder item. The pair-rule
+        # check lives at the conqueror_exalt boundary; check_invariants stays
+        # silent on which conquerors coexist.
 
         prefix_groups = {m.group for m in self.prefixes}
         if len(prefix_groups) != len(self.prefixes):
@@ -872,6 +869,8 @@ class CraftingEngine:
         item1: CraftableItem,
         item2: CraftableItem,
     ) -> CraftableItem:
+        self._check_craftable(item1)
+        self._check_craftable(item2)
         if not item1.influences or not item2.influences:
             raise ValueError("Both items must be influenced")
         if set(item1.influences) & set(item2.influences):
@@ -884,24 +883,39 @@ class CraftingEngine:
         inf2_mods = [m for m in item2.all_mods if m.influence is not None]
         kept_mod1 = self._rng.choice(inf1_mods) if inf1_mods else None
         kept_mod2 = self._rng.choice(inf2_mods) if inf2_mods else None
-        item2.influences = list(set(item1.influences + item2.influences))
+        # Combine influences with deterministic order (item1 first, item2's new
+        # entries appended) and cap at MAX_INFLUENCES so an Awakener-on-already-
+        # awakened item can't push the count past the game-rule cap.
+        combined: list[str] = list(item1.influences)
+        for inf in item2.influences:
+            if inf not in combined:
+                combined.append(inf)
+        item2.influences = combined[:MAX_INFLUENCES]
         item2.prefixes.clear()
         item2.suffixes.clear()
         # Copy the kept mods so subsequent mutations on item2 (divine, etc.)
-        # don't reach back into item1 via shared RolledMod references.
-        for mod in [kept_mod1, kept_mod2]:
-            if mod:
-                mod_copy = copy.copy(mod)
-                if mod_copy.affix == "prefix" and item2.open_prefixes > 0:
-                    item2.prefixes.append(mod_copy)
-                elif mod_copy.affix == "suffix" and item2.open_suffixes > 0:
-                    item2.suffixes.append(mod_copy)
+        # don't reach back into item1 via shared RolledMod references. Skip
+        # the second kept mod when its group collides with the first — same-
+        # group prefix/suffix duplicates would fail check_invariants on the
+        # next mutation.
+        used_groups: set[str] = set()
+        for mod in (kept_mod1, kept_mod2):
+            if not mod or mod.group in used_groups:
+                continue
+            mod_copy = copy.copy(mod)
+            if mod_copy.affix == "prefix" and item2.open_prefixes > 0:
+                item2.prefixes.append(mod_copy)
+                used_groups.add(mod_copy.group)
+            elif mod_copy.affix == "suffix" and item2.open_suffixes > 0:
+                item2.suffixes.append(mod_copy)
+                used_groups.add(mod_copy.group)
         remaining = self._rare_mod_count() - len(item2.prefixes) - len(item2.suffixes)
         for _ in range(max(remaining, 0)):
             pool = self._build_mod_pool(item2)
             picked = self._weighted_pick(pool)
             if picked:
                 self._add_mod(item2, picked)
+        item2.check_invariants()
         return item2
 
     def veiled_chaos(self, item: CraftableItem) -> None:

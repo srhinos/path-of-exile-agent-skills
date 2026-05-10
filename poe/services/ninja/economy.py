@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -341,8 +342,8 @@ class EconomyService:
         *,
         game: str = "poe1",
     ) -> float:
-        if amount <= 0:
-            raise NinjaError("Amount must be positive")
+        if not math.isfinite(amount) or amount <= 0:
+            raise NinjaError(f"Amount must be a finite positive number, got {amount!r}")
         prices = self.get_prices(league, "Currency", game=game)
         # Build the lookup with both canonical names and every alias that
         # resolves to a canonical name. This way a user passing "exalted",

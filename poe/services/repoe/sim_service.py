@@ -33,7 +33,7 @@ from poe.services.repoe.constants import (
 )
 from poe.services.repoe.data import RepoEData
 from poe.services.repoe.sim import CraftingEngine
-from poe.types import CraftMethod, Influence, Rarity
+from poe.types import CraftMethod, Influence, MatchMode, Rarity
 
 _logger = logging.getLogger("poe.sim")
 
@@ -184,6 +184,44 @@ class SimService:
             analysis=analysis,
         )
 
+    def _resolve_and_validate_existing_mods(
+        self,
+        *,
+        base_name: str,
+        existing_mods: list[str] | None,
+        resolved_targets: list[str],
+        mod_pool: list,
+        pool_groups: set[str],
+        resolved_influences: list[str],
+    ) -> list[str]:
+        # Resolves display-name existing_mods to canonical groups, validates
+        # against the pool + base bounds, and ensures no overlap with targets.
+        # Without this, the validator passed on the resolved name but the
+        # engine received the raw display string and silently ran unpinned.
+        if not existing_mods:
+            return []
+        resolved_existing: list[str] = []
+        for em in existing_mods:
+            if not isinstance(em, str) or not em.strip():
+                continue
+            cleaned = em.strip()
+            resolved = self.resolve_mod_name(cleaned, base_name, influences=resolved_influences)
+            resolved_existing.append(resolved or cleaned)
+        if not resolved_existing:
+            return []
+        target_set = {t.casefold() for t in resolved_targets}
+        existing_set = {e.casefold() for e in resolved_existing}
+        overlap = target_set & existing_set
+        if overlap:
+            raise SimDataError(
+                f"target and existing_mods overlap on {sorted(overlap)}; "
+                "pinned-as-target makes simulation degenerate (always-hit)"
+            )
+        self._validate_existing_mods(
+            base_name, resolved_existing, mod_pool, pool_groups, resolved_influences
+        )
+        return resolved_existing
+
     def _validate_existing_mods(
         self,
         base_name: str,
@@ -253,6 +291,13 @@ class SimService:
         valid_methods = {m.value for m in CraftMethod}
         if method not in valid_methods:
             raise SimDataError(f"Unknown craft method: {method!r}. Valid: {sorted(valid_methods)}")
+        valid_match_modes = {m.value for m in MatchMode}
+        if match not in valid_match_modes:
+            raise SimDataError(f"Unknown match mode: {match!r}. Valid: {sorted(valid_match_modes)}")
+        # Strip + reject empty/whitespace target entries — substring-on-empty
+        # always matches, so a single " " sneaks past the if-truthy check and
+        # makes resolve_mod_name return the first arbitrary mod's group.
+        target = [t.strip() for t in target if isinstance(t, str) and t.strip()]
         if not target:
             raise SimDataError(
                 "--target is required (empty target makes match='all' trivially True "
@@ -262,15 +307,6 @@ class SimService:
             raise SimDataError(f"iterations must be >= 1, got {iterations}")
         if max_attempts < 1:
             raise SimDataError(f"max_attempts must be >= 1, got {max_attempts}")
-        if existing_mods:
-            target_set = {t.casefold() for t in target}
-            existing_set = {e.casefold() for e in existing_mods}
-            overlap = target_set & existing_set
-            if overlap:
-                raise SimDataError(
-                    f"target and existing_mods overlap on {sorted(overlap)}; "
-                    "pinned-as-target makes simulation degenerate (always-hit)"
-                )
         if method == CraftMethod.ESSENCE and not essence:
             raise SimDataError("--essence is required when method is 'essence'")
         if method == CraftMethod.FOSSIL and not fossils:
@@ -298,10 +334,14 @@ class SimService:
                     f"Available groups (first 20): {available}"
                 )
             resolved_targets.append(final)
-        if existing_mods:
-            self._validate_existing_mods(
-                base_name, existing_mods, mod_pool, pool_groups, resolved_influences
-            )
+        resolved_existing = self._resolve_and_validate_existing_mods(
+            base_name=base_name,
+            existing_mods=existing_mods,
+            resolved_targets=resolved_targets,
+            mod_pool=mod_pool,
+            pool_groups=pool_groups,
+            resolved_influences=resolved_influences,
+        )
         eng = CraftingEngine(self._data.snapshot())
         try:
             sim_result = await eng.simulate(
@@ -314,7 +354,7 @@ class SimService:
                 fossils=fossils,
                 match_mode=match,
                 essence_name=essence,
-                existing_mods=existing_mods,
+                existing_mods=resolved_existing,
                 max_attempts=max_attempts,
                 workers=workers,
             )
@@ -351,9 +391,30 @@ class SimService:
         influence: list[str] | None = None,
         match: str = "all",
     ) -> dict:
+        # Mirror the simulate() boundary discipline so multistep can't bypass
+        # the same gates: validate match against MatchMode, casefold + validate
+        # each step's method, reject iterations<1, strip empty targets.
+        match = match.casefold() if isinstance(match, str) else match
+        valid_match_modes = {m.value for m in MatchMode}
+        if match not in valid_match_modes:
+            raise SimDataError(f"Unknown match mode: {match!r}. Valid: {sorted(valid_match_modes)}")
+        if iterations < 1:
+            raise SimDataError(f"iterations must be >= 1, got {iterations}")
+        target = [t.strip() for t in target if isinstance(t, str) and t.strip()]
+        if not target:
+            raise SimDataError("--target is required")
+        valid_methods = {m.value for m in CraftMethod}
+        for i, step in enumerate(steps):
+            raw_method = step.get("method", "chaos")
+            method = raw_method.casefold() if isinstance(raw_method, str) else raw_method
+            if method not in valid_methods:
+                raise SimDataError(
+                    f"Step {i + 1} method {raw_method!r} unknown. Valid: {sorted(valid_methods)}"
+                )
+            step["method"] = method
         produced_rarity: Rarity = Rarity.NORMAL
         for i, step in enumerate(steps):
-            method = step.get("method", "chaos")
+            method = step["method"]
             required = RARITY_REQUIRED.get(method)
             if required and produced_rarity != required:
                 raise SimDataError(
@@ -599,6 +660,10 @@ class SimService:
         *,
         influences: list[str] | None = None,
     ) -> str | None:
+        # Empty/whitespace input would make the substring fallback return the
+        # first arbitrary mod's group ("" is a substring of every name).
+        if not display_name or not display_name.strip():
+            return None
         mods = self._data.get_mod_pool(base_name, influences=influences or [])
 
         # Stat-translation path: user types canonical PoB display text like
