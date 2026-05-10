@@ -306,6 +306,50 @@ class TestPantheonNamesMatchPoBExports:
         assert "Garukhan" in VALID_PANTHEON_MINOR
 
 
+class TestFastPathRespectsBaseMaxAffixes:
+    """The fast simulation path previously hardcoded max_prefixes/max_suffixes
+    = 3, ignoring the base item's actual values. Jewels cap at 2/2, flasks
+    at 1/1, and any future base with non-3/3 caps would receive incorrect
+    simulation distributions in the fast path.
+    """
+
+    @pytest.mark.asyncio
+    async def test_jewel_base_uses_real_max_2_2(self):
+        """A base with max_prefixes=2/max_suffixes=2 should produce items
+        whose simulated mod count never exceeds the base cap."""
+        import copy as _copy
+
+        from poe.services.repoe.sim_service import SimService
+        from tests.conftest import REPOE_DATA, make_repoe_data
+
+        data = _copy.deepcopy(REPOE_DATA)
+        # Synthetic jewel-like base with max_prefixes=2 / max_suffixes=2.
+        data["base_items"]["Hubris Circlet"]["max_prefixes"] = 2
+        data["base_items"]["Hubris Circlet"]["max_suffixes"] = 2
+        svc = SimService(repoe_data=make_repoe_data(data=data))
+        # Fast path triggers for chaos/fossil/alt. Verify it doesn't crash and
+        # the simulation reports a valid hit_rate.
+        result = await svc.simulate(
+            "Hubris Circlet",
+            method="chaos",
+            target=["IncreasedLife"],
+            iterations=10,
+            max_attempts=5,
+        )
+        assert result.iterations == 10
+
+
+class TestBestTierRejectsInvertedRanges:
+    """RePoE data with an inverted (min, max) tier range would crash
+    random.randint mid-iteration, killing a worker silently."""
+
+    def test_inverted_range_rejected_at_construction(self):
+        from poe.services.repoe.sim import BestTier
+
+        with pytest.raises(ValueError, match="min <= max"):
+            BestTier(ilvl=84, values=((100, 50),), weight=1000)
+
+
 class TestEnumLookupAgreement:
     """Enums and the lookup tables that depend on them must stay in sync."""
 

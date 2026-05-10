@@ -16,6 +16,7 @@ from poe.services.repoe.constants import (
     DEFAULT_WORKERS,
     RECOMBINATOR_TRANSFER_CHANCE,
     TAINTED_OUTCOME_CHANCE,
+    VALUE_RANGE_LENGTH,
 )
 from poe.types import CraftMethod, Rarity
 
@@ -28,6 +29,17 @@ class BestTier:
     ilvl: int
     values: tuple[tuple[int, int], ...]
     weight: int
+
+    def __post_init__(self) -> None:
+        # Inverted ranges (max < min) cause random.randint to raise mid-roll,
+        # killing a worker silently. Reject at construction so a malformed
+        # RePoE entry surfaces at load time, not at iteration N of N0,000.
+        for pair in self.values:
+            if len(pair) != VALUE_RANGE_LENGTH or pair[0] > pair[1]:
+                raise ValueError(
+                    f"BestTier.values entry {pair!r} is invalid: "
+                    "expected (min, max) with min <= max"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1438,8 +1450,15 @@ class CraftingEngine:
         mod_counts = CraftingEngine._RARE_MOD_COUNTS
         mod_weights = CraftingEngine._RARE_MOD_WEIGHTS
         is_alt = method == CraftMethod.ALT
-        max_p = 1 if is_alt else 3
-        max_s = 1 if is_alt else 3
+        # Use the base's actual max_{prefixes,suffixes}; previously hardcoded
+        # to 3/3, which produced incorrect distributions on jewels (max 2),
+        # flasks (max 1), abyss jewels (max 2), and any future base with
+        # non-3/3 caps. Alt orbs always cap at 1/1 (Magic items).
+        bitem = data.get_base_item(base)
+        base_max_p = bitem["max_prefixes"] if bitem else 3
+        base_max_s = bitem["max_suffixes"] if bitem else 3
+        max_p = 1 if is_alt else base_max_p
+        max_s = 1 if is_alt else base_max_s
         min_both = CraftingEngine._MIN_MODS_FOR_BOTH_AFFIXES
 
         pinned_groups, pinned_prefixes, pinned_suffixes = CraftingEngine._resolve_pinned_groups(
