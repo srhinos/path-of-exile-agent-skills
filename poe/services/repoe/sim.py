@@ -589,6 +589,13 @@ class CraftingEngine:
         self._check_craftable(item)
         if item.open_suffixes <= 0:
             raise ValueError("No open suffix slots for metamod")
+        # Metamods consume a crafted slot. Without this check, callers could
+        # stack 4+ metamods on a 1-craft item, exceeding the bench's
+        # "Can Have Multiple Crafted Mods" cap silently.
+        if item.crafted_mod_count >= item.max_crafted_mods:
+            raise ValueError(
+                f"Item already has {item.crafted_mod_count}/{item.max_crafted_mods} crafted mods"
+            )
 
         lock_attr = self._METAMOD_LOCKS.get(metamod_type)
         if lock_attr:
