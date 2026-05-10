@@ -440,7 +440,7 @@ class TestMultistepConquerorExalt:
         item = eng.create_item("Hubris Circlet", ilvl=84)
         item.rarity = Rarity.RARE
         eng.chaos_roll(item)
-        SimService._apply_multistep_method(eng, item, "conqueror_exalt", {"influence": "shaper"})
+        SimService._apply_multistep_method(eng, item, "conqueror_exalt", {"influence": "Shaper"})
 
 
 class TestFossilOptimizerBlocked:

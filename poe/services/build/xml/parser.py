@@ -925,15 +925,16 @@ def _parse_config_input(el) -> ConfigEntry | None:
 
 
 def _parse_notes(root: Element, build: BuildDocument) -> None:
-    """Parse the <Notes> section, preserving PoB color codes verbatim.
+    """Parse the <Notes> section, preserving PoB color codes and whitespace.
 
-    Stripping color codes here would be silent data loss on round-trip
-    (parse → write → parse). The notes_get() service strips for display;
-    the writer round-trips raw bytes.
+    Both stripping color codes and stripping whitespace at parse time were
+    silent data loss on round-trip (parse → write → parse). PoB writes notes
+    wrapped in newline/tab framing; trimming destroys that. notes_get() is
+    the consumer that strips for display; the writer round-trips raw bytes.
     """
     notes_el = root.find("Notes")
     if notes_el is not None:
-        build.notes = (notes_el.text or "").strip()
+        build.notes = notes_el.text or ""
 
 
 def _parse_import(root: Element, build: BuildDocument) -> None:

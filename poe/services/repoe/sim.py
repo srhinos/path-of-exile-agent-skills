@@ -56,6 +56,10 @@ class RolledMod:
     tier: BestTier
     rolls: list
     is_crafted: bool = False
+    # Carries through from ModPoolEntry.influence so consumers (awakener_orb,
+    # divine, etc.) can identify influenced mods by their data, not by
+    # heuristics like `mod_id.startswith("mod_")` which misses most RePoE mods.
+    influence: str | None = None
 
 
 @dataclass
@@ -255,6 +259,7 @@ class CraftingEngine:
             weight=mod.weight,
             chance=chance,
             tier=mod.best_tier,
+            influence=mod.influence,
             rolls=self._roll_values(mod.best_tier),
         )
 
@@ -516,6 +521,13 @@ class CraftingEngine:
             raise ValueError("No open prefix slots")
         if affix == "suffix" and item.open_suffixes <= 0:
             raise ValueError("No open suffix slots")
+        # Metamod locks (Cannot Roll/Change Prefixes/Suffixes) gate all mutations
+        # on the locked affix, including crafted mods. Without this gate a caller
+        # could craft on a "Cannot Be Changed" affix and bypass the lock.
+        if affix == "prefix" and item.prefixes_locked:
+            raise ValueError("Cannot craft prefix: prefixes are locked by a metamod")
+        if affix == "suffix" and item.suffixes_locked:
+            raise ValueError("Cannot craft suffix: suffixes are locked by a metamod")
         rolled = RolledMod(
             mod_id=mod_id,
             name=name,
@@ -733,12 +745,39 @@ class CraftingEngine:
             return self._add_mod(item, picked, pool_total=total)
         return None
 
+    # Game rule: items can have at most 2 influences, and certain conqueror
+    # pairs are mutually exclusive (Shaper+Elder, Crusader+Warlord,
+    # Hunter+Redeemer cannot coexist). Eldritch (Searing Exarch / Eater of
+    # Worlds) are added via different mechanics, not via this method.
+    _MAX_INFLUENCES: typing.ClassVar[int] = 2
+    _CONQUEROR_EXCLUSIONS: typing.ClassVar[dict[str, str]] = {
+        "Shaper": "Elder",
+        "Elder": "Shaper",
+        "Crusader": "Warlord",
+        "Warlord": "Crusader",
+        "Hunter": "Redeemer",
+        "Redeemer": "Hunter",
+    }
+
     def conqueror_exalt(self, item: CraftableItem, influence: str) -> RolledMod | None:
         self._check_craftable(item)
         if item.rarity != Rarity.RARE:
             raise ValueError("Conqueror Exalt requires a Rare item")
-        if item.influences and influence not in item.influences:
-            raise ValueError(f"Item already has a different influence: {item.influences}")
+        if influence not in self._CONQUEROR_EXCLUSIONS:
+            raise ValueError(
+                f"Unknown conqueror influence: {influence!r}. "
+                f"Valid: {sorted(self._CONQUEROR_EXCLUSIONS)}"
+            )
+        excluded = self._CONQUEROR_EXCLUSIONS[influence]
+        if excluded in item.influences:
+            raise ValueError(
+                f"Influence {influence!r} is mutually exclusive with "
+                f"existing influence {excluded!r}"
+            )
+        if influence not in item.influences and len(item.influences) >= self._MAX_INFLUENCES:
+            raise ValueError(
+                f"Item already has {len(item.influences)} influences (max 2): {item.influences}"
+            )
         if influence not in item.influences:
             item.influences.append(influence)
         pool = self._build_mod_pool(item)
@@ -760,8 +799,12 @@ class CraftingEngine:
             raise ValueError("Both items must be influenced")
         if set(item1.influences) & set(item2.influences):
             raise ValueError("Items must have different influences")
-        inf1_mods = [m for m in item1.all_mods if m.mod_id.startswith("mod_")]
-        inf2_mods = [m for m in item2.all_mods if m.mod_id.startswith("mod_")]
+        # Filter by influence field — most real RePoE mod IDs don't start
+        # with "mod_", so the previous startswith heuristic dropped almost
+        # every actual influence mod, producing a chaos-rolled item with
+        # no preserved influence mods (contract violation).
+        inf1_mods = [m for m in item1.all_mods if m.influence is not None]
+        inf2_mods = [m for m in item2.all_mods if m.influence is not None]
         kept_mod1 = self._rng.choice(inf1_mods) if inf1_mods else None
         kept_mod2 = self._rng.choice(inf2_mods) if inf2_mods else None
         item2.influences = list(set(item1.influences + item2.influences))
@@ -816,9 +859,19 @@ class CraftingEngine:
         return None
 
     def vaal_orb(self, item: CraftableItem) -> str:
+        # Mirrored items can't be vaal'd; corrupted items can't be re-corrupted.
+        # Without these gates, the "reroll" outcome would call _roll_item on a
+        # corrupted/mirrored item, which violates the engine's craftable contract.
         if item.is_corrupted:
             raise ValueError("Item is already corrupted")
+        if item.is_mirrored:
+            raise ValueError("Mirrored items cannot be corrupted")
         outcome = self._rng.choice(["implicit", "reroll", "nothing", "brick"])
+        if outcome == "reroll":
+            # Roll while uncorrupted, then mark corrupted, so _roll_item's
+            # internal _check_craftable does not reject.
+            item.rarity = Rarity.RARE
+            self._roll_item(item, self._rare_mod_count())
         item.is_corrupted = True
         if outcome == "implicit":
             item.implicits.append(
@@ -833,9 +886,6 @@ class CraftingEngine:
                     rolls=[],
                 )
             )
-        elif outcome == "reroll":
-            item.rarity = Rarity.RARE
-            self._roll_item(item, self._rare_mod_count())
         return outcome
 
     def recombinate(

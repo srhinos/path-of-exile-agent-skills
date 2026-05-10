@@ -1461,9 +1461,10 @@ class TestConquerorExalt:
         assert "Shaper" in item.influences
 
     def test_conqueror_exalt_wrong_influence_raises(self, engine):
+        # Shaper and Elder are mutually exclusive — game rule.
         item = engine.create_item("Hubris Circlet", ilvl=84, influences=["Elder"])
         item.rarity = Rarity.RARE
-        with pytest.raises(ValueError, match="different influence"):
+        with pytest.raises(ValueError, match="mutually exclusive"):
             engine.conqueror_exalt(item, "Shaper")
 
 
@@ -2286,15 +2287,24 @@ class TestConquerorExaltEdgeCases:
     def test_conqueror_exalt_no_inf_pool(self, engine):
         item = engine.create_item("Hubris Circlet", ilvl=84)
         item.rarity = Rarity.RARE
-        result = engine.conqueror_exalt(item, "shaper")
+        result = engine.conqueror_exalt(item, "Shaper")
         assert result is None or isinstance(result, RolledMod)
 
-    def test_conqueror_exalt_different_influence_error(self, engine):
+    def test_conqueror_exalt_mutually_exclusive_error(self, engine):
         item = engine.create_item("Hubris Circlet", ilvl=84)
         item.rarity = Rarity.RARE
-        item.influences = ["elder"]
-        with pytest.raises(ValueError, match="different influence"):
-            engine.conqueror_exalt(item, "shaper")
+        item.influences = ["Elder"]
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            engine.conqueror_exalt(item, "Shaper")
+
+    def test_conqueror_exalt_rejects_max_two(self, engine):
+        # Shaper + Hunter is allowed (not mutually exclusive); a third
+        # non-exclusive influence should still hit the max-2 cap.
+        item = engine.create_item("Hubris Circlet", ilvl=84)
+        item.rarity = Rarity.RARE
+        item.influences = ["Shaper", "Hunter"]
+        with pytest.raises(ValueError, match="max 2"):
+            engine.conqueror_exalt(item, "Crusader")
 
 
 class TestAwakenerOrbKeptMods:
@@ -2695,12 +2705,24 @@ class TestInfluenceEnumCoverage:
         item = engine.create_item("Hubris Circlet", ilvl=84, influences=[influence.value])
         assert influence.value in item.influences
 
-    @pytest.mark.parametrize("influence", list(Influence))
-    def test_conqueror_exalt_accepts_each_influence(self, engine, influence):
+    @pytest.mark.parametrize(
+        "influence",
+        [i for i in Influence if i.value not in {"Searing Exarch", "Eater of Worlds"}],
+    )
+    def test_conqueror_exalt_accepts_each_conqueror_influence(self, engine, influence):
         item = engine.create_item("Hubris Circlet", ilvl=84)
         item.rarity = Rarity.RARE
         engine.conqueror_exalt(item, influence.value)
         assert influence.value in item.influences
+
+    @pytest.mark.parametrize("eldritch", ["Searing Exarch", "Eater of Worlds"])
+    def test_conqueror_exalt_rejects_eldritch_influence(self, engine, eldritch):
+        """Eldritch influences are added via the eldritch implicit system,
+        not via Conqueror Exalt; reject them."""
+        item = engine.create_item("Hubris Circlet", ilvl=84)
+        item.rarity = Rarity.RARE
+        with pytest.raises(ValueError, match="Unknown conqueror influence"):
+            engine.conqueror_exalt(item, eldritch)
 
 
 class TestCraftMethodEnumCoverage:
