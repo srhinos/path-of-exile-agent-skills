@@ -242,13 +242,24 @@ class CraftingEngine:
             max_suffixes=bitem["max_suffixes"],
         )
 
-    def _get_base_mod_pool(self, item: CraftableItem) -> list[ModPoolEntry]:
-        cache_key = (item.base_name, item.ilvl, tuple(sorted(item.influences)))
+    def _get_base_mod_pool(
+        self,
+        item: CraftableItem,
+        *,
+        extra_domains: frozenset[str] = frozenset(),
+    ) -> list[ModPoolEntry]:
+        cache_key = (
+            item.base_name,
+            item.ilvl,
+            tuple(sorted(item.influences)),
+            tuple(sorted(extra_domains)),
+        )
         if cache_key not in self._mod_pool_cache:
             self._mod_pool_cache[cache_key] = self.data.get_mod_pool(
                 item.base_name,
                 ilvl=item.ilvl,
                 influences=item.influences,
+                extra_domains=extra_domains,
             )
         return self._mod_pool_cache[cache_key]
 
@@ -258,13 +269,15 @@ class CraftingEngine:
         affix_type: str | None = None,
         fossil_weights: dict[str, float] | None = None,
         blocked_tags: set[str] | None = None,
+        *,
+        extra_domains: frozenset[str] = frozenset(),
     ) -> list[ModPoolEntry]:
         """Build the weighted mod pool for an item, respecting current mods.
 
         NOTE: Fossil/blocked-tag filtering is duplicated in _prepare_fast_pool.
         Update both when changing mod pool construction logic.
         """
-        all_mods = self._get_base_mod_pool(item)
+        all_mods = self._get_base_mod_pool(item, extra_domains=extra_domains)
 
         existing_groups = item.groups
         pool: list[ModPoolEntry] = []
@@ -425,6 +438,7 @@ class CraftingEngine:
         blocked_tags: set[str] | None = None,
         *,
         require_both_affixes: bool = False,
+        extra_domains: frozenset[str] = frozenset(),
     ) -> None:
         # NOTE: Roll logic (mod count, group exclusion, ensure-both-affixes) is
         # duplicated in _run_chunk_fast. Update both when changing roll behavior.
@@ -432,7 +446,10 @@ class CraftingEngine:
         item.suffixes.clear()
 
         full_pool = self._build_mod_pool(
-            item, fossil_weights=fossil_weights, blocked_tags=blocked_tags
+            item,
+            fossil_weights=fossil_weights,
+            blocked_tags=blocked_tags,
+            extra_domains=extra_domains,
         )
 
         for _ in range(num_mods):
@@ -749,6 +766,8 @@ class CraftingEngine:
             fossil_weights=fossil_weights,
             blocked_tags=blocked_tags,
             require_both_affixes=True,
+            # Delve mods are only rollable via fossils.
+            extra_domains=frozenset({"delve"}),
         )
 
     def transmutation(self, item: CraftableItem) -> None:
@@ -923,7 +942,9 @@ class CraftingEngine:
         if item.rarity != Rarity.RARE:
             raise ValueError("Veiled Chaos requires a Rare item")
         self.chaos_roll(item)
-        pool = self._build_mod_pool(item)
+        # Veiled mods come from the "unveiled" domain; only veiled-chaos and
+        # aisling_bench unlock that domain.
+        pool = self._build_mod_pool(item, extra_domains=frozenset({"unveiled"}))
         if pool:
             picked = self._weighted_pick(pool)
             if picked:
@@ -942,7 +963,7 @@ class CraftingEngine:
             item.prefixes.remove(removed)
         else:
             item.suffixes.remove(removed)
-        pool = self._build_mod_pool(item)
+        pool = self._build_mod_pool(item, extra_domains=frozenset({"unveiled"}))
         if not pool:
             return None
         picked = self._weighted_pick(pool)
@@ -1396,10 +1417,13 @@ class CraftingEngine:
         influences: list[str],
         fossil_weights: dict[str, float] | None,
         blocked_tags: set[str] | None,
+        *,
+        extra_domains: frozenset[str] = frozenset(),
     ) -> tuple[int, list[int], list[str], list[bool], dict[str, int], dict[str, int], int, int]:
         engine = CraftingEngine(data)
         base_pool = engine._get_base_mod_pool(
             engine.create_item(base, ilvl, influences),
+            extra_domains=extra_domains,
         )
 
         if fossil_weights:
@@ -1524,6 +1548,7 @@ class CraftingEngine:
             influences,
             fossil_weights,
             blocked_tags,
+            extra_domains=(frozenset({"delve"}) if method == CraftMethod.FOSSIL else frozenset()),
         )
 
         mod_counts = CraftingEngine._RARE_MOD_COUNTS

@@ -669,19 +669,30 @@ def _get_mod_keywords() -> dict[str, list[str]]:
         return {}
 
     mods = json.loads(mods_path.read_text(encoding="utf-8"))
-    translations: dict[str, str] = {}
+    translations: dict = {}
     if trans_path.exists():
         translations = json.loads(trans_path.read_text(encoding="utf-8"))
+
+    def _templates_for(stat_id: str) -> list[str]:
+        # Pipeline emits dict[str, list[str]] of all sign-variant templates;
+        # an older bundle (or test fixture) may still carry dict[str, str].
+        # Accept both so a half-migrated cache doesn't crash the parser.
+        value = translations.get(stat_id)
+        if isinstance(value, list):
+            return [t for t in value if isinstance(t, str) and t]
+        if isinstance(value, str) and value:
+            return [value]
+        return []
 
     cache: dict[str, list[str]] = {}
     for mod_id, entry in mods.items():
         keywords: list[str] = []
         for stat in entry.get("stats", []):
             stat_id = stat.get("id", "")
-            template = translations.get(stat_id, "")
-            if template:
-                words = re.findall(r"[a-zA-Z]{3,}", template.lower())
-                keywords.extend(words)
+            templates = _templates_for(stat_id)
+            if templates:
+                for template in templates:
+                    keywords.extend(re.findall(r"[a-zA-Z]{3,}", template.lower()))
             else:
                 parts = stat_id.replace("+", "").replace("%", "").split("_")
                 keywords.extend(

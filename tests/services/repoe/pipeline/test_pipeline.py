@@ -530,7 +530,7 @@ class TestProcessStatTranslations:
             },
         ]
         result = _process_stat_translations(raw)
-        assert result["base_maximum_life"] == "+{0} to Maximum Life"
+        assert result["base_maximum_life"] == ["+{0} to Maximum Life"]
 
     def test_skips_empty_english(self):
         raw = [
@@ -542,7 +542,25 @@ class TestProcessStatTranslations:
         result = _process_stat_translations(raw)
         assert "some_stat" not in result
 
-    def test_first_entry_wins(self):
+    def test_keeps_all_sign_variants(self):
+        # Each stat has a positive and negative phrasing — both must round-trip
+        # so resolve_stat_ids can match either form the user types.
+        raw = [
+            {
+                "ids": ["base_life_reservation_efficiency_+%"],
+                "English": [
+                    {"string": "{0}% increased Reservation Efficiency"},
+                    {"string": "{0}% reduced Reservation Efficiency"},
+                ],
+            },
+        ]
+        result = _process_stat_translations(raw)
+        assert result["base_life_reservation_efficiency_+%"] == [
+            "{0}% increased Reservation Efficiency",
+            "{0}% reduced Reservation Efficiency",
+        ]
+
+    def test_separate_entries_with_same_id_merged(self):
         raw = [
             {
                 "ids": ["stat_a"],
@@ -554,7 +572,7 @@ class TestProcessStatTranslations:
             },
         ]
         result = _process_stat_translations(raw)
-        assert result["stat_a"] == "First"
+        assert result["stat_a"] == ["First", "Second"]
 
     def test_skips_empty_stat_id(self):
         raw = [
@@ -565,7 +583,7 @@ class TestProcessStatTranslations:
         ]
         result = _process_stat_translations(raw)
         assert "" not in result
-        assert result["valid_stat"] == "Template"
+        assert result["valid_stat"] == ["Template"]
 
     def test_multiple_ids_same_template(self):
         raw = [
@@ -575,8 +593,8 @@ class TestProcessStatTranslations:
             },
         ]
         result = _process_stat_translations(raw)
-        assert result["stat_x"] == "Shared template"
-        assert result["stat_y"] == "Shared template"
+        assert result["stat_x"] == ["Shared template"]
+        assert result["stat_y"] == ["Shared template"]
 
 
 class TestProcessBenchCrafts:
@@ -1318,7 +1336,7 @@ class TestProcessEssencesInvariants:
                 "name": f"Essence {tier}",
                 "type": {"tier": tier, "is_corruption_only": False},
                 "item_level_restriction": 1,
-                "mods": {},
+                "mods": {"Helmet": "MaxLifeMod"},
             },
         }
         result = _process_essences(raw)
@@ -1330,19 +1348,25 @@ class TestProcessEssencesInvariants:
                 "name": "Corrupt Essence",
                 "type": {"tier": 7, "is_corruption_only": True},
                 "item_level_restriction": 82,
-                "mods": {},
+                "mods": {"Helmet": "MaxLifeMod"},
             },
         }
         result = _process_essences(raw)
         assert result["Corrupt Essence"]["is_corruption_only"] is True
 
-    def test_default_tier_zero_when_type_missing(self):
+    def test_corruption_monolith_filtered_out(self):
+        # Vendor essences.json includes "Remnant of Corruption" with empty
+        # mods + tier 0; it isn't an essence and must be dropped at ingestion.
         raw = {
-            "E": {"name": "NoType", "mods": {}},
+            "E": {
+                "name": "Remnant of Corruption",
+                "type": {"tier": 0, "is_corruption_only": False},
+                "item_level_restriction": None,
+                "mods": {},
+            },
         }
         result = _process_essences(raw)
-        assert result["NoType"]["tier"] == 0
-        assert result["NoType"]["is_corruption_only"] is False
+        assert "Remnant of Corruption" not in result
 
     def test_level_restriction_preserved_when_none(self):
         raw = {
@@ -1350,7 +1374,7 @@ class TestProcessEssencesInvariants:
                 "name": "E",
                 "type": {"tier": 1, "is_corruption_only": False},
                 "item_level_restriction": None,
-                "mods": {},
+                "mods": {"Helmet": "MaxLifeMod"},
             },
         }
         result = _process_essences(raw)
@@ -1417,33 +1441,36 @@ class TestProcessBenchCraftsInvariants:
 
 
 class TestProcessStatTranslationsInvariants:
-    def test_returned_dict_values_are_strings(self):
+    def test_returned_dict_values_are_lists_of_strings(self):
         raw = [
             {"ids": ["a"], "English": [{"string": "Template A"}]},
-            {"ids": ["b"], "English": [{"string": ""}]},
+            {"ids": ["b"], "English": [{"string": ""}]},  # empty string filtered
         ]
         result = _process_stat_translations(raw)
         for v in result.values():
-            assert isinstance(v, str)
+            assert isinstance(v, list)
+            for s in v:
+                assert isinstance(s, str)
+                assert s
 
-    def test_missing_string_key_defaults_empty(self):
+    def test_missing_string_key_skipped(self):
         raw = [
             {"ids": ["x"], "English": [{}]},
         ]
         result = _process_stat_translations(raw)
-        assert result["x"] == ""
+        assert "x" not in result
 
     def test_empty_input_returns_empty_dict(self):
         assert _process_stat_translations([]) == {}
 
-    def test_first_wins_across_separate_entries(self):
+    def test_separate_entries_merged_into_list(self):
         raw = [
             {"ids": ["s"], "English": [{"string": "first"}]},
             {"ids": ["s"], "English": [{"string": "second"}]},
             {"ids": ["s"], "English": [{"string": "third"}]},
         ]
         result = _process_stat_translations(raw)
-        assert result["s"] == "first"
+        assert result["s"] == ["first", "second", "third"]
 
 
 class TestRepoEPipelineNegative:

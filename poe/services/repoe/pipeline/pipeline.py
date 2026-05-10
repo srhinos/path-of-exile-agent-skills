@@ -159,6 +159,11 @@ def _process_essences(raw: dict) -> dict[str, dict]:
         if not name:
             continue
         ess_type = entry.get("type", {})
+        # "Remnant of Corruption" is a corruption-monolith currency RePoE
+        # carries in essences.json with empty mods + tier 0; it isn't an
+        # essence and would surface as a non-essence row to crafting consumers.
+        if not entry.get("mods") or ess_type.get("tier", 0) == 0:
+            continue
         result[name] = {
             "tier": ess_type.get("tier", 0),
             "level_restriction": entry.get("item_level_restriction"),
@@ -191,17 +196,31 @@ def _process_bench_crafts(raw: list) -> list[dict]:
     return result
 
 
-def _process_stat_translations(raw: list) -> dict[str, str]:
-    result: dict[str, str] = {}
+def _process_stat_translations(raw: list) -> dict[str, list[str]]:
+    # Each stat id can have multiple English templates — sign variants
+    # ("increased Reservation Efficiency" vs "reduced ...") and conditional
+    # phrasings ("you can apply an additional curse" vs "fewer curses
+    # allowed"). Keeping only the first-seen template makes the reverse
+    # index miss the rolled-on form for several common stats. Emit the full
+    # list per id so resolve_stat_ids can normalize each.
+    result: dict[str, list[str]] = {}
     for entry in raw:
         ids = entry.get("ids", [])
         english = entry.get("English", [])
-        if not english:
+        templates = [
+            e["string"]
+            for e in english
+            if isinstance(e, dict) and isinstance(e.get("string"), str) and e["string"]
+        ]
+        if not templates:
             continue
-        template = english[0].get("string", "")
         for stat_id in ids:
-            if stat_id and stat_id not in result:
-                result[stat_id] = template
+            if not stat_id:
+                continue
+            seen = result.setdefault(stat_id, [])
+            for tmpl in templates:
+                if tmpl not in seen:
+                    seen.append(tmpl)
     return result
 
 

@@ -87,10 +87,20 @@ class RepoEData:
     def _build_translation_index(self) -> dict[str, set[str]]:
         translations = self._load("stat_translations")
         index: dict[str, set[str]] = {}
-        if isinstance(translations, dict):
-            for stat_id, template in translations.items():
-                if not isinstance(template, str):
-                    continue
+        if not isinstance(translations, dict):
+            return index
+        for stat_id, value in translations.items():
+            # Pipeline emits list[str] of all sign variants per stat_id.
+            # An older bundled JSON may still carry a single string — handle
+            # both shapes so a half-migrated cache doesn't crash startup.
+            templates: list[str]
+            if isinstance(value, list):
+                templates = [t for t in value if isinstance(t, str)]
+            elif isinstance(value, str):
+                templates = [value]
+            else:
+                continue
+            for template in templates:
                 key = _normalize_stat_template(template)
                 if not key:
                     continue
@@ -129,6 +139,7 @@ class RepoEData:
         ilvl: int = 100,
         influences: list[str] | None = None,
         affix_type: str | None = None,
+        extra_domains: frozenset[str] = frozenset(),
     ) -> list[ModPoolEntry]:
         base_items = self._load("base_items")
         bitem = self._find_base_item(base_name, base_items)
@@ -137,6 +148,13 @@ class RepoEData:
 
         mods = self._load("mods")
         mod_pool = self._load("mod_pool")
+
+        # Restricted-domain pool: chaos/exalt/alch see only "item" + "crafted"
+        # mods. Fossil sims add "delve"; veiled-chaos / aisling add "unveiled".
+        # Without this gate the bundled mod_pool (which carries every domain
+        # for ingestion convenience) leaks ~20% delve/unveiled weight into
+        # every regular simulation, biasing hit-rates and percentiles.
+        allowed_mod_domains = frozenset({"item", "crafted"}) | extra_domains
 
         base_id = bitem["id"]
         mod_ids = mod_pool.get(base_id, [])
@@ -174,14 +192,19 @@ class RepoEData:
         group_tier_counts: dict[str, int] = {}
         for mid in mod_ids:
             mod = mods.get(mid)
-            if mod and mod["required_level"] <= ilvl:
-                group = mod["group"]
-                group_tier_counts[group] = group_tier_counts.get(group, 0) + 1
+            if not mod or mod["required_level"] > ilvl:
+                continue
+            if mod.get("domain", "item") not in allowed_mod_domains:
+                continue
+            group = mod["group"]
+            group_tier_counts[group] = group_tier_counts.get(group, 0) + 1
 
         results: list[ModPoolEntry] = []
         for mid in mod_ids:
             mod = mods.get(mid)
             if not mod:
+                continue
+            if mod.get("domain", "item") not in allowed_mod_domains:
                 continue
             if mod["influence"] not in allowed_influences:
                 continue
@@ -246,11 +269,27 @@ class RepoEData:
         tier_mods = [(mid, m) for mid in pool_ids if (m := mods.get(mid)) and m["group"] == group]
         tier_mods.sort(key=lambda x: x[1]["required_level"], reverse=True)
 
+        # Influence-mod weights live on tags like "body_armour_shaper", which
+        # only match the base when the engine derives `inf_tags` from
+        # spawn-weights. Without passing those tags, every conqueror-influence
+        # mod tier reports weight=0, making `poe sim tiers` falsely claim the
+        # mod cannot roll on any base.
+        inf_tags: set[str] = set()
+        for sw in mod.get("spawn_weights", []):
+            if not isinstance(sw, dict):
+                continue
+            tag = sw.get("tag", "")
+            base, _, suffix = tag.rpartition("_")
+            if base and suffix in INFLUENCE_TAG_MAP:
+                for base_tag in bitem["tags"]:
+                    inf_tags.add(f"{base_tag}_{suffix}")
+                break
+
         return [
             {
                 "tier": i + 1,
                 "ilvl": m["required_level"],
-                "weight": self._best_weight_for_base(m, bitem),
+                "weight": self._best_weight_for_base(m, bitem, inf_tags or None),
                 "values": [[s["min"], s["max"]] for s in m["stats"]],
                 "available": m["required_level"] <= ilvl,
             }
