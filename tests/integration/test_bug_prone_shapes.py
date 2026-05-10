@@ -61,6 +61,27 @@ class TestNotesRoundTripPreservesColorCodes:
         reparsed = parse_build_file(out)
         assert "^xFF0000" in reparsed.notes
 
+    def test_service_notes_get_set_round_trip_preserves_codes(self, tmp_path):
+        # The standard service flow is `read = notes_get(); ...; notes_set(read.notes)`.
+        # Without preserving colors on the read side, this flow strips them
+        # on every save — undoing the parser-level preservation.
+        from poe.services.build.build_service import BuildService
+
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="90" className="Witch" ascendClassName=""/>
+                <Notes>^xAA00BBKeep:^7 me</Notes>
+            </PathOfBuilding>
+        """)
+        p = _write_xml(tmp_path, xml, "service_notes.xml")
+        svc = BuildService()
+        before = svc.notes_get("ignored", file_path=str(p))
+        svc.notes_set("ignored", before.notes, file_path=str(p))
+        # After the round-trip the file still carries the color code.
+        reparsed = parse_build_file(p)
+        assert "^xAA00BB" in reparsed.notes
+
 
 class TestVariantFilterAtConsumption:
     """Parser preserves all variant mods (round-trip safety); display

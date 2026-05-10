@@ -497,6 +497,12 @@ class CraftingEngine:
             self._roll_item(item, self._rare_mod_count(), require_both_affixes=True)
             return
 
+        # Both sides locked: nothing to roll. Returning early avoids the
+        # if/elif at the bottom assigning affix_type='suffix' for
+        # prefixes_locked and then rolling a suffix despite suffixes_locked.
+        if item.prefixes_locked and item.suffixes_locked:
+            return
+
         if not item.prefixes_locked:
             item.prefixes.clear()
         if not item.suffixes_locked:
@@ -756,6 +762,26 @@ class CraftingEngine:
             if picked:
                 self._add_mod(item, picked)
 
+        # Rare items always carry at least one prefix and one suffix when
+        # mod count >= MIN_MODS_FOR_BOTH_AFFIXES. The guaranteed-essence-mod
+        # plus three weighted rolls can all collide on a single affix; force
+        # the missing side to mirror chaos/alch/fossil semantics.
+        self._force_both_affixes(item, total_target)
+
+    def _force_both_affixes(self, item: CraftableItem, num_mods: int) -> None:
+        if num_mods < self._MIN_MODS_FOR_BOTH_AFFIXES:
+            return
+        if not item.prefixes and item.open_prefixes > 0:
+            pool = self._build_mod_pool(item, affix_type="prefix")
+            picked = self._weighted_pick(pool)
+            if picked:
+                self._add_mod(item, picked)
+        if not item.suffixes and item.open_suffixes > 0:
+            pool = self._build_mod_pool(item, affix_type="suffix")
+            picked = self._weighted_pick(pool)
+            if picked:
+                self._add_mod(item, picked)
+
     def fossil_roll(self, item: CraftableItem, fossil_names: list[str]) -> None:
         self._check_craftable(item)
         item.rarity = Rarity.RARE
@@ -1008,13 +1034,27 @@ class CraftingEngine:
         item1: CraftableItem,
         item2: CraftableItem,
     ) -> CraftableItem:
+        # Pick a base, then derive max_prefixes/max_suffixes from THAT base.
+        # Using item1's caps unconditionally let a flask-base recombine end up
+        # with body-armour 3/3 caps and 6 transferred mods.
+        chosen_idx = self._rng.choice([0, 1])
+        chosen_base_name = (item1.base_name, item2.base_name)[chosen_idx]
+        chosen_base_id = (item1.base_id, item2.base_id)[chosen_idx]
+        chosen_max_p = (item1.max_prefixes, item2.max_prefixes)[chosen_idx]
+        chosen_max_s = (item1.max_suffixes, item2.max_suffixes)[chosen_idx]
+        # The bundled base record is the source of truth in case the original
+        # item caps were tampered with (negative, oversize, etc.).
+        bitem = self.data.get_base_item(chosen_base_name)
+        if bitem is not None:
+            chosen_max_p = bitem.get("max_prefixes", chosen_max_p)
+            chosen_max_s = bitem.get("max_suffixes", chosen_max_s)
         result = CraftableItem(
-            base_name=self._rng.choice([item1.base_name, item2.base_name]),
-            base_id=self._rng.choice([item1.base_id, item2.base_id]),
+            base_name=chosen_base_name,
+            base_id=chosen_base_id,
             ilvl=max(item1.ilvl, item2.ilvl),
             rarity=Rarity.RARE,
-            max_prefixes=item1.max_prefixes,
-            max_suffixes=item1.max_suffixes,
+            max_prefixes=chosen_max_p,
+            max_suffixes=chosen_max_s,
         )
         all_prefixes = list(item1.prefixes + item2.prefixes)
         all_suffixes = list(item1.suffixes + item2.suffixes)
@@ -1035,8 +1075,12 @@ class CraftingEngine:
             ):
                 result.suffixes.append(copy.copy(mod))
         if item1.influences or item2.influences:
-            combined = list(set(item1.influences + item2.influences))
-            result.influences = combined[:2]
+            combined: list[str] = list(item1.influences)
+            for inf in item2.influences:
+                if inf not in combined:
+                    combined.append(inf)
+            result.influences = combined[:MAX_INFLUENCES]
+        result.check_invariants()
         return result
 
     def beast_prefix_to_suffix(

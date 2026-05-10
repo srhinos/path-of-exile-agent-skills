@@ -29,12 +29,19 @@ class BuildMetadata(BaseModel):
 
 
 class BuildNotes(BaseModel):
-    """Notes text attached to a build, returned by BuildService.notes_get()."""
+    """Notes text attached to a build, returned by BuildService.notes_get().
+
+    `notes` is the raw text including PoB color codes (^xRRGGBB / ^N). UI
+    consumers that want a color-stripped form use `notes_display`. A standard
+    read-mutate-write flow that round-trips `notes` (NOT `notes_display`)
+    preserves the build's formatting on disk.
+    """
 
     model_config = ConfigDict(validate_assignment=True)
 
     build_name: str
     notes: str = ""
+    notes_display: str = ""
 
 
 class ValidationIssue(BaseModel):

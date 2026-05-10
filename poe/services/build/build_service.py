@@ -306,8 +306,12 @@ class BuildService:
 
     def notes_get(self, name: str, *, file_path: str | None = None) -> BuildNotes:
         _, build_obj = self.load(name, file_path)
-        clean = POB_COLOR_RE.sub("", build_obj.notes.strip())
-        return BuildNotes(build_name=name, notes=clean)
+        # `notes` is the raw text (color codes + whitespace preserved) so a
+        # caller that round-trips it via notes_set keeps the build's on-disk
+        # formatting. `notes_display` is the color-stripped form for UIs.
+        raw = build_obj.notes
+        display = POB_COLOR_RE.sub("", raw.strip())
+        return BuildNotes(build_name=name, notes=raw, notes_display=display)
 
     def notes_set(self, name: str, notes: str, *, file_path: str | None = None) -> MutationResult:
         path, build_obj, cloned_from = self.load_for_write(name, file_path)

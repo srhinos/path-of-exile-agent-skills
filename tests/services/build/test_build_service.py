@@ -69,7 +69,7 @@ class TestBuildService:
         assert result.status == "ok"
         assert result.notes == "new notes"
 
-    def test_notes_get_strips_pob_color_codes(self, tmp_path):
+    def test_notes_get_preserves_color_codes_and_exposes_display(self, tmp_path):
         from tests.conftest import PoBXmlBuilder
 
         builder = PoBXmlBuilder(tmp_path)
@@ -78,12 +78,17 @@ class TestBuildService:
         build_file = builder.write()
         svc = BuildService()
         result = svc.notes_get("ignored", file_path=str(build_file))
-        assert "^x" not in result.notes
-        assert "^7" not in result.notes
-        assert "^1" not in result.notes
-        assert "Red text" in result.notes
-        assert "and" in result.notes
-        assert "numbered color" in result.notes
+        # Raw `notes` keeps color codes so a round-trip read-mutate-write
+        # preserves the build's on-disk formatting.
+        assert "^xE05030" in result.notes
+        assert "^7" in result.notes
+        assert "^1" in result.notes
+        # `notes_display` is the color-stripped variant for UIs.
+        assert "^x" not in result.notes_display
+        assert "^7" not in result.notes_display
+        assert "^1" not in result.notes_display
+        assert "Red text" in result.notes_display
+        assert "numbered color" in result.notes_display
 
     def test_validate(self, builds_dir):
         svc = BuildService()
