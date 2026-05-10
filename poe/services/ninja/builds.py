@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from poe.models.ninja.builds import (
@@ -19,6 +20,8 @@ from poe.services.ninja.errors import NinjaError
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
     from poe.services.ninja.discovery import DiscoveryService
+
+_logger = logging.getLogger("poe.ninja.builds")
 
 
 class BuildsService:
@@ -337,24 +340,48 @@ def _extract_characters(
     keystone_vocab = dictionaries.get("keypassive", [])
 
     count = len(names)
+    parallel = {
+        "account": accounts,
+        "level": levels,
+        "life": lives,
+        "energyshield": es_vals,
+        "dps": dps_vals,
+        "ehp": ehp_vals,
+        "class": class_vals,
+        "skills": skill_vals,
+        "keypassives": keystone_vals,
+    }
+    truncated = sorted(k for k, v in parallel.items() if len(v) < count)
+    if truncated:
+        _logger.warning(
+            "poe.ninja search response: parallel value-lists shorter than 'name' (%d): %s; "
+            "characters with missing fields will be dropped",
+            count,
+            truncated,
+        )
+
     characters = []
     for i in range(count):
         name = names[i].str_val if i < len(names) else ""
         account = accounts[i].str_val if i < len(accounts) else ""
         if not name or not account:
             continue
-        raw_skills = skill_vals[i].numbers if i < len(skill_vals) else []
-        raw_keystones = keystone_vals[i].numbers if i < len(keystone_vals) else []
+        # Skip rows where any expected parallel list ran short — partial data
+        # would mix real and synthesized-zero values and be silently wrong.
+        if any(i >= len(v) for v in parallel.values()):
+            continue
+        raw_skills = skill_vals[i].numbers
+        raw_keystones = keystone_vals[i].numbers
         characters.append(
             SearchCharacter(
                 name=name,
                 account=account,
-                level=levels[i].number if i < len(levels) else 0,
-                life=lives[i].number if i < len(lives) else 0,
-                energy_shield=es_vals[i].number if i < len(es_vals) else 0,
-                dps=dps_vals[i].str_val if i < len(dps_vals) else "",
-                ehp=ehp_vals[i].str_val if i < len(ehp_vals) else "",
-                class_id=class_vals[i].number if i < len(class_vals) else 0,
+                level=levels[i].number,
+                life=lives[i].number,
+                energy_shield=es_vals[i].number,
+                dps=dps_vals[i].str_val,
+                ehp=ehp_vals[i].str_val,
+                class_id=class_vals[i].number,
                 skills=_resolve_ids(raw_skills, gem_vocab),
                 keystones=_resolve_ids(raw_keystones, keystone_vocab),
             )

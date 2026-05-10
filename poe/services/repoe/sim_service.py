@@ -33,7 +33,7 @@ from poe.services.repoe.constants import (
 )
 from poe.services.repoe.data import RepoEData
 from poe.services.repoe.sim import CraftingEngine
-from poe.types import CraftMethod, Influence
+from poe.types import CraftMethod, Influence, Rarity
 
 _logger = logging.getLogger("poe.sim")
 
@@ -290,14 +290,14 @@ class SimService:
         influence: list[str] | None = None,
         match: str = "all",
     ) -> dict:
-        produced_rarity = "normal"
+        produced_rarity: Rarity = Rarity.NORMAL
         for i, step in enumerate(steps):
             method = step.get("method", "chaos")
             required = RARITY_REQUIRED.get(method)
             if required and produced_rarity != required:
                 raise SimDataError(
-                    f"Step {i + 1} ({method}) requires {required} rarity, "
-                    f"but previous step produces {produced_rarity} items"
+                    f"Step {i + 1} ({method}) requires {required.value.lower()} rarity, "
+                    f"but previous step produces {produced_rarity.value.lower()} items"
                 )
             produced_rarity = RARITY_PRODUCED.get(method, produced_rarity)
         mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=influence or [])

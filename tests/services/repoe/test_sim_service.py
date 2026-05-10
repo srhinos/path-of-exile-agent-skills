@@ -709,7 +709,9 @@ class TestSimulateMultistepRarityChain:
         sorted(RARITY_PRODUCED.items()),
     )
     def test_producer_keys_have_known_rarities(self, producer_method, produced_rarity):
-        assert produced_rarity in {"normal", "magic", "rare"}
+        from poe.types import Rarity
+
+        assert produced_rarity in {Rarity.NORMAL, Rarity.MAGIC, Rarity.RARE}
 
 
 class TestSearchBasesCountInvariant:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from poe.types import Rarity
+
 DEFAULT_ILVL = 84
 DEFAULT_ITERATIONS = 10000
 DEFAULT_MAX_ATTEMPTS = 1000
@@ -79,20 +81,24 @@ CURRENCY_PATH_NAMES: dict[str, str] = {
     "Metadata/Items/Currency/CurrencyModValues": "Divine Orb",
 }
 
-RARITY_PRODUCED: dict[str, str] = {
-    "chaos": "rare",
-    "alchemy": "rare",
-    "fossil": "rare",
-    "harvest": "rare",
-    "alt": "magic",
-    "transmutation": "magic",
-    "scour": "normal",
+# Method → rarity-it-produces. Values use the Rarity enum (uppercase) so
+# this dict and the multistep gate share a single namespace with the
+# rest of the codebase. A future refactor that swaps a comparison to use
+# Rarity.RARE would silently break a free-form lowercase namespace.
+RARITY_PRODUCED: dict[str, Rarity] = {
+    "chaos": Rarity.RARE,
+    "alchemy": Rarity.RARE,
+    "fossil": Rarity.RARE,
+    "harvest": Rarity.RARE,
+    "alt": Rarity.MAGIC,
+    "transmutation": Rarity.MAGIC,
+    "scour": Rarity.NORMAL,
 }
 
-RARITY_REQUIRED: dict[str, str] = {
-    "regal": "magic",
-    "augmentation": "magic",
-    "exalt": "rare",
+RARITY_REQUIRED: dict[str, Rarity] = {
+    "regal": Rarity.MAGIC,
+    "augmentation": Rarity.MAGIC,
+    "exalt": Rarity.RARE,
 }
 
 MOD_DOMAIN_FOR_BASE_DOMAIN: dict[str, frozenset[str]] = {

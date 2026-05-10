@@ -299,15 +299,25 @@ class EconomyService:
         if amount <= 0:
             raise NinjaError("Amount must be positive")
         prices = self.get_prices(league, "Currency", game=game)
-        price_map = {p.name.lower(): p.chaos_value for p in prices}
+        # Build the lookup with both canonical names and every alias that
+        # resolves to a canonical name. This way a user passing "exalted",
+        # "exalt", or "exalted orb" all hit the same price entry — without
+        # the alias loop, only inputs whose alias-resolution exactly matches
+        # a PriceResult.name would work.
+        price_map: dict[str, float] = {}
+        for p in prices:
+            price_map[p.name.lower()] = p.chaos_value
+        for alias, canonical in CURRENCY_ALIASES.items():
+            chaos = price_map.get(canonical.lower())
+            if chaos is not None:
+                price_map.setdefault(alias.lower(), chaos)
         price_map["chaos orb"] = 1.0
+        price_map["chaos"] = 1.0
 
-        from_key = CURRENCY_ALIASES.get(from_currency.lower(), from_currency.lower())
-        to_key = CURRENCY_ALIASES.get(to_currency.lower(), to_currency.lower())
-        from_chaos = price_map.get(from_key)
+        from_chaos = price_map.get(from_currency.lower())
         if from_chaos is None or from_chaos <= 0:
             raise NinjaError(f"Currency not found: {from_currency!r}")
-        to_chaos = price_map.get(to_key)
+        to_chaos = price_map.get(to_currency.lower())
         if to_chaos is None or to_chaos <= 0:
             raise NinjaError(f"Currency not found: {to_currency!r}")
         return amount * from_chaos / to_chaos
