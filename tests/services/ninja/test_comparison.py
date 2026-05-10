@@ -391,11 +391,17 @@ class TestCaseInsensitiveMatching:
 
 
 class TestDefensiveThresholdCoverage:
-    @pytest.mark.parametrize("stat", list(DEFENSIVE_THRESHOLDS.keys()))
-    def test_each_stat_threshold_can_flag(self, stat):
+    # Only positive thresholds flag — non-positive entries (chaos_resistance=-60,
+    # energy_shield=0) are intentionally informational, not flagged. Parametrize
+    # explicitly over the flagging subset so a regression that turns a positive
+    # threshold to 0 fails noisily (drops out of the parametrize and reduces
+    # coverage) instead of silently being skipped.
+    @pytest.mark.parametrize(
+        "stat",
+        [s for s, threshold in DEFENSIVE_THRESHOLDS.items() if threshold > 0],
+    )
+    def test_each_positive_threshold_can_flag(self, stat):
         threshold = DEFENSIVE_THRESHOLDS[stat]
-        if threshold <= 0:
-            pytest.skip("non-positive thresholds are not flagged by current logic")
         ds_dict = dict.fromkeys(DEFENSIVE_THRESHOLDS, 999)
         ds_dict[stat] = threshold - 1
         char = _make_character(

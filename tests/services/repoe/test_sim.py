@@ -2166,37 +2166,37 @@ class TestTaintedEmptyItem:
 
 class TestVaalOrbOutcomes:
     def test_vaal_implicit_outcome(self, engine):
+        # vaal_orb has 4 equiprobable outcomes; in 200 seeds each appears ~50
+        # times. If we can't find one, the RNG is broken — fail rather than
+        # skip. pytest.skip masks regressions where an outcome stops happening.
         for seed in range(200):
             random.seed(seed)
             item = engine.create_item("Hubris Circlet", ilvl=84)
             engine.chaos_roll(item)
-            outcome = engine.vaal_orb(item)
-            if outcome == "implicit":
+            if engine.vaal_orb(item) == "implicit":
                 assert len(item.implicits) > 0
                 return
-        pytest.skip("implicit outcome not hit in 200 seeds")
+        raise AssertionError("implicit outcome not hit in 200 seeds — RNG distribution broken")
 
     def test_vaal_reroll_outcome(self, engine):
         for seed in range(200):
             random.seed(seed)
             item = engine.create_item("Hubris Circlet", ilvl=84)
             engine.chaos_roll(item)
-            outcome = engine.vaal_orb(item)
-            if outcome == "reroll":
+            if engine.vaal_orb(item) == "reroll":
                 assert item.rarity == Rarity.RARE
                 return
-        pytest.skip("reroll outcome not hit in 200 seeds")
+        raise AssertionError("reroll outcome not hit in 200 seeds — RNG distribution broken")
 
     def test_vaal_nothing_outcome(self, engine):
         for seed in range(200):
             random.seed(seed)
             item = engine.create_item("Hubris Circlet", ilvl=84)
             engine.chaos_roll(item)
-            outcome = engine.vaal_orb(item)
-            if outcome == "nothing":
+            if engine.vaal_orb(item) == "nothing":
                 assert item.is_corrupted is True
                 return
-        pytest.skip("nothing outcome not hit in 200 seeds")
+        raise AssertionError("nothing outcome not hit in 200 seeds — RNG distribution broken")
 
 
 # ── Beast prefix/suffix empty item ──────────────────────────────────────────
