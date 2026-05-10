@@ -42,6 +42,19 @@ INFLUENCE_TAG_MAP: dict[str, str] = {
 # {tag}_searing_exarch spawn-weight entries in mods.json.
 ELDRITCH_INFLUENCES: frozenset[str] = frozenset({"Searing Exarch", "Eater of Worlds"})
 
+# RePoE base_items.json tags 2h axes only as ("axe", "two_hand_weapon", ...),
+# but mods.json spawn-weights use "2h_axe_shaper" etc. The pipeline strips
+# the influence suffix and looks up the residual in base_tags — without
+# these derivations the four namespaces below never resolve onto bases,
+# making conqueror-influence weapon mods unrollable on their intended
+# weapon types (700+ mod/base pairs).
+WEAPON_CLASS_DERIVED_TAGS: dict[str, tuple[str, ...]] = {
+    "Two Hand Axe": ("2h_axe",),
+    "Two Hand Mace": ("2h_mace",),
+    "Two Hand Sword": ("2h_sword",),
+    "Rune Dagger": ("rune_dagger",),
+}
+
 MAX_PREFIXES_BY_CLASS: dict[str, int] = {
     "Jewel": 2,
     "AbyssJewel": 2,

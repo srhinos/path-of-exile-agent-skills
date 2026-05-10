@@ -398,6 +398,67 @@ class TestBestTierRejectsInvertedRanges:
             BestTier(ilvl=84, values=((100, 50),), weight=1000)
 
 
+class TestModTagNamespaceAgreement:
+    """Mod spawn-weight tag namespaces and base_items.tags must agree.
+
+    When mods.json references a "2h_axe_shaper" tag but no base item carries
+    "2h_axe", the influence mod is unrollable on its intended weapon. The
+    pipeline derives missing tags via WEAPON_CLASS_DERIVED_TAGS — this test
+    is the cross-validation forcing function so a future RePoE update that
+    introduces a new namespace is caught immediately.
+    """
+
+    def test_no_orphaned_influence_namespaces(self):
+        import json
+        from pathlib import Path
+
+        from poe.services.repoe.constants import INFLUENCE_TAG_MAP
+
+        suffixes = set(INFLUENCE_TAG_MAP)
+
+        data_dir = Path("poe/data/repoe")
+        mods = json.loads((data_dir / "mods.json").read_text(encoding="utf-8"))
+        items = json.loads((data_dir / "base_items.json").read_text(encoding="utf-8"))
+
+        mod_bases: set[str] = set()
+        for m in mods.values():
+            if not isinstance(m, dict):
+                continue
+            for sw in m.get("spawn_weights", []):
+                if not isinstance(sw, dict):
+                    continue
+                tag = sw.get("tag", "")
+                base, _, suf = tag.rpartition("_")
+                if base and suf in suffixes:
+                    mod_bases.add(base)
+
+        base_tags: set[str] = set()
+        for b in items.values():
+            if not isinstance(b, dict):
+                continue
+            base_tags.update(b.get("tags", []))
+
+        orphaned = sorted(mod_bases - base_tags)
+        assert not orphaned, (
+            f"Influence-tag namespaces in mods.json with no matching base_item tag: "
+            f"{orphaned}. Add to WEAPON_CLASS_DERIVED_TAGS in repoe/constants.py "
+            f"and re-run `uv run poe dev build-data`."
+        )
+
+    def test_two_hand_axe_can_roll_2h_axe_influence_mods(self):
+        import json
+        from pathlib import Path
+
+        items = json.loads((Path("poe/data/repoe/base_items.json")).read_text(encoding="utf-8"))
+        # Pick any 2h axe and verify its tags include 2h_axe
+        for b in items.values():
+            if isinstance(b, dict) and b.get("item_class") == "Two Hand Axe":
+                assert "2h_axe" in b["tags"]
+                return
+        msg = "no Two Hand Axe found in bundled base_items.json"
+        raise AssertionError(msg)
+
+
 class TestEnumLookupAgreement:
     """Enums and the lookup tables that depend on them must stay in sync."""
 

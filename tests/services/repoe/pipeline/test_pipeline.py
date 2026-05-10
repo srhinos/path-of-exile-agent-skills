@@ -86,6 +86,65 @@ class TestProcessBaseItems:
         assert result["Cobalt Jewel"]["max_prefixes"] == 2
         assert result["Cobalt Jewel"]["max_suffixes"] == 2
 
+    @pytest.mark.parametrize(
+        ("item_class", "derived_tag"),
+        [
+            ("Two Hand Axe", "2h_axe"),
+            ("Two Hand Mace", "2h_mace"),
+            ("Two Hand Sword", "2h_sword"),
+            ("Rune Dagger", "rune_dagger"),
+        ],
+    )
+    def test_weapon_class_derived_tag_injected(self, item_class, derived_tag):
+        # 2h weapons and rune daggers have base tags like ["axe", ...] but mods
+        # spawn-weight against "2h_axe_shaper" / "rune_dagger_elder" — without
+        # injecting the derived tag, those influence mods are unrollable.
+        raw = {
+            "Meta/W": {
+                "domain": "item",
+                "release_state": "released",
+                "name": "Sample Weapon",
+                "item_class": item_class,
+                "drop_level": 1,
+                "tags": ["weapon", "default"],
+                "properties": {},
+            },
+        }
+        result = _process_base_items(raw)
+        assert derived_tag in result["Sample Weapon"]["tags"]
+
+    def test_non_weapon_class_unaffected_by_derivation(self):
+        raw = {
+            "Meta/H": {
+                "domain": "item",
+                "release_state": "released",
+                "name": "Plate Armour",
+                "item_class": "Body Armour",
+                "drop_level": 1,
+                "tags": ["armour", "default"],
+                "properties": {},
+            },
+        }
+        result = _process_base_items(raw)
+        assert result["Plate Armour"]["tags"] == ["armour", "default"]
+
+    def test_derivation_is_idempotent(self):
+        # If the upstream RePoE adds "2h_axe" itself one day, our injection
+        # must not duplicate it.
+        raw = {
+            "Meta/W": {
+                "domain": "item",
+                "release_state": "released",
+                "name": "Stone Axe",
+                "item_class": "Two Hand Axe",
+                "drop_level": 1,
+                "tags": ["axe", "2h_axe", "weapon"],
+                "properties": {},
+            },
+        }
+        result = _process_base_items(raw)
+        assert result["Stone Axe"]["tags"].count("2h_axe") == 1
+
 
 class TestProcessMods:
     def test_filters_domain_and_gen_type(self):

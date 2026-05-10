@@ -15,6 +15,7 @@ from poe.services.repoe.constants import (
     MAX_SUFFIXES_BY_CLASS,
     MOD_DOMAIN_FOR_BASE_DOMAIN,
     PLAYER_ITEM_DOMAINS,
+    WEAPON_CLASS_DERIVED_TAGS,
 )
 
 if TYPE_CHECKING:
@@ -43,12 +44,16 @@ def _process_base_items(raw: dict) -> dict[str, dict]:
         item_class = entry.get("item_class", "")
         if entry.get("domain") == "misc" and item_class != "Jewel":
             continue
+        tags = list(entry.get("tags", []))
+        for derived in WEAPON_CLASS_DERIVED_TAGS.get(item_class, ()):
+            if derived not in tags:
+                tags.append(derived)
         result[name] = {
             "id": meta_path,
             "domain": entry.get("domain", "item"),
             "item_class": item_class,
             "drop_level": entry.get("drop_level", 0),
-            "tags": entry.get("tags", []),
+            "tags": tags,
             "properties": entry.get("properties", {}),
             "implicits": entry.get("implicits", []),
             "max_prefixes": MAX_PREFIXES_BY_CLASS.get(item_class, DEFAULT_MAX_PREFIXES),
