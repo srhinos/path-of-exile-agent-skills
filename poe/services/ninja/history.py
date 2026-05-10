@@ -169,11 +169,11 @@ class HistoryService:
         if not self._client.no_cache and ninja_cache.is_fresh(
             self._cache_dir, cache_key, "history"
         ):
-            cached = ninja_cache.read_cache(self._cache_dir, cache_key)
+            cached = ninja_cache.read_cache(self._cache_dir, cache_key, "history")
             if cached is not None:
                 return cached
         data = self._client.get_json(path, params=params)
-        ninja_cache.write_cache(self._cache_dir, cache_key, data)
+        ninja_cache.write_cache(self._cache_dir, cache_key, data, "history")
         return data
 
     def get_currency_history(

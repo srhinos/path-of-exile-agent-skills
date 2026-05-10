@@ -18,7 +18,17 @@ NINJA_TTL_INDEX_STATE = 5 * 60
 NINJA_TTL_ECONOMY = 15 * 60
 NINJA_TTL_BUILDS = 30 * 60
 NINJA_TTL_HISTORY = 4 * 3600
-NINJA_TTL_DICTIONARY = 0
+# Dictionary entries (skill-name / keystone slug → display name) are stable
+# across PoE patches but not eternal; ninja occasionally re-deploys with
+# corrections. 30 days is a long enough cap that disconnected use stays
+# usable but a stale-forever bug can't survive a month.
+NINJA_TTL_DICTIONARY = 30 * 86400
+
+# Bumped whenever a Pydantic model schema change invalidates cached data.
+# is_fresh treats a meta with a different schema_version as stale, forcing
+# a refetch instead of feeding stale JSON to a strict validator that may
+# now reject (or silently produce wrong defaults for) the old shape.
+NINJA_CACHE_SCHEMA_VERSION = 2
 
 NINJA_LOW_CONFIDENCE_THRESHOLD = 5
 

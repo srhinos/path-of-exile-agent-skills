@@ -83,7 +83,7 @@ def cache_status(*, json: bool = False) -> None:
 
     entries: list[CacheStatusEntry] = []
     for key, category in known_keys:
-        cf = ninja_cache.cache_file(base, key)
+        cf = ninja_cache.cache_file(base, key, category)
         freshness = ninja_cache.get_freshness(base, key, category)
         entries.append(
             CacheStatusEntry(

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from poe.services.ninja.constants import (
+    NINJA_CACHE_SCHEMA_VERSION,
     NINJA_TTL_BUILDS,
     NINJA_TTL_DICTIONARY,
     NINJA_TTL_ECONOMY,
@@ -33,9 +34,12 @@ def cache_dir() -> Path:
     return path
 
 
-def cache_file(base_dir: Path, key: str) -> Path:
+def cache_file(base_dir: Path, key: str, category: str = "default") -> Path:
+    # Category namespacing: each category gets its own subdir so two services
+    # using the same key string can't collide. Without this prefix, a build
+    # named `currency_Standard_Currency_en` would clobber a real economy file.
     safe_key = key.replace("/", "_").replace("?", "_").replace("&", "_")
-    return base_dir / f"{safe_key}.json"
+    return base_dir / category / f"{safe_key}.json"
 
 
 def meta_path(cf: Path) -> Path:
@@ -58,18 +62,19 @@ def ttl_for_category(category: str) -> int:
 
 def is_fresh(base_dir: Path, key: str, category: str) -> bool:
     ttl = ttl_for_category(category)
-    override = os.environ.get("POE_NINJA_CACHE_TTL")
-    if override is None and category == "dictionary":
-        cf = cache_file(base_dir, key)
-        return cf.exists()
     if ttl <= 0:
         return False
 
-    mf = meta_path(cache_file(base_dir, key))
+    mf = meta_path(cache_file(base_dir, key, category))
     if not mf.exists():
         return False
     try:
         info = json.loads(mf.read_text())
+        # Schema-version bump invalidates every old entry. Without this, a
+        # model schema change makes a strict validator hit stale JSON until
+        # TTL expires (which for dictionary is 30 days).
+        if info.get("schema_version") != NINJA_CACHE_SCHEMA_VERSION:
+            return False
         fetched = datetime.fromisoformat(info["fetched_at"])
         age = (datetime.now(UTC) - fetched).total_seconds()
     except (KeyError, ValueError, json.JSONDecodeError):
@@ -77,8 +82,8 @@ def is_fresh(base_dir: Path, key: str, category: str) -> bool:
     return age < ttl
 
 
-def read_cache(base_dir: Path, key: str) -> Any | None:
-    cf = cache_file(base_dir, key)
+def read_cache(base_dir: Path, key: str, category: str = "default") -> Any | None:
+    cf = cache_file(base_dir, key, category)
     if not cf.exists():
         return None
     try:
@@ -87,22 +92,24 @@ def read_cache(base_dir: Path, key: str) -> Any | None:
         return None
 
 
-def read_cache_bytes(base_dir: Path, key: str) -> bytes | None:
-    cf = cache_file(base_dir, key)
+def read_cache_bytes(base_dir: Path, key: str, category: str = "default") -> bytes | None:
+    cf = cache_file(base_dir, key, category)
     bin_path = cf.with_suffix(".bin")
     if bin_path.exists():
         return bin_path.read_bytes()
     return None
 
 
-def write_cache(base_dir: Path, key: str, data: Any) -> None:
-    cf = cache_file(base_dir, key)
+def write_cache(base_dir: Path, key: str, data: Any, category: str = "default") -> None:
+    cf = cache_file(base_dir, key, category)
     _atomic_write_text(cf, json.dumps(data))
     _write_meta(cf)
 
 
-def write_cache_bytes(base_dir: Path, key: str, data: bytes) -> None:
-    cf = cache_file(base_dir, key)
+def write_cache_bytes(
+    base_dir: Path, key: str, data: bytes, category: str = "default"
+) -> None:
+    cf = cache_file(base_dir, key, category)
     bin_path = cf.with_suffix(".bin")
     _atomic_write_bytes(bin_path, data)
     _write_meta(cf)
@@ -110,12 +117,15 @@ def write_cache_bytes(base_dir: Path, key: str, data: bytes) -> None:
 
 def _write_meta(cf: Path) -> None:
     mf = meta_path(cf)
-    meta_info = {"fetched_at": datetime.now(UTC).isoformat()}
+    meta_info = {
+        "fetched_at": datetime.now(UTC).isoformat(),
+        "schema_version": NINJA_CACHE_SCHEMA_VERSION,
+    }
     _atomic_write_text(mf, json.dumps(meta_info))
 
 
 def get_freshness(base_dir: Path, key: str, category: str) -> dict[str, Any]:
-    mf = meta_path(cache_file(base_dir, key))
+    mf = meta_path(cache_file(base_dir, key, category))
     if not mf.exists():
         return {"fetched_at": None, "cache_age_seconds": None, "is_stale": True}
     try:
@@ -142,7 +152,7 @@ def get_freshness(base_dir: Path, key: str, category: str) -> dict[str, Any]:
 
 def invalidate_all(base_dir: Path) -> None:
     if base_dir.exists():
-        for f in base_dir.iterdir():
+        for f in base_dir.rglob("*"):
             if f.is_file():
                 f.unlink()
 
@@ -152,7 +162,10 @@ def _atomic_write(path: Path, content: bytes) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     closed = False
     try:
-        os.write(fd, content)
+        # POSIX os.write may return short-write on large payloads (the 50MB
+        # protobuf ceiling can hit this). Loop until everything is flushed
+        # so a truncated file doesn't masquerade as a successful cache write.
+        _write_all(fd, content)
         os.close(fd)
         closed = True
         Path(tmp).replace(path)
@@ -161,6 +174,17 @@ def _atomic_write(path: Path, content: bytes) -> None:
             os.close(fd)
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def _write_all(fd: int, content: bytes) -> None:
+    view = memoryview(content)
+    offset = 0
+    total = len(view)
+    while offset < total:
+        written = os.write(fd, view[offset:])
+        if written <= 0:
+            raise OSError(f"short write: {offset}/{total} bytes")
+        offset += written
 
 
 def _atomic_write_text(path: Path, content: str) -> None:

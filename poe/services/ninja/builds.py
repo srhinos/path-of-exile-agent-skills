@@ -41,11 +41,11 @@ class BuildsService:
 
     def _fetch_cached(self, cache_key: str, path: str, params: dict[str, str]) -> Any:
         if not self._client.no_cache and ninja_cache.is_fresh(self._cache_dir, cache_key, "builds"):
-            cached = ninja_cache.read_cache(self._cache_dir, cache_key)
+            cached = ninja_cache.read_cache(self._cache_dir, cache_key, "builds")
             if cached is not None:
                 return cached
         data = self._client.get_json(path, params=params)
-        ninja_cache.write_cache(self._cache_dir, cache_key, data)
+        ninja_cache.write_cache(self._cache_dir, cache_key, data, "builds")
         return data
 
     def get_character(
@@ -222,12 +222,16 @@ class BuildsService:
         prefix = "poe2" if game == "poe2" else "poe1"
         for ref in result.result.dictionaries:
             cache_key = f"dict_{ref.hash}"
-            cached_bytes = ninja_cache.read_cache_bytes(self._cache_dir, cache_key)
+            cached_bytes = (
+                ninja_cache.read_cache_bytes(self._cache_dir, cache_key, "dictionary")
+                if ninja_cache.is_fresh(self._cache_dir, cache_key, "dictionary")
+                else None
+            )
             if cached_bytes:
                 d = Dictionary.from_protobuf(cached_bytes)
             else:
                 raw = self._client.get_protobuf(f"/{prefix}/api/builds/dictionary/{ref.hash}")
-                ninja_cache.write_cache_bytes(self._cache_dir, cache_key, raw)
+                ninja_cache.write_cache_bytes(self._cache_dir, cache_key, raw, "dictionary")
                 d = Dictionary.from_protobuf(raw)
             resolved[ref.id] = d.values
         return resolved

@@ -573,7 +573,7 @@ class TestDiscoveryCachingInvariants:
         # Cache file written by fetch.
         from poe.services.ninja import cache as ninja_cache
 
-        cached = ninja_cache.read_cache(tmp_path, "poe1_index_state")
+        cached = ninja_cache.read_cache(tmp_path, "poe1_index_state", "index")
         assert cached is not None
 
     def test_force_refetches_after_cache_invalidation(self, tmp_path):

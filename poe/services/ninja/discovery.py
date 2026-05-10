@@ -138,12 +138,12 @@ class DiscoveryService:
 
     def _fetch_cached_json(self, cache_key: str, path: str) -> Any:
         if not self._client.no_cache and ninja_cache.is_fresh(self._cache_dir, cache_key, "index"):
-            cached = ninja_cache.read_cache(self._cache_dir, cache_key)
+            cached = ninja_cache.read_cache(self._cache_dir, cache_key, "index")
             if cached is not None:
                 return cached
 
         data = self._client.get_json(path)
-        ninja_cache.write_cache(self._cache_dir, cache_key, data)
+        ninja_cache.write_cache(self._cache_dir, cache_key, data, "index")
         return data
 
     def get_poe1_index_state(self, *, force: bool = False) -> Poe1IndexState:

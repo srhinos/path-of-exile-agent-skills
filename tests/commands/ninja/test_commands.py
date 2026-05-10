@@ -73,7 +73,7 @@ class TestCacheStatus:
         from poe.services.ninja import cache as ninja_cache
 
         monkeypatch.setattr("poe.commands.ninja.commands.ninja_cache.cache_dir", lambda: tmp_path)
-        ninja_cache.write_cache(tmp_path, "poe1_index_state", {"test": True})
+        ninja_cache.write_cache(tmp_path, "poe1_index_state", {"test": True}, "index")
 
         result = invoke_cli(app, ["ninja", "cache-status", "--json"])
         assert result.exit_code == 0
@@ -240,8 +240,8 @@ class TestCacheClear:
         from poe.services.ninja import cache as ninja_cache
 
         monkeypatch.setattr("poe.commands.ninja.commands.ninja_cache.cache_dir", lambda: tmp_path)
-        ninja_cache.write_cache(tmp_path, "poe1_index_state", {"hello": True})
-        ninja_cache.write_cache(tmp_path, "poe2_index_state", {"hello2": True})
+        ninja_cache.write_cache(tmp_path, "poe1_index_state", {"hello": True}, "index")
+        ninja_cache.write_cache(tmp_path, "poe2_index_state", {"hello2": True}, "index")
         assert any(tmp_path.iterdir())
 
         result = invoke_cli(app, ["ninja", "cache-clear", "--json"])
@@ -249,7 +249,10 @@ class TestCacheClear:
         data = json.loads(result.output)
         assert data["status"] == "ok"
         assert str(tmp_path) in data["cleared"]
-        assert list(tmp_path.iterdir()) == []
+        # invalidate_all recurses into category subdirs and deletes files;
+        # the subdirs themselves may persist, but the cache content is gone.
+        assert ninja_cache.read_cache(tmp_path, "poe1_index_state", "index") is None
+        assert ninja_cache.read_cache(tmp_path, "poe2_index_state", "index") is None
 
     def test_cache_clear_idempotent_on_empty(self, tmp_path, monkeypatch):
         monkeypatch.setattr("poe.commands.ninja.commands.ninja_cache.cache_dir", lambda: tmp_path)
