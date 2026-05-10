@@ -8,7 +8,6 @@ from poe.models.build import (
     BuildNotes,
     ConfigEntry,
     EngineInfo,
-    EngineStats,
     Flask,
     Gem,
     GemGroup,
@@ -474,10 +473,6 @@ class TestEngineModels:
     def test_engine_info(self):
         info = EngineInfo(pob_path="/path/to/pob", initialized=True)
         assert info.initialized is True
-
-    def test_engine_stats(self):
-        stats = EngineStats(stats={"Life": 5000}, build_name="test")
-        assert stats.stats["Life"] == 5000
 
 
 # --- Re-export test ---

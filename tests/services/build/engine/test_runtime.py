@@ -79,6 +79,26 @@ class TestLuaTableToDict:
         result = lua_table_to_dict("just a string")
         assert "_raw" in result
 
+    def test_attribute_error_returns_raw(self):
+        class Bad:
+            def items(self):
+                raise AttributeError("no items")
+
+            def __str__(self):
+                return "bad-object"
+
+        assert lua_table_to_dict(Bad()) == {"_raw": "bad-object"}
+
+    def test_type_error_returns_raw(self):
+        class BadType:
+            def items(self):
+                raise TypeError("not iterable")
+
+            def __str__(self):
+                return "bad-type"
+
+        assert lua_table_to_dict(BadType()) == {"_raw": "bad-type"}
+
 
 # ── PoBEngine.__init__ ───────────────────────────────────────────────────────
 

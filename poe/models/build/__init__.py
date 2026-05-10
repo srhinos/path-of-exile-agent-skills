@@ -8,7 +8,7 @@ from poe.models.build.build import (
     ValidationResult,
 )
 from poe.models.build.config import BuildConfig, ConfigEntry
-from poe.models.build.engine import EngineInfo, EngineStats
+from poe.models.build.engine import EngineInfo
 from poe.models.build.flasks import Flask
 from poe.models.build.gems import Gem, GemGroup, GemSet, GemSummary, SkillSetList, SkillSetSummary
 from poe.models.build.items import (
@@ -44,7 +44,6 @@ __all__ = [
     "BuildNotes",
     "ConfigEntry",
     "EngineInfo",
-    "EngineStats",
     "EquippedItem",
     "EquippedJewel",
     "Flask",
