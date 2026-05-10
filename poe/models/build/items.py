@@ -246,6 +246,41 @@ class EquippedItem(Item):
     slot: str
 
 
+def filter_to_active_variant(item: Item) -> Item:
+    """Return a copy of the item with non-active-variant mods removed.
+
+    PoB unique items with variants (Watcher's Eye, Impresence, Combat Focus,
+    etc.) store all variant mods in the item text, tagged with {variant:N}.
+    Parser preserves all variants for round-trip safety. Display/analysis
+    consumers should call this to see only the mods relevant to the
+    selected variant.
+    """
+    if not item.variant and not item.selected_variant:
+        return item
+    selected = str(item.selected_variant) if item.selected_variant else item.variant
+    alt_variants = {
+        item.variant_alt,
+        item.variant_alt2,
+        item.variant_alt3,
+        item.variant_alt4,
+        item.variant_alt5,
+    }
+    active_variants = {selected} | {v for v in alt_variants if v}
+    active_variants.discard("")
+    if not active_variants:
+        return item
+
+    def _matches(mod: ItemMod) -> bool:
+        if not mod.variant:
+            return True
+        return any(v.strip() in active_variants for v in mod.variant.split(","))
+
+    filtered = item.model_copy(deep=True)
+    filtered.explicits = [m for m in filtered.explicits if _matches(m)]
+    filtered.implicits = [m for m in filtered.implicits if _matches(m)]
+    return filtered
+
+
 class ItemDiff(BaseModel):
     """A single field difference between two items in the same slot."""
 

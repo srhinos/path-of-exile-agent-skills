@@ -16,6 +16,7 @@ from poe.models.build.items import (
     ItemSetList,
     ItemSetSummary,
     ItemSlot,
+    filter_to_active_variant,
 )
 from poe.services.build.build_service import BuildService
 from poe.services.build.constants import SLOT_TYPE_MAP, STALE_STATS_WARNING
@@ -110,8 +111,12 @@ class ItemsService:
         _, build_obj = self._build.load(name, file_path)
         equipped = build_obj.get_equipped_items(item_set_id=item_set)
         flask_slots = set(SLOT_TYPE_MAP["flask"])
+        # Filter multi-variant items to the active variant for display.
+        # Parser preserves all variants for round-trip safety; downstream
+        # consumers (open-slot counts, mod listings) expect only the
+        # active-variant mods.
         return [
-            EquippedItem(slot=slot_name, **item.model_dump())
+            EquippedItem(slot=slot_name, **filter_to_active_variant(item).model_dump())
             for slot_name, item in equipped
             if slot_name not in flask_slots
         ]

@@ -62,6 +62,54 @@ class TestNotesRoundTripPreservesColorCodes:
         assert "^xFF0000" in reparsed.notes
 
 
+class TestVariantFilterAtConsumption:
+    """Parser preserves all variant mods (round-trip safety); display
+    consumers like list_items filter to the active variant only."""
+
+    def test_list_items_filters_to_active_variant(self, tmp_path):
+        from poe.services.build.build_service import BuildService
+        from poe.services.build.items_service import ItemsService
+
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="90" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1" variant="2">
+Rarity: UNIQUE
+Watcher's Eye
+Prismatic Jewel
+Variant: Anger
+Variant: Hatred
+Variant: Wrath
+Selected Variant: 2
+Implicits: 0
+{variant:1}+(15-25)% to Fire Resistance while affected by Anger
+{variant:2}+(15-25)% to Cold Resistance while affected by Hatred
+{variant:3}+(15-25)% to Lightning Resistance while affected by Wrath
+                    </Item>
+                    <ItemSet id="1" title="Default">
+                        <Slot name="Jewel 1" itemId="1"/>
+                    </ItemSet>
+                </Items>
+            </PathOfBuilding>
+        """)
+        p = _write_xml(tmp_path, xml, "watchers_eye_filter.xml")
+
+        # Parser preserves all variants.
+        build = parse_build_file(p)
+        all_text = "\n".join(m.text for m in build.items[0].explicits)
+        assert "Anger" in all_text and "Hatred" in all_text and "Wrath" in all_text
+
+        # list_items filters to active variant 2 (Hatred only).
+        svc = ItemsService(build_svc=BuildService())
+        items = svc.list_items("ignored", file_path=str(p))
+        active_text = "\n".join(m.text for m in items[0].explicits)
+        assert "Hatred" in active_text
+        assert "Anger" not in active_text
+        assert "Wrath" not in active_text
+
+
 class TestMultiVariantItemsRoundTrip:
     """Items with {variant:N} mods must preserve inactive variants on round-trip."""
 
