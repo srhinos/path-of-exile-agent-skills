@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from poe.models.ninja.builds import CharacterResponse, SearchResults
@@ -22,6 +22,8 @@ DEFENSIVE_THRESHOLDS = {
 class StatPercentile(BaseModel):
     """Percentile placement for a single stat."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     stat: str
     value: int = 0
     percentile: float = 0.0
@@ -32,6 +34,8 @@ class StatPercentile(BaseModel):
 class GapEntry(BaseModel):
     """A missing or underused element compared to meta."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     category: str
     name: str
     meta_pct: float = 0.0
@@ -40,6 +44,8 @@ class GapEntry(BaseModel):
 
 class ComparisonResult(BaseModel):
     """Full comparison of a character against the meta."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     character_name: str = ""
     class_name: str = ""

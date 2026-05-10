@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from poe.services.ninja.comparison import compare_to_meta
 from poe.services.ninja.costing import cost_build, find_budget_alternatives
@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 class WorkflowResult(BaseModel):
     """Result from a compound workflow, with partial results on failure."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     workflow: str
     success: bool = True
