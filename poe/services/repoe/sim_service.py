@@ -184,6 +184,52 @@ class SimService:
             analysis=analysis,
         )
 
+    def _validate_existing_mods(
+        self,
+        base_name: str,
+        existing_mods: list[str],
+        mod_pool: list,
+        pool_groups: set[str],
+        resolved_influences: list[str],
+    ) -> None:
+        """Validate existing_mods against pool and base max_{prefix,suffix} counts.
+
+        Raises SimDataError on any violation. Without this, the engine's
+        defensive max(0, max_prefixes - pinned) clamp silently truncated
+        the pinned mods rather than reporting the over-pin.
+        """
+        mods_by_group = {m.group.casefold(): m for m in mod_pool}
+        prefix_count = 0
+        suffix_count = 0
+        for em in existing_mods:
+            resolved_em = self.resolve_mod_name(em, base_name, influences=resolved_influences) or em
+            key = resolved_em.casefold()
+            if key not in pool_groups:
+                available = sorted({mod.group for mod in mod_pool})[:20]
+                raise SimDataError(
+                    f"Existing mod {em!r} not found in mod pool for {base_name!r}. "
+                    f"Available groups (first 20): {available}"
+                )
+            if mods_by_group[key].affix == "prefix":
+                prefix_count += 1
+            else:
+                suffix_count += 1
+        bitem = self._data.get_base_item(base_name)
+        if bitem is None:
+            return
+        max_p = bitem.get("max_prefixes", 3)
+        max_s = bitem.get("max_suffixes", 3)
+        if prefix_count > max_p:
+            raise SimDataError(
+                f"Too many existing prefixes for {base_name!r}: "
+                f"{prefix_count} given, base supports {max_p}"
+            )
+        if suffix_count > max_s:
+            raise SimDataError(
+                f"Too many existing suffixes for {base_name!r}: "
+                f"{suffix_count} given, base supports {max_s}"
+            )
+
     async def simulate(
         self,
         base_name: str,
@@ -231,16 +277,9 @@ class SimService:
                 )
             resolved_targets.append(final)
         if existing_mods:
-            for em in existing_mods:
-                resolved_em = (
-                    self.resolve_mod_name(em, base_name, influences=resolved_influences) or em
-                )
-                if resolved_em.casefold() not in pool_groups:
-                    available = sorted({mod.group for mod in mod_pool})[:20]
-                    raise SimDataError(
-                        f"Existing mod {em!r} not found in mod pool for {base_name!r}. "
-                        f"Available groups (first 20): {available}"
-                    )
+            self._validate_existing_mods(
+                base_name, existing_mods, mod_pool, pool_groups, resolved_influences
+            )
         eng = CraftingEngine(self._data.snapshot())
         try:
             sim_result = await eng.simulate(

@@ -607,6 +607,23 @@ class TestSimulateMethodRequirementsNegative:
                 existing_mods=["ZZZNonexistentGroup"],
             )
 
+    @pytest.mark.asyncio
+    async def test_too_many_existing_prefixes_raises(self):
+        """The crafting engine has a defensive max(0, item.max_prefixes - pinned)
+        clamp that previously masked invariant violations. The boundary check in
+        SimService.simulate must reject over-count before the engine sees it."""
+        data = copy.deepcopy(REPOE_DATA)
+        data["base_items"]["Hubris Circlet"]["max_prefixes"] = 0  # no prefix slots
+        svc = SimService(repoe_data=make_repoe_data(data=data))
+        with pytest.raises(SimDataError, match=r"Too many existing prefixes"):
+            await svc.simulate(
+                "Hubris Circlet",
+                method="chaos",
+                target=["IncreasedLife"],
+                iterations=1,
+                existing_mods=["IncreasedLife"],
+            )
+
 
 class TestGetModsRaisePaths:
     def test_no_mods_for_existing_base_with_filters_raises(self):

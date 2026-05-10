@@ -1121,6 +1121,10 @@ class CraftingEngine:
                     ]
                     pinned_prefix_count = sum(1 for p in pinned_pool_entries if p.affix == "prefix")
                     pinned_suffix_count = len(pinned_pool_entries) - pinned_prefix_count
+                    # SimService.simulate validates pinned ≤ max_{prefix,suffix} at the
+                    # boundary, so the subtraction can't go negative in practice. The
+                    # max(0, ...) is defensive in case a future code path bypasses
+                    # that validation.
                     prefix_room = max(0, item.max_prefixes - pinned_prefix_count)
                     suffix_room = max(0, item.max_suffixes - pinned_suffix_count)
                     if len(item.prefixes) > prefix_room:
