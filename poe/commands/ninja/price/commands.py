@@ -20,7 +20,9 @@ def _resolve_league(svc: DiscoveryService, league: str | None, game: str) -> str
         return league
     current = svc.get_current_league(game=game)
     if not current:
-        raise ValueError(f"No current league found for {game}")
+        # NinjaError is a PoeError subclass, so app.run() catches it and emits
+        # a clean JSON error instead of a raw traceback.
+        raise NinjaError(f"No current league found for {game}")
     return current.name
 
 

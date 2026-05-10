@@ -1616,11 +1616,32 @@ class TestBeastCrafting:
             engine.beast_imprint(blank_item)
 
     def test_beast_split(self, engine, blank_item):
+        """beast_split partitions mods between two halves WITHOUT mirroring
+        them — game-correct behavior. The previous is_mirrored=True assertion
+        was buggy: mirrored items can't be crafted on, but split halves are
+        meant to be further crafted (the whole point of the split)."""
         random.seed(42)
         engine.chaos_roll(blank_item)
         item1, item2 = engine.beast_split(blank_item)
-        assert item1.is_mirrored is True
-        assert item2.is_mirrored is True
+        assert item1.is_mirrored is False
+        assert item2.is_mirrored is False
+        # Mods are partitioned — total prefixes/suffixes preserved across halves.
+        total_prefixes = len(item1.prefixes) + len(item2.prefixes)
+        total_suffixes = len(item1.suffixes) + len(item2.suffixes)
+        assert total_prefixes == len(blank_item.prefixes)
+        assert total_suffixes == len(blank_item.suffixes)
+
+    def test_beast_split_mods_independent(self, engine, blank_item):
+        """Mutating one half's mods must not affect the source item or the
+        other half — they should be independent copies."""
+        random.seed(42)
+        engine.chaos_roll(blank_item)
+        original_prefix_names = [m.name for m in blank_item.prefixes]
+        item1, _item2 = engine.beast_split(blank_item)
+        if item1.prefixes:
+            item1.prefixes[0].name = "MUTATED"
+        # Source unaffected.
+        assert [m.name for m in blank_item.prefixes] == original_prefix_names
 
     def test_beast_prefix_to_suffix(self, engine, blank_item):
         random.seed(42)

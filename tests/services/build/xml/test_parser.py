@@ -1385,17 +1385,19 @@ Implicits: 0
 
 class TestParserNegativePaths:
     def test_invalid_xml_raises(self, tmp_path):
-        from defusedxml.common import EntitiesForbidden  # noqa: F401
+        from xml.etree.ElementTree import ParseError as XMLParseError
 
         p = tmp_path / "bad.xml"
         p.write_text("not valid xml at all <<<>>>", encoding="utf-8")
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(XMLParseError):
             parse_build_file(p)
 
     def test_truly_empty_file_raises(self, tmp_path):
+        from xml.etree.ElementTree import ParseError as XMLParseError
+
         p = tmp_path / "empty.xml"
         p.write_text("", encoding="utf-8")
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(XMLParseError):
             parse_build_file(p)
 
 

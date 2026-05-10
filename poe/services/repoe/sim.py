@@ -810,12 +810,15 @@ class CraftingEngine:
         item2.influences = list(set(item1.influences + item2.influences))
         item2.prefixes.clear()
         item2.suffixes.clear()
+        # Copy the kept mods so subsequent mutations on item2 (divine, etc.)
+        # don't reach back into item1 via shared RolledMod references.
         for mod in [kept_mod1, kept_mod2]:
             if mod:
-                if mod.affix == "prefix" and item2.open_prefixes > 0:
-                    item2.prefixes.append(mod)
-                elif mod.affix == "suffix" and item2.open_suffixes > 0:
-                    item2.suffixes.append(mod)
+                mod_copy = copy.copy(mod)
+                if mod_copy.affix == "prefix" and item2.open_prefixes > 0:
+                    item2.prefixes.append(mod_copy)
+                elif mod_copy.affix == "suffix" and item2.open_suffixes > 0:
+                    item2.suffixes.append(mod_copy)
         remaining = self._rare_mod_count() - len(item2.prefixes) - len(item2.suffixes)
         for _ in range(max(remaining, 0)):
             pool = self._build_mod_pool(item2)
@@ -903,20 +906,22 @@ class CraftingEngine:
         )
         all_prefixes = list(item1.prefixes + item2.prefixes)
         all_suffixes = list(item1.suffixes + item2.suffixes)
+        # Copy each transferred mod so divine/blessed on the result item
+        # doesn't re-roll the same RolledMod still owned by item1/item2.
         for mod in all_prefixes:
             if (
                 self._rng.random() < RECOMBINATOR_TRANSFER_CHANCE
                 and result.open_prefixes > 0
                 and mod.group not in result.groups
             ):
-                result.prefixes.append(mod)
+                result.prefixes.append(copy.copy(mod))
         for mod in all_suffixes:
             if (
                 self._rng.random() < RECOMBINATOR_TRANSFER_CHANCE
                 and result.open_suffixes > 0
                 and mod.group not in result.groups
             ):
-                result.suffixes.append(mod)
+                result.suffixes.append(copy.copy(mod))
         if item1.influences or item2.influences:
             combined = list(set(item1.influences + item2.influences))
             result.influences = combined[:2]
@@ -963,16 +968,20 @@ class CraftingEngine:
         self._check_craftable(item)
         item1 = copy.deepcopy(item)
         item2 = copy.deepcopy(item)
-        item1.prefixes = [
-            m for m in item.prefixes if self._rng.random() < RECOMBINATOR_TRANSFER_CHANCE
-        ]
-        item1.suffixes = [
-            m for m in item.suffixes if self._rng.random() < RECOMBINATOR_TRANSFER_CHANCE
-        ]
-        item2.prefixes = [m for m in item.prefixes if m not in item1.prefixes]
-        item2.suffixes = [m for m in item.suffixes if m not in item1.suffixes]
-        item1.is_mirrored = True
-        item2.is_mirrored = True
+        # Partition mods between the two halves; copy each transferred mod
+        # so subsequent mutations on item1/item2 don't reach back into the
+        # source item via shared RolledMod references.
+        item1.prefixes = []
+        item1.suffixes = []
+        item2.prefixes = []
+        item2.suffixes = []
+        for m in item.prefixes:
+            target = item1 if self._rng.random() < RECOMBINATOR_TRANSFER_CHANCE else item2
+            target.prefixes.append(copy.copy(m))
+        for m in item.suffixes:
+            target = item1 if self._rng.random() < RECOMBINATOR_TRANSFER_CHANCE else item2
+            target.suffixes.append(copy.copy(m))
+        # PoE beast split does NOT mirror the halves (game-correct).
         return item1, item2
 
     _MIN_MODS_FOR_FRACTURE: typing.ClassVar[int] = 4

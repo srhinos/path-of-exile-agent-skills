@@ -7,6 +7,7 @@ from poe.services.ninja.atlas import AtlasService
 from poe.services.ninja.client import NinjaClient
 from poe.services.ninja.discovery import DiscoveryService
 from poe.services.ninja.economy import EconomyService
+from poe.services.ninja.errors import NinjaError
 
 atlas_app = cyclopts.App(name="atlas", help="Atlas tree search and analysis. PoE1 only.")
 
@@ -16,7 +17,8 @@ def _resolve_league(discovery: DiscoveryService, league: str | None) -> str:
         return league
     current = discovery.get_current_league()
     if not current:
-        raise ValueError("No current league found")
+        # NinjaError is a PoeError subclass — surfaces as clean JSON error.
+        raise NinjaError("No current league found")
     return current.name
 
 

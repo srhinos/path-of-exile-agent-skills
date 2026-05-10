@@ -27,7 +27,13 @@ class TestEncodeDecode:
         assert decoded == xml
 
     def test_decode_invalid_code(self):
-        with pytest.raises(Exception):  # noqa: B017
+        # decode_build can raise binascii.Error, zlib.error, or UnicodeDecodeError
+        # depending on the failure mode. Tightening from raises(Exception) so a
+        # refactor that switches to e.g. KeyError doesn't silently pass.
+        import binascii
+        import zlib
+
+        with pytest.raises((binascii.Error, zlib.error, UnicodeDecodeError, ValueError)):
             decode_build("not-a-valid-code!!!")
 
 
@@ -89,26 +95,36 @@ class TestDecodeBuildErrorPaths:
         ],
     )
     def test_decode_invalid_base64_raises(self, bad_input):
-        with pytest.raises(Exception):  # noqa: B017
+        import binascii
+        import zlib
+
+        with pytest.raises((binascii.Error, zlib.error, UnicodeDecodeError, ValueError)):
             decode_build(bad_input)
 
     def test_decode_truncated_input_raises(self):
+        import binascii
+        import zlib
+
         xml = "<PathOfBuilding/>"
         full = encode_build(xml)
         truncated = full[: len(full) // 2]
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises((binascii.Error, zlib.error, UnicodeDecodeError)):
             decode_build(truncated)
 
     def test_decode_valid_base64_invalid_zlib_raises(self):
         import base64
+        import zlib
 
         garbage = base64.b64encode(b"this is not valid zlib data at all").decode("ascii")
         garbage = garbage.replace("+", "-").replace("/", "_").rstrip("=")
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(zlib.error):
             decode_build(garbage)
 
     def test_decode_empty_string_raises(self):
-        with pytest.raises(Exception):  # noqa: B017
+        import binascii
+        import zlib
+
+        with pytest.raises((binascii.Error, zlib.error, UnicodeDecodeError, ValueError)):
             decode_build("")
 
     def test_decode_zlib_format_succeeds(self):
