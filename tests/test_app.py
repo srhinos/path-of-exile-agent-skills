@@ -78,12 +78,17 @@ class TestCliReExports:
     def test_find_skill_source_reexport(self):
         from poe.commands.root import _find_skill_source
 
+        # Re-exports must actually be the real function — a renamed-away
+        # replacement with `lambda *a, **k: None` would still be callable
+        # but lose the proper signature.
         assert callable(_find_skill_source)
+        assert _find_skill_source.__qualname__ == "_find_skill_source"
 
     def test_install_skill_reexport(self):
         from poe.commands.root import install_skill
 
         assert callable(install_skill)
+        assert install_skill.__qualname__ == "install_skill"
 
     def test_unknown_attribute_raises(self):
         import poe.commands.build as cli_mod

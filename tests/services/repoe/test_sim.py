@@ -1453,8 +1453,14 @@ class TestHarvestReforge:
         random.seed(42)
         engine.chaos_roll(blank_item)
         if blank_item.open_prefixes > 0 or blank_item.open_suffixes > 0:
+            existing_count = len(blank_item.all_mods)
             result = engine.harvest_augment(blank_item, "life")
-            assert result is None or result.name is not None
+            if result is not None:
+                # Augment must produce a real mod (not a placeholder) and
+                # actually add it to the item.
+                assert result.name
+                assert result.affix in {"prefix", "suffix"}
+                assert len(blank_item.all_mods) == existing_count + 1
 
 
 # ── Conqueror Exalt (10.4) ─────────────────────────────────────────────────
@@ -1830,8 +1836,21 @@ class TestConquerorExaltEdge:
         random.seed(42)
         item = engine.create_item("Hubris Circlet", ilvl=84)
         item.rarity = Rarity.RARE
+        existing_count = len(item.all_mods)
+        existing_influences = list(item.influences)
         result = engine.conqueror_exalt(item, "Shaper")
-        assert result is None or result is not None
+        # Either no influence mod was rollable (result None, item unchanged
+        # except possibly the influence tag) or a mod was added with the
+        # expected influence and a real name.
+        if result is None:
+            assert len(item.all_mods) == existing_count
+        else:
+            assert result.name
+            assert result.influence == "Shaper"
+            assert "Shaper" in item.influences
+        # Influences only grow, never shrink.
+        for inf in existing_influences:
+            assert inf in item.influences
 
 
 # ── Veiled Chaos edge cases ────────────────────────────────────────────────
@@ -2256,13 +2275,17 @@ class TestRollItemEnsureBothAffixes:
         assert len(item.all_mods) >= 2
 
     def test_ensure_prefix_when_only_suffixes(self, engine):
+        # Across 200 seeds, chaos_roll should produce at least one item with
+        # both a prefix and a suffix (require_both_affixes gate).
         item = engine.create_item("Hubris Circlet", ilvl=84)
+        both_seen = False
         for seed_val in range(200):
             random.seed(seed_val)
             engine.chaos_roll(item)
             if item.prefixes and item.suffixes:
-                return
-        assert True
+                both_seen = True
+                break
+        assert both_seen, "200 chaos rolls produced no both-affix item"
 
 
 class TestRegalOnMagicItem:

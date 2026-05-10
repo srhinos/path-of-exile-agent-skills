@@ -359,8 +359,14 @@ class TestBuildConfigFormatter:
 
 class TestFormatterStructureStable:
     def test_register_formatters_idempotent(self):
+        # Capture registry snapshot, register twice, confirm no duplicate
+        # entries appeared. Without this comparison the test was a no-op.
+        from poe.output import _human_formatters
+
+        before = dict(_human_formatters)
         register_formatters()
         register_formatters()
+        assert dict(_human_formatters) == before
 
     @pytest.mark.parametrize(
         "model",
