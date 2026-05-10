@@ -340,9 +340,14 @@ def all_build_paths(integration_builds_dir) -> list[Path]:
     return sorted(integration_builds_dir.glob("*.xml"))
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def all_builds(all_build_paths) -> list[tuple[str, object]]:
-    """Parse all generated builds once for the session."""
+    """Re-parse all generated builds for each test.
+
+    Function-scope (not session): tests like test_remove_all_items_roundtrip
+    mutate the BuildDocument (build.items.clear(), spec.nodes.append(...)),
+    which would pollute every subsequent test under session scope.
+    """
     results = []
     for p in all_build_paths:
         build = parse_build_file(p)
