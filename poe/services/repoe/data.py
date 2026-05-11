@@ -161,9 +161,7 @@ class RepoEData:
         # earlier hardcoded `{item, crafted}` excluded every flask/jewel mod
         # and returned 0-mod pools for those bases.
         base_domain = bitem.get("domain", "item")
-        full_allowed = MOD_DOMAIN_FOR_BASE_DOMAIN.get(
-            base_domain, frozenset({"item", "crafted"})
-        )
+        full_allowed = MOD_DOMAIN_FOR_BASE_DOMAIN.get(base_domain, frozenset({"item", "crafted"}))
         allowed_mod_domains = (full_allowed - OPT_IN_MOD_DOMAINS) | extra_domains
 
         base_id = bitem["id"]

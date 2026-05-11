@@ -253,9 +253,7 @@ class BuildsService:
             try:
                 return Dictionary.from_protobuf(cached_bytes)
             except ProtobufDecodeError as e:
-                _logger.warning(
-                    "discarding corrupted dictionary cache %s: %s", cache_key, e
-                )
+                _logger.warning("discarding corrupted dictionary cache %s: %s", cache_key, e)
                 ninja_cache.invalidate_one(self._cache_dir, cache_key, "dictionary")
         raw = self._client.get_protobuf(f"/{prefix}/api/builds/dictionary/{ref_hash}")
         try:

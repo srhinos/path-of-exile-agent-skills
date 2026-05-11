@@ -119,9 +119,7 @@ class GemsService:
             try:
                 old_name, new_name = swap_pair.split(",", 1)
             except ValueError as e:
-                raise BuildValidationError(
-                    f"--swap expected 'OLD,NEW', got {swap_pair!r}"
-                ) from e
+                raise BuildValidationError(f"--swap expected 'OLD,NEW', got {swap_pair!r}") from e
             gem = self._find_gem(sg, old_name, group)
             gem.name_spec = new_name
             gem.skill_id = ""
@@ -131,9 +129,7 @@ class GemsService:
                 gn, lv = lp.split(",", 1)
                 level = int(lv)
             except ValueError as e:
-                raise BuildValidationError(
-                    f"--set-level expected 'GEM,LEVEL', got {lp!r}"
-                ) from e
+                raise BuildValidationError(f"--set-level expected 'GEM,LEVEL', got {lp!r}") from e
             self._find_gem(sg, gn, group).level = level
         for qp in set_quality or []:
             try:

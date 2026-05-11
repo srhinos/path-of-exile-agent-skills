@@ -36,6 +36,7 @@ def _pob_cwd(pob_path: str):
         finally:
             os.chdir(orig_cwd)
 
+
 if TYPE_CHECKING:
     from lupa import LuaRuntime
 
@@ -50,6 +51,7 @@ except ImportError:
 
     class LuaError(Exception):  # type: ignore[no-redef]
         """Fallback when lupa is not installed."""
+
 
 try:
     import lupa.luajit21 as _lua_mod

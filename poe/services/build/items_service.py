@@ -365,8 +365,7 @@ class ItemsService:
             normalized_rarity = _RARITY_BY_CASEFOLD.get(rarity.casefold())
             if normalized_rarity is None:
                 raise BuildValidationError(
-                    f"Unknown rarity: {rarity!r}. "
-                    f"Valid: {sorted(_RARITY_BY_CASEFOLD.values())}"
+                    f"Unknown rarity: {rarity!r}. Valid: {sorted(_RARITY_BY_CASEFOLD.values())}"
                 )
 
         _, build_obj = self._build.load(name, file_path)

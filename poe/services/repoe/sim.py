@@ -391,9 +391,7 @@ class CraftingEngine:
 
         requested = {n.casefold() for n in fossil_names}
         requested |= {
-            f"{n.casefold()} fossil"
-            for n in fossil_names
-            if not n.casefold().endswith(" fossil")
+            f"{n.casefold()} fossil" for n in fossil_names if not n.casefold().endswith(" fossil")
         }
 
         matched_any = False
@@ -413,9 +411,7 @@ class CraftingEngine:
 
         if fossil_names and not matched_any:
             available = sorted({f["name"] for f in fossils})
-            raise SimDataError(
-                f"No fossils matched {fossil_names!r}. Known fossils: {available!r}"
-            )
+            raise SimDataError(f"No fossils matched {fossil_names!r}. Known fossils: {available!r}")
 
         return weights, blocked_tags
 
@@ -723,9 +719,7 @@ class CraftingEngine:
         # a suffix slot and a crafted-mod slot.
         known = set(self._METAMOD_LOCKS) | set(self._METAMOD_BLOCKED_TAGS)
         if metamod_type not in known:
-            raise ValueError(
-                f"Unknown metamod {metamod_type!r}; must be one of {sorted(known)}"
-            )
+            raise ValueError(f"Unknown metamod {metamod_type!r}; must be one of {sorted(known)}")
         self._check_craftable(item)
         if item.open_suffixes <= 0:
             raise ValueError("No open suffix slots for metamod")

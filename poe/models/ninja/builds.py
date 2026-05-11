@@ -27,6 +27,10 @@ class DefensiveStats(BaseModel):
     cold_resistance_over_cap: int = Field(0, alias="coldResistanceOverCap")
     lightning_resistance_over_cap: int = Field(0, alias="lightningResistanceOverCap")
     chaos_resistance_over_cap: int = Field(0, alias="chaosResistanceOverCap")
+    fire_resistance_max: int = Field(0, alias="fireResistanceMax")
+    cold_resistance_max: int = Field(0, alias="coldResistanceMax")
+    lightning_resistance_max: int = Field(0, alias="lightningResistanceMax")
+    chaos_resistance_max: int = Field(0, alias="chaosResistanceMax")
     block_chance: int = Field(0, alias="blockChance")
     spell_block_chance: int = Field(0, alias="spellBlockChance")
     spell_suppression_chance: int = Field(0, alias="spellSuppressionChance")
@@ -188,6 +192,13 @@ class CharacterResponse(BaseModel):
     last_seen_utc: str = Field("", alias="lastSeenUtc")
     updated_utc: str = Field("", alias="updatedUtc")
     last_checked_utc: str = Field("", alias="lastCheckedUtc")
+    # poe.ninja added these in mid-2026; the schema-drift integration
+    # test surfaced them as unmodeled. Stored as opaque blobs because
+    # downstream consumers don't (yet) inspect them — keep the shape
+    # available so a future caller can render breakdowns. Accept either
+    # list or dict; the API has sent both shapes across deploys.
+    breakdown_sources: list | dict = Field(default_factory=list, alias="breakdownSources")
+    stat_breakdowns: list | dict = Field(default_factory=dict, alias="statBreakdowns")
 
     @field_validator("cluster_jewels", mode="before")
     @classmethod

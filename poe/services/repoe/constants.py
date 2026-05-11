@@ -167,27 +167,29 @@ VALUE_RANGE_LENGTH = 2
 # of CraftMethod. The single-step `simulate()` covers more methods than
 # multistep does — validating against the full enum let unsupported
 # values past the gate only to raise "Unknown step method" mid-loop.
-MULTISTEP_SUPPORTED_METHODS: frozenset[str] = frozenset({
-    CraftMethod.CHAOS.value,
-    CraftMethod.ALT.value,
-    CraftMethod.REGAL.value,
-    CraftMethod.EXALT.value,
-    CraftMethod.ANNUL.value,
-    CraftMethod.SCOUR.value,
-    CraftMethod.ALCHEMY.value,
-    CraftMethod.TRANSMUTATION.value,
-    CraftMethod.AUGMENTATION.value,
-    CraftMethod.DIVINE.value,
-    CraftMethod.BLESSED.value,
-    CraftMethod.VEILED_CHAOS.value,
-    CraftMethod.VAAL.value,
-    CraftMethod.FRACTURE.value,
-    CraftMethod.TAINTED_DIVINE.value,
-    CraftMethod.FOSSIL.value,
-    CraftMethod.ESSENCE.value,
-    CraftMethod.HARVEST.value,
-    CraftMethod.CONQUEROR_EXALT.value,
-})
+MULTISTEP_SUPPORTED_METHODS: frozenset[str] = frozenset(
+    {
+        CraftMethod.CHAOS.value,
+        CraftMethod.ALT.value,
+        CraftMethod.REGAL.value,
+        CraftMethod.EXALT.value,
+        CraftMethod.ANNUL.value,
+        CraftMethod.SCOUR.value,
+        CraftMethod.ALCHEMY.value,
+        CraftMethod.TRANSMUTATION.value,
+        CraftMethod.AUGMENTATION.value,
+        CraftMethod.DIVINE.value,
+        CraftMethod.BLESSED.value,
+        CraftMethod.VEILED_CHAOS.value,
+        CraftMethod.VAAL.value,
+        CraftMethod.FRACTURE.value,
+        CraftMethod.TAINTED_DIVINE.value,
+        CraftMethod.FOSSIL.value,
+        CraftMethod.ESSENCE.value,
+        CraftMethod.HARVEST.value,
+        CraftMethod.CONQUEROR_EXALT.value,
+    }
+)
 
 PLAYER_ITEM_DOMAINS = frozenset(
     {
