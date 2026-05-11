@@ -111,20 +111,46 @@ class GemsService:
                 f"Group index {group} out of range (0-{len(build_obj.skill_groups) - 1})"
             )
         sg = build_obj.skill_groups[group]
+        # Each kv-style arg is "key,value" — raw split + int() let bare
+        # ValueErrors (not enough values to unpack, invalid literal)
+        # escape app.run()'s PoeError envelope as Python tracebacks.
+        # Translate to BuildValidationError with a format hint.
         for swap_pair in swap or []:
-            old_name, new_name = swap_pair.split(",", 1)
+            try:
+                old_name, new_name = swap_pair.split(",", 1)
+            except ValueError as e:
+                raise BuildValidationError(
+                    f"--swap expected 'OLD,NEW', got {swap_pair!r}"
+                ) from e
             gem = self._find_gem(sg, old_name, group)
             gem.name_spec = new_name
             gem.skill_id = ""
             gem.gem_id = ""
         for lp in set_level or []:
-            gn, lv = lp.split(",", 1)
-            self._find_gem(sg, gn, group).level = int(lv)
+            try:
+                gn, lv = lp.split(",", 1)
+                level = int(lv)
+            except ValueError as e:
+                raise BuildValidationError(
+                    f"--set-level expected 'GEM,LEVEL', got {lp!r}"
+                ) from e
+            self._find_gem(sg, gn, group).level = level
         for qp in set_quality or []:
-            gn, qv = qp.split(",", 1)
-            self._find_gem(sg, gn, group).quality = int(qv)
+            try:
+                gn, qv = qp.split(",", 1)
+                quality = int(qv)
+            except ValueError as e:
+                raise BuildValidationError(
+                    f"--set-quality expected 'GEM,QUALITY', got {qp!r}"
+                ) from e
+            self._find_gem(sg, gn, group).quality = quality
         for qid in set_quality_id or []:
-            gn, qi = qid.split(",", 1)
+            try:
+                gn, qi = qid.split(",", 1)
+            except ValueError as e:
+                raise BuildValidationError(
+                    f"--set-quality-id expected 'GEM,QUALITY_ID', got {qid!r}"
+                ) from e
             self._find_gem(sg, gn, group).quality_id = qi
         for gn in toggle or []:
             g = self._find_gem(sg, gn, group)

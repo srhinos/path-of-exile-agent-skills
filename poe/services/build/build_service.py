@@ -206,7 +206,11 @@ class BuildService:
         return build_obj
 
     def stats(self, name: str, *, category: str = StatCategory.ALL) -> StatBlock:
-        category = CATEGORY_ALIASES.get(category, category)
+        # Casefold both sides so `--category OFFENCE`, `Off`, `OFF` all
+        # resolve through CATEGORY_ALIASES (which has lowercase keys)
+        # and match the StatCategory enum's lowercase values.
+        cf = category.casefold() if isinstance(category, str) else category
+        category = CATEGORY_ALIASES.get(cf, cf)
         valid = {c.value for c in StatCategory}
         if category not in valid:
             raise BuildValidationError(
@@ -342,7 +346,10 @@ class BuildService:
         dest_path = Path(dest)
         if dest_path.is_dir():
             dest_path = dest_path / src.name
-        shutil.copy2(src, dest_path)
+        try:
+            shutil.copy2(src, dest_path)
+        except (OSError, shutil.Error) as e:
+            raise PoeError(f"Could not export build to {dest_path}: {e}") from e
         return MutationResult(exported_to=str(dest_path))
 
     def rename(self, name: str, new_name: str) -> MutationResult:
@@ -356,7 +363,10 @@ class BuildService:
         dest = src.parent / (new_name if new_name.endswith(".xml") else new_name + ".xml")
         if dest.exists():
             raise BuildValidationError(f"File already exists: {dest}")
-        src.rename(dest)
+        try:
+            src.rename(dest)
+        except OSError as e:
+            raise PoeError(f"Could not rename build to {dest}: {e}") from e
         return MutationResult(old_name=name, new_name=new_name, path=str(dest))
 
     def duplicate(
@@ -380,7 +390,10 @@ class BuildService:
         dest = dest_dir / filename
         if dest.exists():
             raise BuildValidationError(f"File already exists: {dest}")
-        shutil.copy2(src, dest)
+        try:
+            shutil.copy2(src, dest)
+        except (OSError, shutil.Error) as e:
+            raise PoeError(f"Could not duplicate build to {dest}: {e}") from e
         return MutationResult(original=str(src), path=str(dest))
 
     def set_level(self, name: str, level: int, *, file_path: str | None = None) -> MutationResult:

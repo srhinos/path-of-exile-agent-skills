@@ -441,6 +441,11 @@ class SimService:
                     f"Valid: {sorted(valid_methods)}"
                 )
             step["method"] = method
+        # Normalize influence names through the Influence enum, same gate
+        # as `simulate()`. Without this, a per-step `influence` lookup hits
+        # CONQUEROR_EXCLUSIONS (Title-Cased keys) with a user-friendly
+        # lowercase string and raises "Unknown conqueror influence" mid-loop.
+        influence = self._normalize_multistep_influences(influence, steps)
         produced_rarity: Rarity = Rarity.NORMAL
         for i, step in enumerate(steps):
             method = step["method"]
@@ -494,6 +499,31 @@ class SimService:
             "hit_rate": f"{hit_rate:.1%}",
             "hits": hits,
         }
+
+    @staticmethod
+    def _normalize_multistep_influences(
+        influence: list[str] | None, steps: list[dict]
+    ) -> list[str] | None:
+        valid_inf_map = {i.value.casefold(): i.value for i in Influence}
+        resolved: list[str] = []
+        for inf in influence or []:
+            matched = valid_inf_map.get(inf.casefold())
+            if not matched:
+                raise SimDataError(
+                    f"Unknown influence: {inf!r}. Valid: {sorted(valid_inf_map.values())}"
+                )
+            resolved.append(matched)
+        for i, step in enumerate(steps):
+            inf_raw = step.get("influence")
+            if inf_raw:
+                matched = valid_inf_map.get(inf_raw.casefold())
+                if matched is None:
+                    raise SimDataError(
+                        f"Step {i + 1} influence {inf_raw!r} unknown. "
+                        f"Valid: {sorted(valid_inf_map.values())}"
+                    )
+                step["influence"] = matched
+        return resolved or None
 
     @staticmethod
     def _apply_multistep_method(

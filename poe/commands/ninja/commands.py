@@ -15,6 +15,7 @@ from poe.services.ninja import cache as ninja_cache
 from poe.services.ninja.builds import BuildsService
 from poe.services.ninja.client import NinjaClient
 from poe.services.ninja.discovery import DiscoveryService
+from poe.services.ninja.validators import normalize_game
 
 ninja_app = cyclopts.App(name="ninja", help="poe.ninja economy, builds, and meta data.")
 
@@ -39,6 +40,7 @@ def league_info(
     json
         Output raw JSON.
     """
+    game = normalize_game(game)
     with NinjaClient(no_cache=no_cache) as client:
         svc = DiscoveryService(client)
         state = (

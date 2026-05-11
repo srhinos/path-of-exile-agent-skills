@@ -336,7 +336,14 @@ def builds_open(name: str, *, file: str | None = None, json: bool = False) -> No
     except (OSError, UnicodeDecodeError) as e:
         raise PoeError(f"Could not read build file {file or name}: {e}") from e
     code = encode_build(xml_str)
-    os.startfile(f"pob://{code}")
+    try:
+        os.startfile(f"pob://{code}")
+    except OSError as e:
+        raise PoeError(
+            "Could not open the pob:// protocol. "
+            "Is Path of Building installed and registered as a URL handler? "
+            f"Underlying error: {e}"
+        ) from e
     _output({"status": "ok", "code": code}, json_mode=json)
 
 

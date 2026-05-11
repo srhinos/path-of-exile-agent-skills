@@ -442,8 +442,12 @@ class ItemsService:
         active_set = _find_active_item_set(build_obj)
         if not active_set:
             raise BuildValidationError("No active item set")
-        from_canonical = normalize_slot(from_slot) or from_slot
-        to_canonical = normalize_slot(to_slot) or to_slot
+        from_canonical = normalize_slot(from_slot)
+        to_canonical = normalize_slot(to_slot)
+        if from_canonical is None:
+            raise SlotError(f"Unknown slot: {from_slot!r}")
+        if to_canonical is None:
+            raise SlotError(f"Unknown slot: {to_slot!r}")
         moved = False
         for slot in active_set.slots:
             if slot.name == from_canonical:
@@ -473,8 +477,12 @@ class ItemsService:
         active_set = _find_active_item_set(build_obj)
         if not active_set:
             raise BuildValidationError("No active item set")
-        s1 = normalize_slot(slot1) or slot1
-        s2 = normalize_slot(slot2) or slot2
+        s1 = normalize_slot(slot1)
+        s2 = normalize_slot(slot2)
+        if s1 is None:
+            raise SlotError(f"Unknown slot: {slot1!r}")
+        if s2 is None:
+            raise SlotError(f"Unknown slot: {slot2!r}")
         slot_a = slot_b = None
         for slot in active_set.slots:
             if slot.name == s1:
@@ -517,7 +525,9 @@ class ItemsService:
             explicits=[ItemMod(text=m) for m in explicits],
         )
         build_obj.items.append(item)
-        canonical_slot = normalize_slot(slot) or slot
+        canonical_slot = normalize_slot(slot)
+        if canonical_slot is None:
+            raise SlotError(f"Unknown slot: {slot!r}")
         active_set = _find_active_item_set(build_obj)
         if active_set:
             active_set.slots = [s for s in active_set.slots if s.name != canonical_slot]
