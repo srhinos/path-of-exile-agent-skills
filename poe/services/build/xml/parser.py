@@ -218,10 +218,13 @@ def _parse_tree_section(root: Element, build: BuildDocument) -> None:
         sockets_el = spec_el.find("Sockets")
         if sockets_el is not None:
             for sock_el in sockets_el.findall("Socket"):
+                # Bare `int()` raises ValueError on `"nil"`/empty/garbage,
+                # crashing the whole build parse. _safe_int matches the
+                # coerce-and-warn boundary discipline used elsewhere.
                 spec.sockets.append(
                     TreeSocket(
-                        node_id=int(sock_el.get("nodeId", "0")),
-                        item_id=int(sock_el.get("itemId", "0")),
+                        node_id=_safe_int(sock_el.get("nodeId", "0")),
+                        item_id=_safe_int(sock_el.get("itemId", "0")),
                     )
                 )
 
@@ -230,12 +233,14 @@ def _parse_tree_section(root: Element, build: BuildDocument) -> None:
             for ov_el in overrides_el.findall("Override"):
                 spec.overrides.append(
                     TreeOverride(
-                        node_id=int(ov_el.get("nodeId", "0")),
+                        node_id=_safe_int(ov_el.get("nodeId", "0")),
                         name=ov_el.get("dn", ""),
                         icon=ov_el.get("icon", ""),
-                        text=" / ".join(
-                            part.strip() for part in (ov_el.text or "").split("\t") if part.strip()
-                        ),
+                        # Preserve tab-separated stat lines verbatim so cluster
+                        # jewel notable text (e.g. "Runegraft of the Fortress"
+                        # with two stats) doesn't collapse into one slash-
+                        # joined string that loses line semantics on writeback.
+                        text=(ov_el.text or ""),
                         effect_image=ov_el.get("activeEffectImage", ""),
                     )
                 )
@@ -447,8 +452,8 @@ def _parse_items_section(root: Element, build: BuildDocument) -> None:
         for sock_el in set_el.findall("SocketIdURL"):
             item_set.socket_id_urls.append(
                 TreeSocket(
-                    node_id=int(sock_el.get("nodeId", "0")),
-                    item_id=int(sock_el.get("itemId", "0") if sock_el.get("itemId") else "0"),
+                    node_id=_safe_int(sock_el.get("nodeId", "0")),
+                    item_id=_safe_int(sock_el.get("itemId", "0")),
                 )
             )
 
@@ -931,7 +936,11 @@ def _parse_import(root: Element, build: BuildDocument) -> None:
         build.import_export_party = import_el.get("exportParty", "")
 
 
-_PASSTHROUGH_TAGS = frozenset({"Party", "Calcs", "TreeView", "TradeSearchWeights"})
+# Tuple, not frozenset — frozenset iteration order depends on the per-process
+# hash seed (PYTHONHASHSEED), so two consecutive saves of the same input
+# produced different child ordering in the output XML, breaking idempotent
+# saves and adding git-diff churn.
+_PASSTHROUGH_TAGS: tuple[str, ...] = ("Party", "Calcs", "TreeView", "TradeSearchWeights")
 
 
 def _parse_passthrough_sections(root: Element, build: BuildDocument) -> None:
