@@ -258,7 +258,11 @@ class TestEssenceTiers:
         assert RepoEData._extract_essence_tier("Screaming") == ("Screaming", 5)
         assert RepoEData._extract_essence_tier("Deafening") == ("Deafening", 7)
         assert RepoEData._extract_essence_tier("Whispering") == ("Whispering", 1)
-        assert RepoEData._extract_essence_tier("Unknown") == ("", 0)
+        # Corruption-only essences (Delirium / Horror / Hysteria / Insanity)
+        # don't match a standard tier prefix; the fallback labels them
+        # "Corruption" so formatters never surface a blank "Tier:" row.
+        assert RepoEData._extract_essence_tier("Delirium", stored_tier=6) == ("Corruption", 6)
+        assert RepoEData._extract_essence_tier("Unknown") == ("Corruption", 0)
 
 
 class TestDataCaching:

@@ -13,6 +13,8 @@ from poe.services.repoe.constants import (
     ESSENCE_TIER_PREFIXES,
     INFLUENCE_TAG_MAP,
     MAX_RESONATOR_SOCKETS,
+    MOD_DOMAIN_FOR_BASE_DOMAIN,
+    OPT_IN_MOD_DOMAINS,
     RESONATOR_BY_SOCKETS,
     STAT_TEMPLATE_NON_ALNUM_RE,
     STAT_TEMPLATE_NUMERIC_RE,
@@ -110,8 +112,8 @@ class RepoEData:
     def resolve_stat_ids(self, display: str) -> set[str]:
         """Look up stat IDs whose display template matches `display`.
 
-        Tries exact normalized-template equality first; falls back to a
-        substring scan so partial queries ("maximum Life") still resolve.
+        Tries exact normalized-template equality first, then a contains
+        scan ("# to maximum life" contains the user query "maximum life").
         Returns an empty set when nothing matches — callers should treat
         that as "no stat-id match" and fall through to mod-name search.
         """
@@ -123,13 +125,16 @@ class RepoEData:
         exact = self._translation_index.get(query)
         if exact:
             return set(exact)
-        # Substring fallback: any template that contains the query, or
-        # vice versa, so "maximum life" matches "# to maximum life" and
-        # "{0} to maximum life" matches partial user queries that include
-        # placeholder text like "+# to maximum life".
+        # Forward-only contains scan: keep templates that *contain* the
+        # query. The earlier symmetric `query in key or key in query`
+        # form pulled in every short template the query happened to
+        # contain — e.g. "maximum life" matched ~95 stat IDs because
+        # any template whose key was a substring of the query won
+        # acceptance. Restricting to "template contains query" gives
+        # the partial-query UX without the false-positive deluge.
         matches: set[str] = set()
         for key, ids in self._translation_index.items():
-            if query in key or key in query:
+            if query in key:
                 matches.update(ids)
         return matches
 
@@ -151,10 +156,15 @@ class RepoEData:
 
         # Restricted-domain pool: chaos/exalt/alch see only "item" + "crafted"
         # mods. Fossil sims add "delve"; veiled-chaos / aisling add "unveiled".
-        # Without this gate the bundled mod_pool (which carries every domain
-        # for ingestion convenience) leaks ~20% delve/unveiled weight into
-        # every regular simulation, biasing hit-rates and percentiles.
-        allowed_mod_domains = frozenset({"item", "crafted"}) | extra_domains
+        # For non-item bases (flask, abyss_jewel, affliction_jewel, misc),
+        # the allowed domains come from MOD_DOMAIN_FOR_BASE_DOMAIN — the
+        # earlier hardcoded `{item, crafted}` excluded every flask/jewel mod
+        # and returned 0-mod pools for those bases.
+        base_domain = bitem.get("domain", "item")
+        full_allowed = MOD_DOMAIN_FOR_BASE_DOMAIN.get(
+            base_domain, frozenset({"item", "crafted"})
+        )
+        allowed_mod_domains = (full_allowed - OPT_IN_MOD_DOMAINS) | extra_domains
 
         base_id = bitem["id"]
         mod_ids = mod_pool.get(base_id, [])
@@ -378,12 +388,13 @@ class RepoEData:
     def _extract_essence_tier(name: str, stored_tier: int = 0) -> tuple[str, int]:
         # Name-prefix lookup misses corruption-only essences (Delirium /
         # Horror / Hysteria / Insanity) which start with "Essence of …";
-        # fall back to the stored tier value for those.
+        # fall back to a "Corruption" label so consumers/formatters never
+        # surface a blank "Tier:" row.
         name_lower = name.casefold()
         for prefix, tier_num in ESSENCE_TIER_PREFIXES.items():
             if name_lower.startswith(prefix):
                 return prefix.title(), tier_num
-        return "", stored_tier
+        return "Corruption", stored_tier
 
     def get_bench_crafts(self, base_name: str) -> list[dict]:
         base_items = self._load("base_items")

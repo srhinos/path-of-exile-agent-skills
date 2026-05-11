@@ -319,11 +319,14 @@ class TestExchangeChaosValue:
         result = _exchange_chaos_value(2.0, rates, "divine")
         assert result == 200.0
 
-    def test_zero_chaos_rate(self):
-        assert _exchange_chaos_value(1.0, {"chaos": 0.0}, "divine") == 0.0
+    def test_zero_chaos_rate_returns_primary_value(self):
+        # No chaos cross-rate: function returns primary_value as canonical
+        # base. Previously returned 0.0, which silently zeroed every PoE2
+        # exchange price (PoE2 has no chaos rate at all).
+        assert _exchange_chaos_value(1.0, {"chaos": 0.0}, "divine") == 1.0
 
-    def test_missing_chaos_rate(self):
-        assert _exchange_chaos_value(1.0, {}, "divine") == 0.0
+    def test_missing_chaos_rate_returns_primary_value(self):
+        assert _exchange_chaos_value(1.0, {}, "divine") == 1.0
 
 
 class TestCurrencyPricing:
@@ -817,8 +820,11 @@ class TestExchangeChaosValueInvariants:
         result = _exchange_chaos_value(2.0, {"chaos": 0.01}, "divine")
         assert math.isfinite(result)
 
-    def test_negative_chaos_rate_returns_zero(self):
-        assert _exchange_chaos_value(1.0, {"chaos": -0.5}, "divine") == 0.0
+    def test_negative_chaos_rate_returns_primary_value(self):
+        # Negative cross-rate means the data was corrupt; falling back to
+        # primary_value beats returning 0.0 silently. Caller can still
+        # apply its own finite/non-negative validators downstream.
+        assert _exchange_chaos_value(1.0, {"chaos": -0.5}, "divine") == 1.0
 
 
 class TestCurrencyConvertAliases:

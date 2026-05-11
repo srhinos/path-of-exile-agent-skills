@@ -81,11 +81,22 @@ def _endpoint_path(route: str) -> str:
 def _exchange_chaos_value(
     primary_value: float, core_rates: dict[str, float], primary: str
 ) -> float:
+    """Compute a price's value in the response's canonical unit.
+
+    Despite the function name, the returned value is in the *response's
+    primary currency*, not always chaos. PoE2 exchange responses use
+    primary="exalted" with no chaos cross-rate; returning 0.0 there
+    silently zeroed every PoE2 exchange price. PoE1 divine responses
+    convert via core.rates["chaos"] as before.
+    """
     if primary == "chaos":
         return primary_value
     chaos_rate = core_rates.get("chaos", 0.0)
     if chaos_rate <= 0:
-        return 0.0
+        # No chaos cross-rate (PoE2). Treat primary_value as the
+        # canonical-base value; currency_convert pins the primary
+        # currency (exalted on PoE2) to 1.0 so the math stays consistent.
+        return primary_value
     divine_to_chaos = 1.0 / chaos_rate
     return primary_value * divine_to_chaos
 

@@ -152,6 +152,13 @@ MOD_DOMAIN_FOR_BASE_DOMAIN: dict[str, frozenset[str]] = {
     "misc": frozenset({"misc"}),
 }
 
+# `get_mod_pool` strips these from the base-domain allowed set so callers
+# get only the always-rollable pool by default. Fossil sims add "delve",
+# veiled-chaos / aisling_bench add "unveiled" via `extra_domains`. Without
+# this strip, every chaos/exalt/alch carries ~20% delve+unveiled weight
+# leak — verified bias on regular sims in earlier audit rounds.
+OPT_IN_MOD_DOMAINS: frozenset[str] = frozenset({"delve", "unveiled"})
+
 RECOMBINATOR_TRANSFER_CHANCE = 0.5
 TAINTED_OUTCOME_CHANCE = 0.5
 VALUE_RANGE_LENGTH = 2
