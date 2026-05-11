@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from poe.types import Rarity
+from poe.types import CraftMethod, Rarity
 
 DEFAULT_ILVL = 84
 DEFAULT_ITERATIONS = 10000
@@ -162,6 +162,32 @@ OPT_IN_MOD_DOMAINS: frozenset[str] = frozenset({"delve", "unveiled"})
 RECOMBINATOR_TRANSFER_CHANCE = 0.5
 TAINTED_OUTCOME_CHANCE = 0.5
 VALUE_RANGE_LENGTH = 2
+
+# `simulate_multistep` boundary-validates step methods against this subset
+# of CraftMethod. The single-step `simulate()` covers more methods than
+# multistep does — validating against the full enum let unsupported
+# values past the gate only to raise "Unknown step method" mid-loop.
+MULTISTEP_SUPPORTED_METHODS: frozenset[str] = frozenset({
+    CraftMethod.CHAOS.value,
+    CraftMethod.ALT.value,
+    CraftMethod.REGAL.value,
+    CraftMethod.EXALT.value,
+    CraftMethod.ANNUL.value,
+    CraftMethod.SCOUR.value,
+    CraftMethod.ALCHEMY.value,
+    CraftMethod.TRANSMUTATION.value,
+    CraftMethod.AUGMENTATION.value,
+    CraftMethod.DIVINE.value,
+    CraftMethod.BLESSED.value,
+    CraftMethod.VEILED_CHAOS.value,
+    CraftMethod.VAAL.value,
+    CraftMethod.FRACTURE.value,
+    CraftMethod.TAINTED_DIVINE.value,
+    CraftMethod.FOSSIL.value,
+    CraftMethod.ESSENCE.value,
+    CraftMethod.HARVEST.value,
+    CraftMethod.CONQUEROR_EXALT.value,
+})
 
 PLAYER_ITEM_DOMAINS = frozenset(
     {

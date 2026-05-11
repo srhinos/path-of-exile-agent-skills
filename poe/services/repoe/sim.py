@@ -377,14 +377,31 @@ class CraftingEngine:
         return rolled
 
     def _get_fossil_weights(self, fossil_names: list[str]) -> tuple[dict[str, float], set[str]]:
-        """Get combined fossil weight multipliers and blocked tags."""
+        """Get combined fossil weight multipliers and blocked tags.
+
+        Accepts fossil names with or without the trailing " Fossil" suffix
+        and case-insensitively. The earlier exact-string match silently
+        produced an empty weights dict for `["Pristine"]`, which the
+        slow path raised on but the fast path used as a plain chaos roll
+        reporting `method="fossil"` — bias without a visible error.
+        """
         fossils = self.data.get_fossils()
         weights: dict[str, float] = {}
         blocked_tags: set[str] = set()
 
+        requested = {n.casefold() for n in fossil_names}
+        requested |= {
+            f"{n.casefold()} fossil"
+            for n in fossil_names
+            if not n.casefold().endswith(" fossil")
+        }
+
+        matched_any = False
         for fossil in fossils:
-            if fossil["name"] not in fossil_names:
+            fname_cf = fossil["name"].casefold()
+            if fname_cf not in requested and fname_cf.removesuffix(" fossil") not in requested:
                 continue
+            matched_any = True
             for tag in fossil.get("blocked", []):
                 blocked_tags.add(tag.casefold())
             for tag_name, w in fossil.get("positive_weights", {}).items():
@@ -393,6 +410,12 @@ class CraftingEngine:
             for tag_name, w in fossil.get("negative_weights", {}).items():
                 key = tag_name.casefold()
                 weights[key] = weights.get(key, 1.0) * w
+
+        if fossil_names and not matched_any:
+            available = sorted({f["name"] for f in fossils})
+            raise SimDataError(
+                f"No fossils matched {fossil_names!r}. Known fossils: {available!r}"
+            )
 
         return weights, blocked_tags
 
@@ -847,11 +870,22 @@ class CraftingEngine:
             raise ValueError("Augmentation requires a Magic item")
         if len(item.prefixes) >= 1 and len(item.suffixes) >= 1:
             raise ValueError("Magic item already has both a prefix and suffix")
-        pool = self._build_mod_pool(item)
-        picked = self._weighted_pick(pool)
-        if picked:
-            total = sum(m.weight for m in pool)
-            return self._add_mod(item, picked, pool_total=total)
+        # Magic items cap at 1 prefix + 1 suffix. The item's max_prefixes /
+        # max_suffixes (3/3 for a typical Rare base) only describes the
+        # base's rare cap; without overriding here, _build_mod_pool sees
+        # open_prefixes >= 2 on a 1p/0s Magic and could return a second
+        # prefix — producing a game-impossible 2p/0s Magic that
+        # check_invariants would accept (cap is 3, not 1).
+        orig_p, orig_s = item.max_prefixes, item.max_suffixes
+        item.max_prefixes, item.max_suffixes = 1, 1
+        try:
+            pool = self._build_mod_pool(item)
+            picked = self._weighted_pick(pool)
+            if picked:
+                total = sum(m.weight for m in pool)
+                return self._add_mod(item, picked, pool_total=total)
+        finally:
+            item.max_prefixes, item.max_suffixes = orig_p, orig_s
         return None
 
     def alchemy(self, item: CraftableItem) -> None:
@@ -1050,6 +1084,15 @@ class CraftingEngine:
             # internal _check_craftable does not reject.
             item.rarity = Rarity.RARE
             self._roll_item(item, self._rare_mod_count())
+        elif outcome == "brick":
+            # PoE "brick" outcome destroys the item to Normal with all mods
+            # cleared. The simulator previously left the item intact and
+            # marked it corrupted, biasing cost/percentile calculations
+            # that include vaal — a "kept" attempt actually destroyed it.
+            item.prefixes.clear()
+            item.suffixes.clear()
+            item.implicits.clear()
+            item.rarity = Rarity.NORMAL
         item.is_corrupted = True
         if outcome == "implicit":
             item.implicits.append(
@@ -1064,6 +1107,7 @@ class CraftingEngine:
                     rolls=[],
                 )
             )
+        item.check_invariants()
         return outcome
 
     def recombinate(
@@ -1185,7 +1229,12 @@ class CraftingEngine:
             raise ValueError("Fracturing requires a Rare item")
         if item.fractured_mods:
             raise ValueError("Item already has a fractured mod")
-        all_explicit = item.prefixes + item.suffixes
+        # Harvest fracture only targets non-crafted explicit mods. The
+        # earlier choice over `prefixes + suffixes` could pick a bench-
+        # crafted mod and produce a fractured crafted mod — impossible
+        # in-game and bricked later metamod removal (the crafted mod
+        # would then be both is_crafted and fractured).
+        all_explicit = [m for m in item.prefixes + item.suffixes if not m.is_crafted]
         if len(all_explicit) < self._MIN_MODS_FOR_FRACTURE:
             raise ValueError(f"Item needs at least {self._MIN_MODS_FOR_FRACTURE} mods to fracture")
         target = self._rng.choice(all_explicit)
@@ -1199,7 +1248,10 @@ class CraftingEngine:
     def tainted_divine(self, item: CraftableItem) -> None:
         if not item.is_corrupted:
             raise ValueError("Tainted Divine requires a corrupted item")
-        for mod in item.prefixes + item.suffixes:
+        # Tainted Divine has identical fractured semantics to plain Divine:
+        # only the group is locked, not the rolled values. Skipping
+        # fractured_mods left them frozen on tainted-divine calls.
+        for mod in item.prefixes + item.suffixes + item.fractured_mods:
             mod.rolls = self._roll_values(mod.tier)
 
     def tainted_chaos(self, item: CraftableItem) -> str:

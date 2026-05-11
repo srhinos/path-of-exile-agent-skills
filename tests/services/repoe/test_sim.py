@@ -6,6 +6,7 @@ import random
 
 import pytest
 
+from poe.exceptions import SimDataError
 from poe.services.repoe.sim import BestTier, CraftingEngine, ModPoolEntry, RolledMod, SimResult
 from poe.types import CraftMethod, Influence, Rarity
 from tests.conftest import REPOE_DATA, make_repoe_data
@@ -820,11 +821,14 @@ class TestEssenceInfluenced:
 
 
 class TestInvalidFossil:
-    def test_unknown_fossil_produces_unmodified_weights(self, engine, blank_item):
+    def test_unknown_fossil_raises(self, engine, blank_item):
+        # Earlier behavior silently produced an empty weights dict, which
+        # the fast path then used as a plain chaos roll reporting
+        # method="fossil" — bias without a visible error. Now raises so
+        # the user sees the typo.
         random.seed(42)
-        engine.fossil_roll(blank_item, ["Nonexistent Fossil"])
-        assert blank_item.rarity == "RARE"
-        assert len(blank_item.all_mods) > 0
+        with pytest.raises(SimDataError, match=r"No fossils matched"):
+            engine.fossil_roll(blank_item, ["Nonexistent Fossil"])
 
 
 # ── Zero-hit inf handling (T5) ────────────────────────────────────────────

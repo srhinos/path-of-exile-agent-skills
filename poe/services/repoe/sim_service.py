@@ -30,6 +30,7 @@ from poe.services.repoe.constants import (
     DEFAULT_MAX_ATTEMPTS,
     MAX_ILVL,
     MIN_ILVL,
+    MULTISTEP_SUPPORTED_METHODS,
     RARITY_PRODUCED,
     RARITY_REQUIRED,
 )
@@ -423,13 +424,21 @@ class SimService:
         target = [t.strip() for t in target if isinstance(t, str) and t.strip()]
         if not target:
             raise SimDataError("--target is required")
-        valid_methods = {m.value for m in CraftMethod}
+        # Narrow validation to methods _apply_multistep_method actually
+        # dispatches. Single-step `simulate()` validates against the full
+        # CraftMethod enum, but multistep doesn't yet implement AWAKENER /
+        # RECOMBINATE / BEAST_* / TAINTED_CHAOS+EXALT / HARVEST_AUGMENT /
+        # AISLING_BENCH. Validating against the full enum let them through
+        # the gate only to raise "Unknown step method" mid-loop per
+        # iteration. Fail loudly at the boundary instead.
+        valid_methods = MULTISTEP_SUPPORTED_METHODS
         for i, step in enumerate(steps):
             raw_method = step.get("method", "chaos")
             method = raw_method.casefold() if isinstance(raw_method, str) else raw_method
             if method not in valid_methods:
                 raise SimDataError(
-                    f"Step {i + 1} method {raw_method!r} unknown. Valid: {sorted(valid_methods)}"
+                    f"Step {i + 1} method {raw_method!r} unknown or unsupported in multistep. "
+                    f"Valid: {sorted(valid_methods)}"
                 )
             step["method"] = method
         produced_rarity: Rarity = Rarity.NORMAL
