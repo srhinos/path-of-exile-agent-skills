@@ -694,6 +694,15 @@ class CraftingEngine:
     }
 
     def apply_metamod(self, item: CraftableItem, metamod_type: str) -> RolledMod:
+        # Validate metamod_type before any state mutation. Without this gate
+        # a typo (e.g. "prefix_cannot_be_changed" missing the trailing 's')
+        # appended a fake metamod with no lock effect while still consuming
+        # a suffix slot and a crafted-mod slot.
+        known = set(self._METAMOD_LOCKS) | set(self._METAMOD_BLOCKED_TAGS)
+        if metamod_type not in known:
+            raise ValueError(
+                f"Unknown metamod {metamod_type!r}; must be one of {sorted(known)}"
+            )
         self._check_craftable(item)
         if item.open_suffixes <= 0:
             raise ValueError("No open suffix slots for metamod")
@@ -714,8 +723,7 @@ class CraftingEngine:
         # blocked tags onto the item lets _build_mod_pool consult them.
         blocked = self._METAMOD_BLOCKED_TAGS.get(metamod_type)
         if blocked:
-            existing = getattr(item, "blocked_tags", set()) or set()
-            item.blocked_tags = existing | blocked
+            item.blocked_tags = item.blocked_tags | blocked
 
         rolled = RolledMod(
             mod_id=f"metamod_{metamod_type}",

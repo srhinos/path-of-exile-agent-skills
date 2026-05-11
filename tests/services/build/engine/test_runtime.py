@@ -176,9 +176,11 @@ class TestPoBEngineInit:
 
 class TestRequireLua:
     def test_raises_when_lua_is_none(self):
+        from poe.exceptions import EngineNotAvailableError
+
         engine = PoBEngine.__new__(PoBEngine)
         engine.lua = None
-        with pytest.raises(RuntimeError, match="not initialized"):
+        with pytest.raises(EngineNotAvailableError, match="not initialized"):
             engine._require_lua()
 
     def test_returns_lua_when_set(self):
@@ -202,6 +204,8 @@ class TestPoBEngineInitMethod:
         mock_lua_mod.LuaRuntime.return_value = mock_lua
         mock_globals = {}
         mock_lua.globals.return_value = mock_globals
+        # init() now polls promptMsg after callbacks; return nil-equivalent.
+        mock_lua.eval.return_value = None
 
         engine = PoBEngine(pob_path=str(tmp_path))
         with (
@@ -224,6 +228,7 @@ class TestPoBEngineInitMethod:
         mock_lua = MagicMock()
         mock_lua_mod.LuaRuntime.return_value = mock_lua
         mock_lua.globals.return_value = {}
+        mock_lua.eval.return_value = None
 
         engine = PoBEngine(pob_path=str(tmp_path))
         with (
@@ -248,6 +253,7 @@ class TestPoBEngineInitMethod:
         mock_lua = MagicMock()
         mock_lua_mod.LuaRuntime.return_value = mock_lua
         mock_lua.globals.return_value = {}
+        mock_lua.eval.return_value = None
 
         engine = PoBEngine(pob_path=str(tmp_path))
         with (
@@ -270,6 +276,7 @@ class TestPoBEngineInitMethod:
         mock_lua = MagicMock()
         mock_lua_mod.LuaRuntime.return_value = mock_lua
         mock_lua.globals.return_value = {}
+        mock_lua.eval.return_value = None
 
         engine = PoBEngine(pob_path=str(tmp_path))
         with (
@@ -309,22 +316,27 @@ class TestPoBEngineInitMethod:
 
 
 class TestCheckInitError:
-    def test_returns_none_when_no_error(self):
+    def test_returns_none_when_no_error(self, tmp_path):
         engine = PoBEngine.__new__(PoBEngine)
         engine.lua = MagicMock()
         engine.lua.eval.return_value = None
+        engine.pob_path = str(tmp_path)
         assert engine._check_init_error() is None
 
-    def test_returns_message_when_error(self):
+    def test_returns_message_when_error(self, tmp_path):
         engine = PoBEngine.__new__(PoBEngine)
         engine.lua = MagicMock()
         engine.lua.eval.return_value = "Something went wrong"
+        engine.pob_path = str(tmp_path)
         assert engine._check_init_error() == "Something went wrong"
 
-    def test_returns_none_on_exception(self):
+    def test_returns_none_on_exception(self, tmp_path):
+        from poe.services.build.engine.runtime import LuaError
+
         engine = PoBEngine.__new__(PoBEngine)
         engine.lua = MagicMock()
-        engine.lua.eval.side_effect = RuntimeError("lua error")
+        engine.lua.eval.side_effect = LuaError("lua error")
+        engine.pob_path = str(tmp_path)
         assert engine._check_init_error() is None
 
 

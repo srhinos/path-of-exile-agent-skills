@@ -10,6 +10,7 @@ from xml.etree.ElementTree import ParseError as XMLParseError
 
 from defusedxml import ElementTree as SafeET
 
+from poe.exceptions import EngineNotAvailableError
 from poe.paths import get_pob_path, resolve_build_file
 from poe.services.build.constants import LUA_TABLE_MAX_DEPTH, LUA_TABLE_MAX_KEYS
 from poe.services.build.engine.stubs import register_stubs
@@ -37,6 +38,18 @@ def _pob_cwd(pob_path: str):
 
 if TYPE_CHECKING:
     from lupa import LuaRuntime
+
+# lupa.LuaError is the type raised by lua.eval / lua.execute on Lua-side
+# errors (syntax, runtime, type confusion). It inherits directly from
+# Exception, NOT RuntimeError — so `except RuntimeError` clauses silently
+# pass it through as a raw Python traceback. Import the concrete class so
+# service-layer catches can translate it to EngineNotAvailableError.
+try:
+    from lupa import LuaError
+except ImportError:
+
+    class LuaError(Exception):  # type: ignore[no-redef]
+        """Fallback when lupa is not installed."""
 
 try:
     import lupa.luajit21 as _lua_mod
@@ -70,7 +83,7 @@ class PoBEngine:
 
     def _require_lua(self) -> LuaRuntime:
         if self.lua is None:
-            raise RuntimeError("Engine not initialized — call init() first")
+            raise EngineNotAvailableError("Engine not initialized — call init() first")
         return self.lua
 
     def init(self) -> None:
@@ -106,15 +119,31 @@ class PoBEngine:
             self.lua.execute("runCallback('OnInit')")
             self.lua.execute("runCallback('OnFrame')")
 
+            # Poll mainObject.promptMsg after init callbacks. Without this,
+            # any error PoB stored during data-file load (missing data,
+            # bad mod table) would not surface until the next operation,
+            # making _initialized=True a lie about engine readiness.
+            err = self._check_init_error_locked()
+            if err:
+                raise EngineNotAvailableError(f"PoB init failed: {err}")
             self._initialized = True
 
-    def _check_init_error(self) -> str | None:
+    def _check_init_error_locked(self) -> str | None:
+        """Read promptMsg with the caller already inside `_pob_cwd`."""
         try:
             msg = self._require_lua().eval("mainObject and mainObject.promptMsg or nil")
-        except (RuntimeError, AttributeError):
+        except (LuaError, AttributeError):
             return None
         else:
             return str(msg) if msg else None
+
+    def _check_init_error(self) -> str | None:
+        # lupa.LuaRuntime is not thread-safe; serialize all Lua interaction
+        # under the same chdir lock the other methods use, otherwise this
+        # eval can race with concurrent execute/eval from another thread
+        # (pytest-xdist, future MCP server).
+        with _pob_cwd(self.pob_path):
+            return self._check_init_error_locked()
 
     def load_build(self, build_name: str) -> dict:
         if not self._initialized:

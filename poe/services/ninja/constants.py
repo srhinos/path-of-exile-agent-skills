@@ -139,6 +139,12 @@ NINJA_ENDPOINTS = {
 SIGNED_INT64_MAX = 0x7FFFFFFFFFFFFFFF
 UNSIGNED_INT64_OVERFLOW = 0x10000000000000000
 
+# A protobuf int64 varint is at most 10 bytes; each byte contributes 7
+# bits of payload. shift starts at 0 and increments by 7 per continuation
+# byte, so a tenth payload byte puts shift at 63 and the eleventh (which
+# the spec forbids) would push shift past this ceiling.
+VARINT_MAX_SHIFT_BITS = 70
+
 WIRE_VARINT = 0
 WIRE_64BIT = 1
 WIRE_LENGTH_DELIMITED = 2

@@ -5,6 +5,7 @@ import struct
 from poe.services.ninja.constants import (
     SIGNED_INT64_MAX,
     UNSIGNED_INT64_OVERFLOW,
+    VARINT_MAX_SHIFT_BITS,
     WIRE_32BIT,
     WIRE_32BIT_LEN,
     WIRE_64BIT,
@@ -40,6 +41,14 @@ def decode_varint(buf: bytes, pos: int) -> tuple[int, int]:
                 result -= UNSIGNED_INT64_OVERFLOW
             return result, pos
         shift += 7
+        # Protobuf int64 spec caps a varint at 10 bytes (10 * 7 = 70 bits).
+        # Without this cap an adversarial payload of continuation-bit-set
+        # bytes drives shift unbounded and `result` grows arbitrarily large
+        # — CPU/memory DoS shape called out in round 3.
+        if shift >= VARINT_MAX_SHIFT_BITS:
+            raise ProtobufDecodeError(
+                f"varint at offset {start} exceeds 10 bytes (max int64 varint length)"
+            )
     # Ran off the end mid-varint — payload is truncated.
     raise ProtobufDecodeError(f"truncated varint at offset {start}: buffer ends mid-encoding")
 
@@ -57,6 +66,16 @@ def decode_fields(buf: bytes) -> list[tuple[int, int, object]]:
             fields.append((field_number, wire_type, value))
         elif wire_type == WIRE_LENGTH_DELIMITED:
             length, pos = decode_varint(buf, pos)
+            # `decode_varint` sign-adjusts values >2^63 to negative ints.
+            # A negative length passes `pos + length > len(buf)` (since
+            # adding a negative number stays <= len(buf)), then the slice
+            # is empty and `pos += length` rewinds — driving subsequent
+            # decode iterations on garbage data. Reject explicitly.
+            if length < 0:
+                raise ProtobufDecodeError(
+                    f"length-delimited field {field_number}: "
+                    f"length={length} interpreted as negative"
+                )
             if pos + length > len(buf):
                 raise ProtobufDecodeError(
                     f"truncated length-delimited field {field_number}: "

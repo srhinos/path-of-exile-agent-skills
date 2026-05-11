@@ -18,6 +18,7 @@ from poe.models.ninja.discovery import (
 )
 from poe.services.ninja import cache as ninja_cache
 from poe.services.ninja.constants import NINJA_ENDPOINTS
+from poe.services.ninja.validators import normalize_game
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
@@ -171,6 +172,7 @@ class DiscoveryService:
             return Poe2IndexState()
 
     def get_build_index_state(self, *, game: str = "poe1") -> BuildIndexState:
+        game = normalize_game(game)
         key = f"{game}_build_index_state"
         raw = self._fetch_cached_json(key, NINJA_ENDPOINTS[key])
         sanitized = _sanitize_build_index(_sanitize_leagues(_convert_keys(raw)))
@@ -192,6 +194,7 @@ class DiscoveryService:
             return AtlasTreeIndexState()
 
     def get_current_league(self, *, game: str = "poe1") -> LeagueInfo | None:
+        game = normalize_game(game)
         state = self.get_poe2_index_state() if game == "poe2" else self.get_poe1_index_state()
 
         for league in state.economy_leagues:
@@ -202,6 +205,7 @@ class DiscoveryService:
     def get_current_snapshot(
         self, *, game: str = "poe1", snapshot_type: str = "exp"
     ) -> Poe1Snapshot | Poe2Snapshot | None:
+        game = normalize_game(game)
         if game == "poe2":
             state = self.get_poe2_index_state()
             return state.snapshot_versions[0] if state.snapshot_versions else None
@@ -213,6 +217,7 @@ class DiscoveryService:
         return state.snapshot_versions[0] if state.snapshot_versions else None
 
     def validate_league(self, league_name: str, *, game: str = "poe1") -> bool:
+        game = normalize_game(game)
         state = self.get_poe2_index_state() if game == "poe2" else self.get_poe1_index_state()
 
         all_leagues = state.economy_leagues + state.old_economy_leagues
