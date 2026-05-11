@@ -49,13 +49,20 @@ def render(data: Any, *, json_mode: bool = False) -> None:
 def _format_json(data: Any) -> str:
     if isinstance(data, BaseModel):
         return data.model_dump_json(indent=2, exclude_none=True)
+    # `allow_nan=False` so any inf/NaN slipping through service-layer
+    # finite-validators raises rather than emitting non-RFC `Infinity`/
+    # `NaN` tokens that external JSON consumers reject. `default=str`
+    # handles Path/Enum/datetime/Decimal/set that callers may pass
+    # without going through a Pydantic model.
     if isinstance(data, list) and data and isinstance(data[0], BaseModel):
         return json.dumps(
             [item.model_dump(exclude_none=True) for item in data],
             indent=2,
             ensure_ascii=False,
+            allow_nan=False,
+            default=str,
         )
-    return json.dumps(data, indent=2, ensure_ascii=False)
+    return json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False, default=str)
 
 
 def _format_human(data: Any) -> str:

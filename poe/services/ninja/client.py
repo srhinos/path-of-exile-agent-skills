@@ -48,7 +48,11 @@ class RateLimiter:
         cutoff = now - self._window
         self._timestamps = [t for t in self._timestamps if t > cutoff]
         if len(self._timestamps) >= self._max_requests:
-            sleep_for = self._timestamps[0] - cutoff
+            # Floor the sleep at 0 — wall-clock jumps backwards (NTP step,
+            # DST shifts on naive clocks) produce a negative `sleep_for`,
+            # and `time.sleep(<0)` raises ValueError → unhandled traceback
+            # out of _request.
+            sleep_for = max(0.0, self._timestamps[0] - cutoff)
             if hasattr(self._clock, "sleep"):
                 self._clock.sleep(sleep_for)
             else:
@@ -129,8 +133,17 @@ class NinjaClient:
                 retries_429 += 1
                 if retries_429 > MAX_429_RETRIES:
                     raise RateLimitError(f"Rate limited on {path} after {MAX_429_RETRIES} retries")
-                delay = RETRY_BASE_DELAY * (2 ** (retries_429 - 1)) + random()
-                time.sleep(delay)
+                # Respect the server's Retry-After (seconds, per RFC 7231)
+                # as a floor under the exponential backoff. Without this
+                # the client could retry sooner than the server requested
+                # and trigger an IP-block escalation.
+                backoff = RETRY_BASE_DELAY * (2 ** (retries_429 - 1)) + random()
+                retry_after_raw = resp.headers.get("retry-after", "")
+                try:
+                    retry_after = float(retry_after_raw) if retry_after_raw else 0.0
+                except ValueError:
+                    retry_after = 0.0
+                time.sleep(max(backoff, retry_after))
                 continue
 
             # Retry transient 5xx errors (Cloudflare-fronted poe.ninja routinely

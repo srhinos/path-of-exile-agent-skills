@@ -18,6 +18,7 @@ from poe.models.ninja.builds import (
 from poe.models.ninja.protobuf import Dictionary, NinjaSearchResult
 from poe.services.ninja import cache as ninja_cache
 from poe.services.ninja.errors import NinjaError
+from poe.services.ninja.protobuf import ProtobufDecodeError
 from poe.services.ninja.validators import normalize_game
 
 if TYPE_CHECKING:
@@ -232,14 +233,39 @@ class BuildsService:
                 if ninja_cache.is_fresh(self._cache_dir, cache_key, "dictionary")
                 else None
             )
-            if cached_bytes:
-                d = Dictionary.from_protobuf(cached_bytes)
-            else:
-                raw = self._client.get_protobuf(f"/{prefix}/api/builds/dictionary/{ref.hash}")
-                ninja_cache.write_cache_bytes(self._cache_dir, cache_key, raw, "dictionary")
-                d = Dictionary.from_protobuf(raw)
+            d = self._decode_dictionary(prefix, ref.hash, cache_key, cached_bytes)
             resolved[ref.id] = d.values
         return resolved
+
+    def _decode_dictionary(
+        self,
+        prefix: str,
+        ref_hash: str,
+        cache_key: str,
+        cached_bytes: bytes | None,
+    ) -> Dictionary:
+        # A truncated/corrupted dictionary .bin (interrupted write, disk
+        # corruption) raises ProtobufDecodeError. Without this catch the
+        # exception bubbles past callers and every subsequent search call
+        # for 30 days fails on the same stale cache file. On decode error,
+        # delete the cache file and refetch.
+        if cached_bytes:
+            try:
+                return Dictionary.from_protobuf(cached_bytes)
+            except ProtobufDecodeError as e:
+                _logger.warning(
+                    "discarding corrupted dictionary cache %s: %s", cache_key, e
+                )
+                ninja_cache.invalidate_one(self._cache_dir, cache_key, "dictionary")
+        raw = self._client.get_protobuf(f"/{prefix}/api/builds/dictionary/{ref_hash}")
+        try:
+            d = Dictionary.from_protobuf(raw)
+        except ProtobufDecodeError as e:
+            raise NinjaError(
+                f"poe.ninja returned corrupt dictionary protobuf for {ref_hash}: {e}"
+            ) from e
+        ninja_cache.write_cache_bytes(self._cache_dir, cache_key, raw, "dictionary")
+        return d
 
 
 def _build_search_params(

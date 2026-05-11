@@ -27,7 +27,10 @@ def validate_build_name(name: str) -> None:
     stem = name.removesuffix(".xml")
     if any(c in stem for c in _WINDOWS_INVALID_CHARS):
         raise BuildValidationError(f"Build name contains invalid characters: {name!r}")
-    if stem.upper() in _WINDOWS_RESERVED:
+    # Windows treats `CON.foo.txt`, `NUL.log`, etc. as the underlying
+    # device, not a regular file — the basename-before-the-first-dot is
+    # what matters, not the whole stem. Earlier check missed dotted forms.
+    if stem.split(".", 1)[0].upper() in _WINDOWS_RESERVED:
         raise BuildValidationError(f"Build name uses a reserved word: {name!r}")
 
 
