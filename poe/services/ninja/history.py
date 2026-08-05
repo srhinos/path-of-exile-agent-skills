@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from poe.models.ninja.history import (
+    CurrencyDetailsResponse,
     CurrencyHistoryResponse,
     HistoryPoint,
     PriceHistory,
@@ -14,6 +19,10 @@ from poe.services.ninja.constants import (
     NINJA_ENDPOINTS,
     NINJA_POE1_CURRENCY_STASH_TYPES,
 )
+
+_logger = logging.getLogger("poe.ninja.history")
+
+CHAOS_PAIR_ID = "chaos"
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
@@ -157,29 +166,94 @@ class HistoryService:
         self._cache_dir = base_dir or ninja_cache.cache_dir()
 
     def _fetch_cached(self, cache_key: str, path: str, params: dict[str, str]) -> Any:
-        if ninja_cache.is_fresh(self._cache_dir, cache_key, "history"):
-            cached = ninja_cache.read_cache(self._cache_dir, cache_key)
+        if not self._client.no_cache and ninja_cache.is_fresh(
+            self._cache_dir, cache_key, "history"
+        ):
+            cached = ninja_cache.read_cache(self._cache_dir, cache_key, "history")
             if cached is not None:
                 return cached
         data = self._client.get_json(path, params=params)
-        ninja_cache.write_cache(self._cache_dir, cache_key, data)
+        ninja_cache.write_cache(self._cache_dir, cache_key, data, "history")
         return data
 
     def get_currency_history(
         self,
         league: str,
-        currency_id: int,
+        currency_slug: str,
         currency_type: str = "Currency",
     ) -> CurrencyHistoryResponse:
-        cache_key = f"history_currency_{league}_{currency_type}_{currency_id}"
+        cache_key = f"history_currency_{league}_{currency_type}_{currency_slug}"
         path = NINJA_ENDPOINTS["currency_history"]
         params = {
             "league": league,
             "type": currency_type,
-            "currencyId": str(currency_id),
+            "id": currency_slug,
         }
         raw = self._fetch_cached(cache_key, path, params)
-        return CurrencyHistoryResponse.model_validate(raw)
+        try:
+            details = CurrencyDetailsResponse.model_validate(raw)
+        except ValidationError as e:
+            _logger.warning(
+                "currency-history schema mismatch (league=%r slug=%r): %s — returning empty",
+                league,
+                currency_slug,
+                e,
+            )
+            return CurrencyHistoryResponse()
+        chaos_pair = next((p for p in details.pairs if p.id == CHAOS_PAIR_ID), None)
+        if chaos_pair is None:
+            return CurrencyHistoryResponse()
+        now = datetime.now(UTC)
+
+        def _to_history_point(entry: object) -> HistoryPoint | None:
+            try:
+                ts = datetime.fromisoformat(entry.timestamp)
+            except (ValueError, TypeError):
+                return None
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            # int(NaN) and int(inf) raise ValueError/OverflowError; rate
+            # arithmetic on inf/nan propagates downstream into TrendAnalysis.
+            # Drop entries with non-finite numerics so a single bad row
+            # doesn't take down the whole history fetch.
+            try:
+                volume = entry.volume_primary_value
+                rate = entry.rate
+            except AttributeError:
+                return None
+            if not math.isfinite(volume) or not math.isfinite(rate):
+                _logger.warning(
+                    "history entry has non-finite values, skipping: volume=%r rate=%r",
+                    volume,
+                    rate,
+                )
+                return None
+            # Negative volume on a "count" reading is nonsense; clamp to 0
+            # rather than feeding poisoned negatives into trend analysis.
+            return HistoryPoint(
+                count=max(int(volume), 0),
+                value=rate,
+                days_ago=(now - ts).days,
+            )
+
+        receive_points = [
+            p for entry in chaos_pair.history if (p := _to_history_point(entry)) is not None
+        ]
+        # The exchange rate is "1 of this currency = N chaos". The pay direction
+        # ("how many of this currency for 1 chaos") is 1/rate. Tiny positive
+        # rates make 1/rate overflow to inf, which the finite validator rejects
+        # — drop the offending point rather than crash the whole response.
+        pay_points: list[HistoryPoint] = []
+        for p in receive_points:
+            inv = 1.0 / p.value if p.value else 0.0
+            if not math.isfinite(inv):
+                _logger.warning("pay-point inverse non-finite (rate=%r); skipping", p.value)
+                continue
+            pay_points.append(HistoryPoint(count=p.count, value=inv, days_ago=p.days_ago))
+        return CurrencyHistoryResponse(
+            receive_currency_graph_data=receive_points,
+            pay_currency_graph_data=pay_points,
+        )
 
     def get_item_history(
         self,
@@ -192,12 +266,22 @@ class HistoryService:
         params = {
             "league": league,
             "type": item_type,
-            "itemId": str(item_id),
+            "id": str(item_id),
         }
         raw = self._fetch_cached(cache_key, path, params)
-        if isinstance(raw, list):
-            return [HistoryPoint.model_validate(p) for p in raw]
-        return []
+        if not isinstance(raw, list):
+            return []
+        # Per-row try/except so a single non-finite value doesn't take down
+        # the whole history series.
+        points: list[HistoryPoint] = []
+        for p in raw:
+            try:
+                points.append(HistoryPoint.model_validate(p))
+            except ValidationError as e:
+                _logger.warning(
+                    "skipping item-history row league=%r item=%s: %s", league, item_id, e
+                )
+        return points
 
     def get_price_history(
         self,
@@ -220,14 +304,14 @@ class HistoryService:
         language: str = "en",
     ) -> PriceHistory | None:
         overview = self._economy.get_currency_overview(league, item_type, language=language)
-        detail = next(
-            (d for d in overview.currency_details if d.name.lower() == item_name.lower()),
+        line = next(
+            (ln for ln in overview.lines if ln.currency_type_name.lower() == item_name.lower()),
             None,
         )
-        if not detail:
+        if not line or not line.details_id:
             return None
 
-        resp = self.get_currency_history(league, detail.id, item_type)
+        resp = self.get_currency_history(league, line.details_id, item_type)
         points = resp.receive_currency_graph_data
         analysis = analyze_history(points)
 

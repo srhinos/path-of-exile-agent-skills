@@ -36,12 +36,13 @@ def _check_resistances(get: Callable, issues: list[ValidationIssue]) -> None:
             issues.append(
                 _issue("critical", "resistances", f"{res_name} resistance is {val}% (cap is 75%)")
             )
-        if val is not None and val > OVERCAPPED_RES_THRESHOLD:
+        overcap = get(f"{res_name}ResistOverCap")
+        if overcap is not None and overcap > OVERCAPPED_RES_THRESHOLD:
             issues.append(
                 _issue(
                     "medium",
                     "resistances",
-                    f"{res_name} resistance is overcapped at {val}% (wasted stats)",
+                    f"{res_name} resistance is overcapped by {overcap}% (wasted stats)",
                 )
             )
     chaos_res = get("ChaosResist")
@@ -130,8 +131,8 @@ def _check_combat(get: Callable, issues: list[ValidationIssue]) -> None:
                 f"Hit chance is {hit_chance:.0f}% (consider accuracy improvements)",
             )
         )
-    mana_cost = get("ManaCost") or 0
-    mana_regen = get("ManaRegen") or 0
+    mana_cost = get("ManaPerSecondCost") or 0
+    mana_regen = get("ManaRegenRecovery") or 0
     if mana_cost > 0 and mana_regen > 0 and mana_cost > mana_regen:
         issues.append(
             _issue(
@@ -140,7 +141,7 @@ def _check_combat(get: Callable, issues: list[ValidationIssue]) -> None:
                 f"Mana cost ({mana_cost:.0f}/s) exceeds regen ({mana_regen:.0f}/s)",
             )
         )
-    move_speed = get("MovementSpeedMod")
+    move_speed = get("EffectiveMovementSpeedMod")
     if move_speed is not None and move_speed <= MOVE_SPEED_LOW:
         issues.append(
             _issue("medium", "movement", f"Movement speed modifier is {move_speed:.0f}% (no bonus)")

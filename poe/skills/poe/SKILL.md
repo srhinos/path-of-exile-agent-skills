@@ -5,7 +5,7 @@ description: Use when the user asks about their Path of Exile build, Path of Bui
 
 # Path of Exile CLI Toolkit
 
-You have access to the `poe` CLI — a toolkit for PoE character optimization. All commands output JSON by default. Add `--human` for readable output. Use Bash to run commands.
+You have access to the `poe` CLI — a toolkit for PoE character optimization. All commands output human-readable text by default. Add `--json` for machine-readable JSON. Use Bash to run commands.
 
 ## Domains
 
@@ -27,7 +27,7 @@ You have access to the `poe` CLI — a toolkit for PoE character optimization. A
 | Compare two local builds | Build | `poe build compare` |
 | "What mods can roll on X?" | Sim | `poe sim mods "<base>"` |
 | "Best way to craft X?" | Sim | `poe sim suggest` / `poe sim compare` |
-| Quick build snapshot | Build | `poe build summary` |
+| Quick build snapshot | Build | `poe build summary` (includes main skill name) |
 | General PoE question | — | Your PoE knowledge — read `mechanics.md` for reference |
 
 ## Deep Dives

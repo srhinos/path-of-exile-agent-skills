@@ -1,0 +1,16 @@
+name: set-build-properties
+category: local-build
+goal: >
+  Create a new Shadow Assassin build at level 95. Set the bandit to Alira.
+  Set the pantheon to Brine King major and Shakari minor.
+  Then verify all the settings stuck by checking the summary.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build create"
+    - "poe build set-bandit"
+    - "poe build set-pantheon"
+    - "poe build summary"
+  must_not_find:
+    - "traceback"
+  blocked: false

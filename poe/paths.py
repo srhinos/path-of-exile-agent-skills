@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from poe.constants import CLAUDE_SUBFOLDER, POB_XML_EXTENSION
+from poe.exceptions import BuildNotFoundError, BuildValidationError
 
 _WINDOWS_INVALID_CHARS = frozenset(':*?"<>|')
 _WINDOWS_RESERVED = frozenset(
@@ -20,30 +21,43 @@ _WINDOWS_RESERVED = frozenset(
 
 def validate_build_name(name: str) -> None:
     if not name or not name.strip():
-        raise ValueError(f"Invalid build name: {name!r}")
+        raise BuildValidationError(f"Invalid build name: {name!r}")
     if ".." in name or "\\" in name or "/" in name:
-        raise ValueError(f"Invalid build name: {name!r}")
+        raise BuildValidationError(f"Invalid build name: {name!r}")
     stem = name.removesuffix(".xml")
     if any(c in stem for c in _WINDOWS_INVALID_CHARS):
-        raise ValueError(f"Build name contains invalid characters: {name!r}")
-    if stem.upper() in _WINDOWS_RESERVED:
-        raise ValueError(f"Build name uses a reserved word: {name!r}")
+        raise BuildValidationError(f"Build name contains invalid characters: {name!r}")
+    # Windows treats `CON.foo.txt`, `NUL.log`, etc. as the underlying
+    # device, not a regular file — the basename-before-the-first-dot is
+    # what matters, not the whole stem. Earlier check missed dotted forms.
+    if stem.split(".", 1)[0].upper() in _WINDOWS_RESERVED:
+        raise BuildValidationError(f"Build name uses a reserved word: {name!r}")
 
 
 def get_pob_path() -> Path:
+    # Verify Launch.lua exists rather than just .exists() — a misconfigured
+    # POB_PATH pointing at /tmp or an unrelated directory previously slipped
+    # past, then PoBEngine.init() crashed mid-Lua-load with a misleading
+    # "missing Launch.lua" instead of a clear "POB_PATH is wrong".
     env = os.environ.get("POB_PATH")
     if env:
         p = Path(env)
-        if p.exists():
+        if p.is_dir() and (p / "Launch.lua").is_file():
             return p
+        if p.exists():
+            raise BuildNotFoundError(
+                f"POB_PATH={env!r} does not contain Launch.lua. "
+                "Set POB_PATH to the Path of Building installation directory "
+                "(the folder containing Launch.lua)."
+            )
 
     appdata = os.environ.get("APPDATA", "")
     if appdata:
         p = Path(appdata) / "Path of Building Community"
-        if p.exists():
+        if p.is_dir() and (p / "Launch.lua").is_file():
             return p
 
-    raise FileNotFoundError(
+    raise BuildNotFoundError(
         "Could not find Path of Building Community installation. "
         "Set the POB_PATH environment variable to the installation directory."
     )
@@ -64,7 +78,7 @@ def get_builds_path() -> Path:
     if onedrive.exists():
         return onedrive
 
-    raise FileNotFoundError(
+    raise BuildNotFoundError(
         "Could not find builds directory. Set the POB_BUILDS_PATH environment variable."
     )
 
@@ -93,7 +107,7 @@ def resolve_build_file(name: str) -> Path:
 
     path = builds_path / name
     if not path.resolve().is_relative_to(builds_path.resolve()):
-        raise ValueError(f"Invalid build name: {name!r}")
+        raise BuildValidationError(f"Invalid build name: {name!r}")
     if path.exists():
         return path
 
@@ -101,10 +115,29 @@ def resolve_build_file(name: str) -> Path:
         if f.name.casefold() == name.casefold():
             return f
 
-    raise FileNotFoundError(f"Build file not found: {name}")
+    stem = name.removesuffix(POB_XML_EXTENSION).casefold()
+    prefix_matches = [
+        f for f in builds_path.rglob(f"*{POB_XML_EXTENSION}") if f.stem.casefold().startswith(stem)
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(prefix_matches) > 1:
+        names = [f.stem for f in prefix_matches]
+        raise BuildNotFoundError(f"Ambiguous prefix {name!r}: matches {names}")
+
+    raise BuildNotFoundError(f"Build file not found: {name}")
+
+
+def validate_file_path(file_path: str) -> None:
+    parts = Path(file_path).parts
+    if ".." in parts:
+        raise BuildValidationError(
+            f"Invalid file path: {file_path!r} contains '..' (path traversal)"
+        )
 
 
 def resolve_or_file(name: str, file_path: str | None) -> Path:
     if file_path:
+        validate_file_path(file_path)
         return Path(file_path)
     return resolve_build_file(name)

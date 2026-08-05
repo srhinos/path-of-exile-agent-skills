@@ -1,0 +1,12 @@
+name: scarab-prices
+category: ninja
+goal: >
+  What are the most valuable scarabs right now? I want to know which ones
+  to sell vs use. Show me the top 10 by price.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja price list"
+  must_not_find:
+    - "traceback"
+  blocked: false

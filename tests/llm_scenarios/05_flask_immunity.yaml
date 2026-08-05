@@ -1,0 +1,12 @@
+name: flask-immunity-check
+category: local-build
+goal: >
+  Check the flask setup on any build that has flasks equipped. Do I have
+  freeze immunity? Bleed immunity? What ailment immunities am I missing?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build flasks list"
+  must_not_find:
+    - "traceback"
+  blocked: false

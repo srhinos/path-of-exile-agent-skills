@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from poe.models.build.items import (
     EquippedItem,
     Item,
     ItemMod,
     ItemSetList,
     ItemSetSummary,
+    ItemSlot,
+    ItemSummary,
 )
+from poe.types import Influence, Rarity
 
 
 class TestEquippedItem:
@@ -20,8 +25,8 @@ class TestEquippedItem:
             base_type="Hubris Circlet",
             rarity="RARE",
             energy_shield=200,
-            prefix_slots=["IncreasedLife6", "None", "None"],
-            suffix_slots=["ColdResistance5", "None", "None"],
+            prefix_slots=["IncreasedLife6", None, None],
+            suffix_slots=["ColdResistance5", None, None],
         )
         equipped = EquippedItem(slot="Helmet", **item.model_dump())
         assert equipped.slot == "Helmet"
@@ -34,8 +39,8 @@ class TestEquippedItem:
             id=1,
             text="",
             rarity="RARE",
-            prefix_slots=["IncreasedLife6", "None", "None"],
-            suffix_slots=["ColdResistance5", "None", "None"],
+            prefix_slots=["IncreasedLife6", None, None],
+            suffix_slots=["ColdResistance5", None, None],
         )
         equipped = EquippedItem(slot="Helmet", **item.model_dump())
         assert equipped.open_prefixes == 2
@@ -76,7 +81,7 @@ class TestItemComputedFields:
         item = Item(
             id=1,
             text="",
-            prefix_slots=["None", "None", "None"],
+            prefix_slots=[None, None, None],
         )
         assert item.open_prefixes == 3
         assert item.filled_prefixes == 0
@@ -125,3 +130,113 @@ class TestItemSetList:
 
         restored = ItemSetList.model_validate(data)
         assert restored == set_list
+
+
+# ── Pydantic semantic invariants for items (Pattern 5) ──────────────────────
+
+
+class TestItemSemanticInvariants:
+    def test_rarity_rejects_unknown_string(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", rarity="MYTHIC_RARITY")
+
+    @pytest.mark.parametrize("valid_rarity", [r.value for r in Rarity])
+    def test_rarity_accepts_canonical_values(self, valid_rarity):
+        item = Item(id=1, text="", rarity=valid_rarity)
+        assert item.rarity == valid_rarity
+
+    def test_influences_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", influences=["NotAnInfluence"])
+
+    @pytest.mark.parametrize("inf", [i.value for i in Influence])
+    def test_each_canonical_influence_accepted(self, inf):
+        item = Item(id=1, text="", influences=[inf])
+        assert inf in item.influences
+
+    def test_quality_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", quality=-5)
+
+    def test_quality_rejects_above_30(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", quality=999)
+
+    def test_armour_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", armour=-100)
+
+    def test_evasion_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", evasion=-100)
+
+    def test_energy_shield_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", energy_shield=-100)
+
+    def test_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=-1, text="")
+
+    def test_id_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=0, text="")
+
+    def test_item_level_rejects_above_100(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", item_level=999)
+
+    def test_level_req_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Item(id=1, text="", level_req=-5)
+
+    def test_computed_field_open_prefixes_invariant_with_filled(self):
+        item = Item(
+            id=1,
+            text="",
+            prefix_slots=["a", None, "b", None, None],
+        )
+        assert item.open_prefixes + item.filled_prefixes == len(item.prefix_slots)
+
+
+class TestItemSlotInvariants:
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSlot(name="", item_id=1)
+
+    def test_item_id_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSlot(name="Helmet", item_id=0)
+
+    def test_item_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSlot(name="Helmet", item_id=-1)
+
+    def test_valid_slot_constructs(self):
+        slot = ItemSlot(name="Helmet", item_id=5)
+        assert slot.name == "Helmet"
+        assert slot.item_id == 5
+
+
+class TestItemSummaryInvariants:
+    def test_rarity_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSummary(slot="Helmet", name="x", base_type="y", rarity="weirdrarity")
+
+    def test_quality_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSummary(slot="Helmet", name="x", base_type="y", rarity="RARE", quality=-1)
+
+
+class TestItemModSemanticInvariants:
+    def test_cannot_be_prefix_and_suffix(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemMod(text="x", is_prefix=True, is_suffix=True)
+
+    def test_range_value_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemMod(text="x", range_value=-0.5)
+
+    def test_range_value_rejects_above_one(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemMod(text="x", range_value=1.5)

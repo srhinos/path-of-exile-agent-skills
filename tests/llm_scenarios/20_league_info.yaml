@@ -1,0 +1,12 @@
+name: league-info
+category: ninja
+goal: >
+  What leagues are currently active on poe.ninja? Show me both PoE1 and
+  PoE2 leagues.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja league-info"
+  must_not_find:
+    - "traceback"
+  blocked: false

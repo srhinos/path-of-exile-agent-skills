@@ -13,7 +13,7 @@ def _svc() -> FlasksService:
 
 
 @flasks_app.command(name="list")
-def flasks_list(name: str, *, file: str | None = None, human: bool = False) -> None:
+def flasks_list(name: str, *, file: str | None = None, json: bool = False) -> None:
     """List equipped flasks.
 
     Parameters
@@ -22,10 +22,10 @@ def flasks_list(name: str, *, file: str | None = None, human: bool = False) -> N
         Build name or unique prefix.
     file
         Explicit file path.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().list_flasks(name, file_path=file), human=human)
+    _output(_svc().list_flasks(name, file_path=file), json_mode=json)
 
 
 @flasks_app.command(name="add")

@@ -7,6 +7,10 @@ from typing import Any, Self
 import httpx
 
 from poe.services.ninja.constants import (
+    HTTP_CLIENT_ERROR_MIN,
+    HTTP_TOO_MANY_REQUESTS,
+    MAX_5XX_RETRIES,
+    MAX_429_RETRIES,
     NINJA_BASE_URL,
     NINJA_CONNECT_TIMEOUT,
     NINJA_MAX_RESPONSE_BYTES,
@@ -14,17 +18,14 @@ from poe.services.ninja.constants import (
     NINJA_RATE_LIMIT_WINDOW,
     NINJA_READ_TIMEOUT,
     NINJA_USER_AGENT,
+    RETRY_BASE_DELAY,
+    RETRYABLE_5XX,
 )
 from poe.services.ninja.errors import (
     ApiSchemaError,
     NetworkError,
     RateLimitError,
 )
-
-HTTP_TOO_MANY_REQUESTS = 429
-HTTP_CLIENT_ERROR_MIN = 400
-MAX_429_RETRIES = 3
-RETRY_BASE_DELAY = 2.0
 
 
 class RateLimiter:
@@ -47,7 +48,11 @@ class RateLimiter:
         cutoff = now - self._window
         self._timestamps = [t for t in self._timestamps if t > cutoff]
         if len(self._timestamps) >= self._max_requests:
-            sleep_for = self._timestamps[0] - cutoff
+            # Floor the sleep at 0 — wall-clock jumps backwards (NTP step,
+            # DST shifts on naive clocks) produce a negative `sleep_for`,
+            # and `time.sleep(<0)` raises ValueError → unhandled traceback
+            # out of _request.
+            sleep_for = max(0.0, self._timestamps[0] - cutoff)
             if hasattr(self._clock, "sleep"):
                 self._clock.sleep(sleep_for)
             else:
@@ -67,9 +72,11 @@ class NinjaClient:
         base_url: str = NINJA_BASE_URL,
         rate_limiter: RateLimiter | None = None,
         http_client: httpx.Client | None = None,
+        no_cache: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._rate_limiter = rate_limiter or RateLimiter()
+        self.no_cache = no_cache
         self._owns_client = http_client is None
         self._client = http_client or httpx.Client(
             timeout=httpx.Timeout(
@@ -111,7 +118,8 @@ class NinjaClient:
         params: dict[str, str] | None = None,
     ) -> httpx.Response:
         url = self._base_url + path
-        retries = 0
+        retries_429 = 0
+        retries_5xx = 0
         while True:
             self._rate_limiter.acquire()
             try:
@@ -122,10 +130,32 @@ class NinjaClient:
                 raise NetworkError(f"Request to {path} failed: {e}") from e
 
             if resp.status_code == HTTP_TOO_MANY_REQUESTS:
-                retries += 1
-                if retries > MAX_429_RETRIES:
+                retries_429 += 1
+                if retries_429 > MAX_429_RETRIES:
                     raise RateLimitError(f"Rate limited on {path} after {MAX_429_RETRIES} retries")
-                delay = RETRY_BASE_DELAY * (2 ** (retries - 1)) + random()
+                # Respect the server's Retry-After (seconds, per RFC 7231)
+                # as a floor under the exponential backoff. Without this
+                # the client could retry sooner than the server requested
+                # and trigger an IP-block escalation.
+                backoff = RETRY_BASE_DELAY * (2 ** (retries_429 - 1)) + random()
+                retry_after_raw = resp.headers.get("retry-after", "")
+                try:
+                    retry_after = float(retry_after_raw) if retry_after_raw else 0.0
+                except ValueError:
+                    retry_after = 0.0
+                time.sleep(max(backoff, retry_after))
+                continue
+
+            # Retry transient 5xx errors (Cloudflare-fronted poe.ninja routinely
+            # emits 502/503/504 during deploys). Without this loop, the first
+            # transient failure surfaces as a NetworkError to the user.
+            if resp.status_code in RETRYABLE_5XX:
+                retries_5xx += 1
+                if retries_5xx > MAX_5XX_RETRIES:
+                    raise NetworkError(
+                        f"{path} returned HTTP {resp.status_code} after {MAX_5XX_RETRIES} retries"
+                    )
+                delay = RETRY_BASE_DELAY * (2 ** (retries_5xx - 1)) + random()
                 time.sleep(delay)
                 continue
 

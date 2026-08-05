@@ -1,15 +1,45 @@
 from __future__ import annotations
 
+import copy
 import json
+import logging
 import typing
 from pathlib import Path
 
+from poe.exceptions import SimDataError
 from poe.services.repoe.constants import (
+    CURRENCY_PATH_NAMES,
+    ELDRITCH_INFLUENCES,
     ESSENCE_TIER_PREFIXES,
     INFLUENCE_TAG_MAP,
     MAX_RESONATOR_SOCKETS,
+    MOD_DOMAIN_FOR_BASE_DOMAIN,
+    OPT_IN_MOD_DOMAINS,
     RESONATOR_BY_SOCKETS,
+    STAT_TEMPLATE_NON_ALNUM_RE,
+    STAT_TEMPLATE_NUMERIC_RE,
+    STAT_TEMPLATE_PLACEHOLDER_RE,
+    STAT_TEMPLATE_WHITESPACE_RE,
 )
+from poe.services.repoe.sim import BestTier, ModPoolEntry
+
+_logger = logging.getLogger("poe.repoe")
+
+
+def _normalize_stat_template(text: str) -> str:
+    """Reduce a stat-translation template or user query to a comparable key.
+
+    Replaces both `{0}` placeholders and literal numbers with `#` so that
+    "{0} to maximum Life", "+50 to maximum Life", and "+# to maximum Life"
+    collapse to the same form. Strips signs and non-alphanumeric noise so
+    user input with extra punctuation still matches.
+    """
+    s = text.lower()
+    s = STAT_TEMPLATE_PLACEHOLDER_RE.sub("#", s)
+    s = STAT_TEMPLATE_NUMERIC_RE.sub("#", s)
+    s = STAT_TEMPLATE_NON_ALNUM_RE.sub(" ", s)
+    s = STAT_TEMPLATE_WHITESPACE_RE.sub(" ", s)
+    return s.strip()
 
 
 class RepoEData:
@@ -17,10 +47,24 @@ class RepoEData:
         self._data_dir = data_dir or (
             Path(__file__).resolve().parent.parent.parent / "data" / "repoe"
         )
+        self._cache: dict[str, dict | list] = {}
+        self._translation_index: dict[str, set[str]] | None = None
+
+    def snapshot(self) -> RepoEData:
+        clone = copy.copy(self)
+        # Shallow-copy the cache dict so the clone has its own namespace for
+        # lazy loads, but shares the already-loaded (immutable) JSON data.
+        # A deep copy would duplicate the entire dataset and cause OOM under
+        # heavy simulation workloads.
+        object.__setattr__(clone, "_cache", dict(self._cache))
+        object.__setattr__(clone, "_translation_index", self._translation_index)
+        return clone
 
     def _load(self, name: str) -> dict | list:
-        path = self._data_dir / f"{name}.json"
-        return json.loads(path.read_text(encoding="utf-8"))
+        if name not in self._cache:
+            path = self._data_dir / f"{name}.json"
+            self._cache[name] = json.loads(path.read_text(encoding="utf-8"))
+        return self._cache[name]
 
     def _find_base_item(self, name: str, base_items: dict) -> dict | None:
         item = base_items.get(name)
@@ -42,13 +86,66 @@ class RepoEData:
             {**bitem, "name": bname} for bname, bitem in base_items.items() if q in bname.casefold()
         ]
 
+    def _build_translation_index(self) -> dict[str, set[str]]:
+        translations = self._load("stat_translations")
+        index: dict[str, set[str]] = {}
+        if not isinstance(translations, dict):
+            return index
+        for stat_id, value in translations.items():
+            # Pipeline emits list[str] of all sign variants per stat_id.
+            # An older bundled JSON may still carry a single string — handle
+            # both shapes so a half-migrated cache doesn't crash startup.
+            templates: list[str]
+            if isinstance(value, list):
+                templates = [t for t in value if isinstance(t, str)]
+            elif isinstance(value, str):
+                templates = [value]
+            else:
+                continue
+            for template in templates:
+                key = _normalize_stat_template(template)
+                if not key:
+                    continue
+                index.setdefault(key, set()).add(stat_id)
+        return index
+
+    def resolve_stat_ids(self, display: str) -> set[str]:
+        """Look up stat IDs whose display template matches `display`.
+
+        Tries exact normalized-template equality first, then a contains
+        scan ("# to maximum life" contains the user query "maximum life").
+        Returns an empty set when nothing matches — callers should treat
+        that as "no stat-id match" and fall through to mod-name search.
+        """
+        if self._translation_index is None:
+            self._translation_index = self._build_translation_index()
+        query = _normalize_stat_template(display)
+        if not query:
+            return set()
+        exact = self._translation_index.get(query)
+        if exact:
+            return set(exact)
+        # Forward-only contains scan: keep templates that *contain* the
+        # query. The earlier symmetric `query in key or key in query`
+        # form pulled in every short template the query happened to
+        # contain — e.g. "maximum life" matched ~95 stat IDs because
+        # any template whose key was a substring of the query won
+        # acceptance. Restricting to "template contains query" gives
+        # the partial-query UX without the false-positive deluge.
+        matches: set[str] = set()
+        for key, ids in self._translation_index.items():
+            if query in key:
+                matches.update(ids)
+        return matches
+
     def get_mod_pool(
         self,
         base_name: str,
         ilvl: int = 100,
         influences: list[str] | None = None,
         affix_type: str | None = None,
-    ) -> list[dict]:
+        extra_domains: frozenset[str] = frozenset(),
+    ) -> list[ModPoolEntry]:
         base_items = self._load("base_items")
         bitem = self._find_base_item(base_name, base_items)
         if not bitem:
@@ -57,21 +154,65 @@ class RepoEData:
         mods = self._load("mods")
         mod_pool = self._load("mod_pool")
 
+        # Restricted-domain pool: chaos/exalt/alch see only "item" + "crafted"
+        # mods. Fossil sims add "delve"; veiled-chaos / aisling add "unveiled".
+        # For non-item bases (flask, abyss_jewel, affliction_jewel, misc),
+        # the allowed domains come from MOD_DOMAIN_FOR_BASE_DOMAIN — the
+        # earlier hardcoded `{item, crafted}` excluded every flask/jewel mod
+        # and returned 0-mod pools for those bases.
+        base_domain = bitem.get("domain", "item")
+        full_allowed = MOD_DOMAIN_FOR_BASE_DOMAIN.get(base_domain, frozenset({"item", "crafted"}))
+        allowed_mod_domains = (full_allowed - OPT_IN_MOD_DOMAINS) | extra_domains
+
         base_id = bitem["id"]
         mod_ids = mod_pool.get(base_id, [])
         allowed_influences: set[str | None] = {None}
         inf_tags: set[str] = set()
-        inv_influence_map = {v: k for k, v in INFLUENCE_TAG_MAP.items()}
+        # Accept input as either a display name ("Warlord") or a codename
+        # ("adjudicator"), in any case. casefolded → (display, codename).
+        codename_to_display = INFLUENCE_TAG_MAP
+        display_to_codename = {v: k for k, v in INFLUENCE_TAG_MAP.items()}
+        casefold_lookup = {
+            **{k.casefold(): (v, k) for k, v in codename_to_display.items()},
+            **{k.casefold(): (k, v) for k, v in display_to_codename.items()},
+        }
+        eldritch_casefold = {e.casefold() for e in ELDRITCH_INFLUENCES}
         for inf in influences or []:
-            allowed_influences.add(inf)
-            codename = inv_influence_map.get(inf, inf.casefold())
+            key = inf.casefold()
+            if key in eldritch_casefold:
+                # Eldritch influences are added via eldritch implicits, not
+                # spawn-weight tags; they have no entry in INFLUENCE_TAG_MAP.
+                # Skip silently — the caller may have passed them through from
+                # a build that has both conqueror and eldritch influences.
+                continue
+            entry = casefold_lookup.get(key)
+            if entry is None:
+                _logger.warning(
+                    "unknown influence %r — no codename mapping; skipping for mod pool",
+                    inf,
+                )
+                continue
+            display, actual_codename = entry
+            allowed_influences.add(display)
             for tag in bitem["tags"]:
-                inf_tags.add(f"{tag}_{codename}")
+                inf_tags.add(f"{tag}_{actual_codename}")
 
-        results = []
+        group_tier_counts: dict[str, int] = {}
+        for mid in mod_ids:
+            mod = mods.get(mid)
+            if not mod or mod["required_level"] > ilvl:
+                continue
+            if mod.get("domain", "item") not in allowed_mod_domains:
+                continue
+            group = mod["group"]
+            group_tier_counts[group] = group_tier_counts.get(group, 0) + 1
+
+        results: list[ModPoolEntry] = []
         for mid in mod_ids:
             mod = mods.get(mid)
             if not mod:
+                continue
+            if mod.get("domain", "item") not in allowed_mod_domains:
                 continue
             if mod["influence"] not in allowed_influences:
                 continue
@@ -85,27 +226,26 @@ class RepoEData:
             if best_weight <= 0:
                 continue
 
-            group_mods = self._get_group_tiers_from(mod["group"], base_id, ilvl, mod_pool, mods)
-
             results.append(
-                {
-                    "mod_id": mid,
-                    "name": mod["name"],
-                    "affix": affix,
-                    "group": mod["group"],
-                    "weight": best_weight,
-                    "tier_count": len(group_mods),
-                    "best_tier": {
-                        "ilvl": mod["required_level"],
-                        "values": [[s["min"], s["max"]] for s in mod["stats"]],
-                        "weight": best_weight,
-                    },
-                    "implicit_tags": mod["implicit_tags"],
-                    "influence": mod["influence"],
-                }
+                ModPoolEntry(
+                    mod_id=mid,
+                    name=mod["name"],
+                    affix=affix,
+                    group=mod["group"],
+                    weight=best_weight,
+                    tier_count=group_tier_counts.get(mod["group"], 1),
+                    best_tier=BestTier(
+                        ilvl=mod["required_level"],
+                        values=tuple((s["min"], s["max"]) for s in mod["stats"]),
+                        weight=best_weight,
+                    ),
+                    implicit_tags=tuple(mod["implicit_tags"]),
+                    influence=mod["influence"],
+                    stat_ids=tuple(s["id"] for s in mod["stats"] if "id" in s),
+                )
             )
 
-        results.sort(key=lambda x: x["weight"], reverse=True)
+        results.sort(key=lambda x: x.weight, reverse=True)
         return results
 
     @staticmethod
@@ -117,17 +257,6 @@ class RepoEData:
             if sw["tag"] in base_tags:
                 return sw["weight"]
         return 0
-
-    @staticmethod
-    def _get_group_tiers_from(
-        group: str, base_id: str, ilvl: int, mod_pool: dict, mods: dict
-    ) -> list[str]:
-        mod_ids = mod_pool.get(base_id, [])
-        return [
-            mid
-            for mid in mod_ids
-            if mods.get(mid, {}).get("group") == group and mods[mid]["required_level"] <= ilvl
-        ]
 
     def get_mod_tiers(self, mod_id: str, base_name: str, ilvl: int = 100) -> list[dict]:
         base_items = self._load("base_items")
@@ -148,11 +277,27 @@ class RepoEData:
         tier_mods = [(mid, m) for mid in pool_ids if (m := mods.get(mid)) and m["group"] == group]
         tier_mods.sort(key=lambda x: x[1]["required_level"], reverse=True)
 
+        # Influence-mod weights live on tags like "body_armour_shaper", which
+        # only match the base when the engine derives `inf_tags` from
+        # spawn-weights. Without passing those tags, every conqueror-influence
+        # mod tier reports weight=0, making `poe sim tiers` falsely claim the
+        # mod cannot roll on any base.
+        inf_tags: set[str] = set()
+        for sw in mod.get("spawn_weights", []):
+            if not isinstance(sw, dict):
+                continue
+            tag = sw.get("tag", "")
+            base, _, suffix = tag.rpartition("_")
+            if base and suffix in INFLUENCE_TAG_MAP:
+                for base_tag in bitem["tags"]:
+                    inf_tags.add(f"{base_tag}_{suffix}")
+                break
+
         return [
             {
                 "tier": i + 1,
                 "ilvl": m["required_level"],
-                "weight": self._best_weight_for_base(m, bitem),
+                "weight": self._best_weight_for_base(m, bitem, inf_tags or None),
                 "values": [[s["min"], s["max"]] for s in m["stats"]],
                 "available": m["required_level"] <= ilvl,
             }
@@ -187,35 +332,45 @@ class RepoEData:
 
     def get_essences(self, base_name: str | None = None) -> list[dict]:
         essences = self._load("essences")
+        mods_data = self._load("mods")
         bitem = None
         item_class = None
-        mods_data = None
         if base_name:
             base_items = self._load("base_items")
             bitem = self._find_base_item(base_name, base_items)
-            if bitem:
-                item_class = bitem["item_class"]
-                mods_data = self._load("mods")
+            if not bitem:
+                raise SimDataError(f"Base item {base_name!r} not found")
+            item_class = bitem["item_class"]
 
         results = []
         for name, ess in essences.items():
-            tier_name, tier_num = self._extract_essence_tier(name)
+            tier_name, tier_num = self._extract_essence_tier(name, ess.get("tier", 0))
             if base_name and bitem and item_class:
                 mod_id = ess["mods"].get(item_class)
                 if not mod_id:
                     continue
                 mod = mods_data.get(mod_id) if mods_data else None
                 mod_text = mod["name"] if mod else mod_id
+                # total_slots emitted regardless of code path so consumers
+                # see a stable schema. Audit found this key disappeared
+                # when base_name was supplied.
                 results.append(
                     {
                         "name": name,
                         "mods": [{"slot": item_class, "mod": mod_text}],
+                        "total_slots": len(ess["mods"]),
                         "tier": tier_name,
                         "tier_num": tier_num,
                     }
                 )
             else:
-                mods_list = [{"slot": ic, "mod": mid} for ic, mid in list(ess["mods"].items())[:5]]
+                mods_list = [
+                    {
+                        "slot": ic,
+                        "mod": mods_data[mid]["name"] if mid in mods_data else mid,
+                    }
+                    for ic, mid in list(ess["mods"].items())[:5]
+                ]
                 results.append(
                     {
                         "name": name,
@@ -228,12 +383,16 @@ class RepoEData:
         return results
 
     @staticmethod
-    def _extract_essence_tier(name: str) -> tuple[str, int]:
+    def _extract_essence_tier(name: str, stored_tier: int = 0) -> tuple[str, int]:
+        # Name-prefix lookup misses corruption-only essences (Delirium /
+        # Horror / Hysteria / Insanity) which start with "Essence of …";
+        # fall back to a "Corruption" label so consumers/formatters never
+        # surface a blank "Tier:" row.
         name_lower = name.casefold()
         for prefix, tier_num in ESSENCE_TIER_PREFIXES.items():
             if name_lower.startswith(prefix):
                 return prefix.title(), tier_num
-        return "", 0
+        return "Corruption", stored_tier
 
     def get_bench_crafts(self, base_name: str) -> list[dict]:
         base_items = self._load("base_items")
@@ -255,7 +414,10 @@ class RepoEData:
             affix = mod["affix"]
             if affix not in ("prefix", "suffix"):
                 continue
-            cost_parts = [f"{count}x {cname}" for cname, count in craft["cost"].items()]
+            cost_parts = [
+                f"{count}x {CURRENCY_PATH_NAMES.get(cname, cname)}"
+                for cname, count in craft["cost"].items()
+            ]
             values = [[s["min"], s["max"]] for s in mod["stats"]]
             results.append(
                 {

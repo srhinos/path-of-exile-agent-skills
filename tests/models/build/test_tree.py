@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from poe.models.build.tree import (
     MasteryMapping,
     TreeComparison,
@@ -124,3 +126,77 @@ class TestTreeComparison:
         assert comp.shared == []
         assert comp.build1_count == 0
         assert comp.build2_count == 0
+
+
+# ── Pydantic semantic invariants for tree models (Pattern 5) ────────────────
+
+
+class TestTreeSpecInvariants:
+    def test_nodes_rejects_duplicates(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSpec(nodes=[1, 2, 2, 3])
+
+    def test_class_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSpec(class_id=-1)
+
+    def test_ascend_class_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSpec(ascend_class_id=-1)
+
+    def test_tree_version_rejects_invalid_format(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSpec(tree_version="!!!")
+
+    def test_url_default_empty(self):
+        spec = TreeSpec()
+        assert spec.url == ""
+
+    def test_class_id_zero_is_default(self):
+        spec = TreeSpec()
+        assert spec.class_id == 0
+
+
+class TestTreeSummaryInvariants:
+    def test_index_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSummary(index=0, title="x")
+
+    def test_node_count_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSummary(index=1, title="x", node_count=-5)
+
+
+class TestMasteryMappingInvariants:
+    def test_node_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            MasteryMapping(node_id=-1, effect_id=200)
+
+    def test_effect_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            MasteryMapping(node_id=1, effect_id=-1)
+
+
+class TestTreeSocketInvariants:
+    def test_node_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSocket(node_id=-1, item_id=1)
+
+    def test_item_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeSocket(node_id=1, item_id=-1)
+
+    def test_item_id_zero_means_empty_socket(self):
+        s = TreeSocket(node_id=1, item_id=0)
+        assert s.item_id == 0
+
+
+class TestTreeComparisonInvariants:
+    def test_build1_count_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            TreeComparison(build1_count=-1)
+
+    def test_serialization_roundtrip(self):
+        comp = TreeComparison(build1_only=[1, 2], build2_only=[3], shared=[4])
+        rebuilt = TreeComparison.model_validate(comp.model_dump())
+        assert rebuilt == comp

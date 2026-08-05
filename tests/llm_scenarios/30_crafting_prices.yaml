@@ -1,0 +1,12 @@
+name: crafting-material-prices
+category: crafting
+goal: >
+  What are the current prices for crafting materials? I want to know how
+  much chaos orbs, fossils, and essences cost so I can budget my crafting.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim prices"
+  must_not_find:
+    - "traceback"
+  blocked: false

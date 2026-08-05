@@ -1,17 +1,57 @@
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError as XMLParseError
 
 from defusedxml import ElementTree as SafeET
 
+from poe.exceptions import EngineNotAvailableError
 from poe.paths import get_pob_path, resolve_build_file
+from poe.services.build.constants import LUA_TABLE_MAX_DEPTH, LUA_TABLE_MAX_KEYS
 from poe.services.build.engine.stubs import register_stubs
+
+_logger = logging.getLogger("poe.engine")
+
+# os.chdir is process-global, not thread-local. Concurrent PoBEngine
+# methods running on the same process (pytest-xdist, a future MCP server,
+# any async caller) would see each other's cwd. Serialize all chdir
+# regions through a module-level lock so the contract becomes
+# "PoBEngine is not safe to use re-entrantly but is safe across threads".
+_chdir_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _pob_cwd(pob_path: str):
+    """Context manager: chdir into PoB folder under the chdir lock."""
+    with _chdir_lock:
+        orig_cwd = Path.cwd()
+        try:
+            os.chdir(pob_path)
+            yield
+        finally:
+            os.chdir(orig_cwd)
+
 
 if TYPE_CHECKING:
     from lupa import LuaRuntime
+
+# lupa.LuaError is the type raised by lua.eval / lua.execute on Lua-side
+# errors (syntax, runtime, type confusion). It inherits directly from
+# Exception, NOT RuntimeError — so `except RuntimeError` clauses silently
+# pass it through as a raw Python traceback. Import the concrete class so
+# service-layer catches can translate it to EngineNotAvailableError.
+try:
+    from lupa import LuaError
+except ImportError:
+
+    class LuaError(Exception):  # type: ignore[no-redef]
+        """Fallback when lupa is not installed."""
+
 
 try:
     import lupa.luajit21 as _lua_mod
@@ -41,10 +81,11 @@ class PoBEngine:
         self.lua: LuaRuntime | None = None
         self._initialized = False
         self._build_loaded = False
+        self._last_build_name: str = ""
 
     def _require_lua(self) -> LuaRuntime:
         if self.lua is None:
-            raise RuntimeError("Engine not initialized — call init() first")
+            raise EngineNotAvailableError("Engine not initialized — call init() first")
         return self.lua
 
     def init(self) -> None:
@@ -66,10 +107,7 @@ class PoBEngine:
                            package.path
         """)
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
-
+        with _pob_cwd(self.pob_path):
             launch_path = Path(self.pob_path) / "Launch.lua"
             launch_code = launch_path.read_text(encoding="utf-8")
 
@@ -83,17 +121,31 @@ class PoBEngine:
             self.lua.execute("runCallback('OnInit')")
             self.lua.execute("runCallback('OnFrame')")
 
+            # Poll mainObject.promptMsg after init callbacks. Without this,
+            # any error PoB stored during data-file load (missing data,
+            # bad mod table) would not surface until the next operation,
+            # making _initialized=True a lie about engine readiness.
+            err = self._check_init_error_locked()
+            if err:
+                raise EngineNotAvailableError(f"PoB init failed: {err}")
             self._initialized = True
-        finally:
-            os.chdir(orig_cwd)
 
-    def _check_init_error(self) -> str | None:
+    def _check_init_error_locked(self) -> str | None:
+        """Read promptMsg with the caller already inside `_pob_cwd`."""
         try:
             msg = self._require_lua().eval("mainObject and mainObject.promptMsg or nil")
-        except (RuntimeError, AttributeError):
+        except (LuaError, AttributeError):
             return None
         else:
             return str(msg) if msg else None
+
+    def _check_init_error(self) -> str | None:
+        # lupa.LuaRuntime is not thread-safe; serialize all Lua interaction
+        # under the same chdir lock the other methods use, otherwise this
+        # eval can race with concurrent execute/eval from another thread
+        # (pytest-xdist, future MCP server).
+        with _pob_cwd(self.pob_path):
+            return self._check_init_error_locked()
 
     def load_build(self, build_name: str) -> dict:
         if not self._initialized:
@@ -104,12 +156,10 @@ class PoBEngine:
             return {"error": f"PoB init failed: {err}"}
 
         build_path = resolve_build_file(build_name)
+        self._last_build_name = build_name
         xml_content = build_path.read_text(encoding="utf-8")
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
-
+        with _pob_cwd(self.pob_path):
             lua = self._require_lua()
             lua.globals()["_loadBuildName"] = build_path.stem
             lua.globals()["_loadBuildXml"] = xml_content
@@ -125,17 +175,21 @@ class PoBEngine:
             """)
 
             self._build_loaded = True
-            return self.get_build_info()
-        finally:
-            os.chdir(orig_cwd)
+        return self.get_build_info()
 
     def get_build_info(self) -> dict:
         if not self._initialized:
             return {"error": "Engine not initialized"}
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
+        # PoB sets mainObject.promptMsg whenever it hits a runtime error
+        # (missing data file, mod parse failure). Without this check, get_*
+        # ran on a corrupted Lua state and returned silently empty / wrong
+        # numbers — silent corruption.
+        err = self._check_init_error()
+        if err:
+            return {"error": f"PoB runtime error: {err}"}
+
+        with _pob_cwd(self.pob_path):
             info = self._require_lua().eval("""
                 (function()
                     local main = mainObject and mainObject.main
@@ -151,17 +205,34 @@ class PoBEngine:
                     }
                 end)()
             """)
-            return lua_table_to_dict(info)
-        finally:
-            os.chdir(orig_cwd)
+        result = lua_table_to_dict(info)
+        if result.get("className") in ("Scion", "Unknown", "") and self._last_build_name:
+            result = self._fallback_class_from_xml(result)
+        return result
+
+    def _fallback_class_from_xml(self, result: dict) -> dict:
+        try:
+            build_path = resolve_build_file(self._last_build_name)
+            tree = SafeET.parse(str(build_path))
+            build_el = tree.find("Build")
+            if build_el is not None:
+                result["className"] = build_el.get("className", result.get("className", ""))
+                result["ascendClassName"] = build_el.get(
+                    "ascendClassName", result.get("ascendClassName", "")
+                )
+        except (FileNotFoundError, XMLParseError, OSError):
+            pass
+        return result
 
     def get_stats(self, fields: list[str] | None = None) -> dict:
         if not self._initialized:
             return {"error": "Engine not initialized"}
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
+        err = self._check_init_error()
+        if err:
+            return {"error": f"PoB runtime error: {err}"}
+
+        with _pob_cwd(self.pob_path):
             result = self._require_lua().eval("""
                 (function()
                     local main = mainObject and mainObject.main
@@ -175,29 +246,34 @@ class PoBEngine:
                     end
                     local stats = {}
                     for k, v in pairs(output) do
-                        if type(v) == "number" or type(v) == "string" or type(v) == "boolean" then
+                        -- Exclude booleans: bool is subclass of int in Python,
+                        -- so `output.HasFlask = true` would silently become a
+                        -- numeric 1.0 stat downstream. Stats are numeric/textual.
+                        if type(v) == "number" or type(v) == "string" then
                             stats[k] = v
                         end
                     end
                     return stats
                 end)()
             """)
-            stats = lua_table_to_dict(result)
+        stats = lua_table_to_dict(result)
 
-            if fields:
-                stats = {k: v for k, v in stats.items() if k in fields}
+        if fields:
+            stats = {k: v for k, v in stats.items() if k in fields}
 
-            return stats
-        finally:
-            os.chdir(orig_cwd)
+        return stats
 
     def recalculate(self) -> None:
         if not self._initialized:
             return
 
-        orig_cwd = Path.cwd()
-        try:
-            os.chdir(self.pob_path)
+        err = self._check_init_error()
+        if err:
+            # Don't silently recalculate against a broken state.
+            _logger.warning("recalculate skipped: PoB runtime error: %s", err)
+            return
+
+        with _pob_cwd(self.pob_path):
             self._require_lua().execute("""
                 local main = mainObject and mainObject.main
                 local build = main and main.modes and main.modes["BUILD"]
@@ -206,8 +282,6 @@ class PoBEngine:
                     runCallback('OnFrame')
                 end
             """)
-        finally:
-            os.chdir(orig_cwd)
 
     @property
     def initialized(self) -> bool:
@@ -219,23 +293,56 @@ class PoBEngine:
 
 
 def lua_table_to_dict(lua_table) -> dict:
-    """Convert a lupa Lua table to a Python dict."""
+    """Convert a lupa Lua table to a Python dict.
+
+    Bounded by LUA_TABLE_MAX_DEPTH and LUA_TABLE_MAX_KEYS. Self-referential
+    tables are detected via id() and short-circuited with a "_cycle" marker.
+    On iteration failure, returns {"_raw": str(...)} as a degraded fallback
+    so a broken bridge doesn't masquerade as empty stats.
+    """
     if lua_table is None:
         return {}
+    return _lua_table_to_dict_impl(lua_table, depth=0, seen=set())
+
+
+def _lua_table_to_dict_impl(lua_table, *, depth: int, seen: set[int]) -> dict:
+    if depth >= LUA_TABLE_MAX_DEPTH:
+        _logger.warning("lua_table_to_dict truncated at depth %d", LUA_TABLE_MAX_DEPTH)
+        return {"_truncated_depth": True}
+
+    table_id = id(lua_table)
+    if table_id in seen:
+        _logger.warning("lua_table_to_dict detected cycle at depth %d", depth)
+        return {"_cycle": True}
+    seen.add(table_id)
     try:
-        result = {}
-        for k, v in lua_table.items():
-            key = str(k)
-            if hasattr(v, "items"):
-                result[key] = lua_table_to_dict(v)
-            elif hasattr(v, "__iter__") and not isinstance(v, (str, bytes)):
-                result[key] = list(v)
-            else:
-                result[key] = v
-    except (AttributeError, TypeError):
-        return {"_raw": str(lua_table)}
-    else:
-        return result
+        try:
+            result: dict = {}
+            for k, v in lua_table.items():
+                if len(result) >= LUA_TABLE_MAX_KEYS:
+                    _logger.warning(
+                        "lua_table_to_dict truncated at %d keys (depth %d)",
+                        LUA_TABLE_MAX_KEYS,
+                        depth,
+                    )
+                    result["_truncated_keys"] = True
+                    break
+                key = str(k)
+                if hasattr(v, "items"):
+                    result[key] = _lua_table_to_dict_impl(v, depth=depth + 1, seen=seen)
+                elif hasattr(v, "__iter__") and not isinstance(v, (str, bytes)):
+                    result[key] = list(v)
+                else:
+                    result[key] = v
+        except (AttributeError, TypeError) as e:
+            _logger.warning(
+                "lua_table_to_dict failed to iterate %r: %s", type(lua_table).__name__, e
+            )
+            return {"_raw": str(lua_table)}
+        else:
+            return result
+    finally:
+        seen.discard(table_id)
 
 
 def check_lua_version() -> dict:

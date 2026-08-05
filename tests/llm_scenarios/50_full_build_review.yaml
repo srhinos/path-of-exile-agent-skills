@@ -1,0 +1,18 @@
+name: full-build-review
+category: cross-system
+goal: >
+  Search poe.ninja for any Trickster build. Import it. Do a complete build
+  review: summary, validate, items list, gems list, flasks list, and stats.
+  Give me a report card — what's good about this build and what needs work?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build summary"
+    - "poe build validate"
+    - "poe build items list"
+    - "poe build gems list"
+  must_not_find:
+    - "traceback"
+  blocked: false

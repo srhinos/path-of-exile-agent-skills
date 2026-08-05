@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from poe.constants import VERSION_PATTERN
 from poe.models.build.config import BuildConfig
 from poe.models.build.gems import GemGroup
 from poe.models.build.items import Item, ItemSet
@@ -17,6 +18,8 @@ class BuildMetadata(BaseModel):
     BuildComparison.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str
     file_path: str = ""
     class_name: str = ""
@@ -26,10 +29,19 @@ class BuildMetadata(BaseModel):
 
 
 class BuildNotes(BaseModel):
-    """Notes text attached to a build, returned by BuildService.notes_get()."""
+    """Notes text attached to a build, returned by BuildService.notes_get().
+
+    `notes` is the raw text including PoB color codes (^xRRGGBB / ^N). UI
+    consumers that want a color-stripped form use `notes_display`. A standard
+    read-mutate-write flow that round-trips `notes` (NOT `notes_display`)
+    preserves the build's formatting on disk.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     build_name: str
     notes: str = ""
+    notes_display: str = ""
 
 
 class ValidationIssue(BaseModel):
@@ -39,6 +51,8 @@ class ValidationIssue(BaseModel):
     resistances, life_pool, defenses, attributes, flasks.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     severity: str
     category: str
     message: str
@@ -47,6 +61,8 @@ class ValidationIssue(BaseModel):
 
 class ValidationResult(BaseModel):
     """Full result from BuildService.validate(), wrapping all issues found."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     build: str
     issues: list[ValidationIssue] = []
@@ -61,7 +77,7 @@ class MutationResult(BaseModel):
     Used by all services for mutation returns.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     status: str = "ok"
     warning: str | None = None
@@ -77,10 +93,12 @@ class BuildDocument(BaseModel):
     cached player stats. Returned directly by BuildService.analyze().
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     class_name: str = ""
     ascend_class_name: str = ""
-    level: int = 1
-    bandit: str = "None"
+    level: int = Field(default=1, ge=1, le=100)
+    bandit: str | None = None
     view_mode: str = "TREE"
     target_version: str = "3_0"
     main_socket_group: int = 1
@@ -92,7 +110,15 @@ class BuildDocument(BaseModel):
     minion_stats: list[StatEntry] = []
     full_dps_skills: list[dict] = []
     player_stats: list[StatEntry] = []
-    active_spec: int = 1
+    active_spec: int = Field(default=1, ge=1)
+
+    @field_validator("target_version")
+    @classmethod
+    def _validate_target_version(cls, v: str) -> str:
+        if v and not VERSION_PATTERN.match(v):
+            raise ValueError(f"target_version must match X_Y format (e.g. '3_25'), got {v!r}")
+        return v
+
     specs: list[TreeSpec] = []
     active_skill_set: int = 1
     default_gem_level: int = 0
@@ -165,6 +191,8 @@ class BuildComparison(BaseModel):
     Returned by BuildService.compare(). stat_comparison maps stat names
     to per-build values and diff. config_diff shows only differing keys.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     build1: BuildMetadata
     build2: BuildMetadata

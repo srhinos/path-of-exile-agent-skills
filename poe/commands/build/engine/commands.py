@@ -13,40 +13,42 @@ def _svc() -> EngineService:
 
 
 @engine_app.command(name="load")
-def engine_load(name: str, *, human: bool = False) -> None:
+def engine_load(name: str, *, json: bool = False) -> None:
     """Load a build into the PoB engine and print calculated stats.
 
     Parameters
     ----------
     name
         Build name or unique prefix.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().load(name), human=human)
+    _output(_svc().load(name), json_mode=json)
 
 
 @engine_app.command(name="stats")
-def engine_stats(*, category: str = "all", human: bool = False) -> None:
+def engine_stats(name: str | None = None, *, category: str = "all", json: bool = False) -> None:
     """Get calculated stats from loaded build.
 
     Parameters
     ----------
+    name
+        Build name. If provided, loads the build first.
     category
         Stat category.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().stats(category=category), human=human)
+    _output(_svc().stats(name=name, category=category), json_mode=json)
 
 
 @engine_app.command(name="info")
-def engine_info(*, human: bool = False) -> None:
+def engine_info(*, json: bool = False) -> None:
     """Get PoB installation and engine compatibility info.
 
     Parameters
     ----------
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().info(), human=human)
+    _output(_svc().info(), json_mode=json)

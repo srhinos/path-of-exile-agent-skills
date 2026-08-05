@@ -1,0 +1,12 @@
+name: passive-tree-check
+category: local-build
+goal: >
+  Check the passive tree on any high-level build. How many specs does it have?
+  How many nodes are allocated? Is there more than one spec (leveling vs endgame)?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build tree specs"
+  must_not_find:
+    - "traceback"
+  blocked: false

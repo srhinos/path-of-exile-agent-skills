@@ -1,0 +1,14 @@
+name: price-history-trend
+category: ninja
+goal: >
+  Check the price history for "Headhunter" (UniqueAccessory type). Is the
+  price stable, rising, or crashing? What was it a week ago vs now?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja price history"
+  must_find:
+    - "trend"
+  must_not_find:
+    - "traceback"
+  blocked: false

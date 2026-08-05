@@ -1,0 +1,14 @@
+name: create-and-equip
+category: local-build
+goal: >
+  Create a new Marauder Juggernaut build at level 90. Then add a Granite
+  Flask to flask slot 1. Verify the flask shows up when you list flasks.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build create"
+    - "poe build flasks add"
+    - "poe build flasks list"
+  must_not_find:
+    - "traceback"
+  blocked: false

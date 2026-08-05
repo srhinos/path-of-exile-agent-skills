@@ -1,0 +1,13 @@
+name: essence-crafting
+category: crafting
+goal: >
+  I want to use essences to craft a ring. What essences give good mods for
+  rings? Show me what's available for a "Two-Stone Ring".
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim essences"
+  must_not_find:
+    - "traceback"
+    - "FireDamagePercentEssence"
+  blocked: false

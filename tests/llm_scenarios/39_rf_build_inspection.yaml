@@ -1,0 +1,16 @@
+name: rf-build-deep-dive
+category: cross-system
+goal: >
+  Search poe.ninja for a Righteous Fire Chieftain build. Import it.
+  Since RF is a DoT build, check: does the summary show DoT DPS correctly
+  (not zero)? What auras does it run? Does it have enough fire resistance
+  to sustain RF?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build summary"
+  must_not_find:
+    - "traceback"
+  blocked: false

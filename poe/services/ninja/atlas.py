@@ -10,14 +10,13 @@ from poe.models.ninja.builds import (
 )
 from poe.models.ninja.protobuf import Dictionary, NinjaSearchResult
 from poe.services.ninja import cache as ninja_cache
+from poe.services.ninja.constants import HEATMAP_FLEX_THRESHOLD, HEATMAP_MANDATORY_THRESHOLD
+from poe.services.ninja.errors import NinjaError
 
 if TYPE_CHECKING:
     from poe.services.ninja.client import NinjaClient
     from poe.services.ninja.discovery import DiscoveryService
     from poe.services.ninja.economy import EconomyService
-
-HEATMAP_MANDATORY_THRESHOLD = 0.5
-HEATMAP_FLEX_THRESHOLD = 0.1
 
 
 class AtlasService:
@@ -80,12 +79,16 @@ class AtlasService:
 
         for ref in result.result.dictionaries:
             cache_key = f"atlas_dict_{ref.hash}"
-            cached_bytes = ninja_cache.read_cache_bytes(self._cache_dir, cache_key)
+            cached_bytes = (
+                ninja_cache.read_cache_bytes(self._cache_dir, cache_key, "dictionary")
+                if ninja_cache.is_fresh(self._cache_dir, cache_key, "dictionary")
+                else None
+            )
             if cached_bytes:
                 d = Dictionary.from_protobuf(cached_bytes)
             else:
                 raw = self._client.get_protobuf(f"/poe1/api/atlas-trees/dictionary/{ref.hash}")
-                ninja_cache.write_cache_bytes(self._cache_dir, cache_key, raw)
+                ninja_cache.write_cache_bytes(self._cache_dir, cache_key, raw, "dictionary")
                 d = Dictionary.from_protobuf(raw)
             resolved[ref.id] = d.values
         return resolved
@@ -117,21 +120,27 @@ class AtlasService:
         if not scarab_dim:
             return []
 
-        try:
-            prices = economy.get_prices(league, "Scarab")
-            price_map = {p.name.lower(): p.chaos_value for p in prices}
-        except (OSError, ValueError, KeyError):
-            return []
+        prices = economy.get_prices(league, "Scarab", game="poe1")
+        price_map = {p.name.lower(): p.chaos_value for p in prices}
+        if not price_map:
+            msg = f"No scarab prices found for league {league!r}. Check the league name."
+            raise NinjaError(msg)
 
         profits: list[dict[str, Any]] = []
         for entry in scarab_dim.entries:
-            price = price_map.get(entry.name.lower(), 0.0)
-            ev = entry.percentage / 100 * price
+            exact = price_map.get(entry.name.lower())
+            if exact is not None:
+                avg_price = exact
+            else:
+                prefix = entry.name.lower().removesuffix("s")
+                matching = [v for k, v in price_map.items() if k.startswith(prefix)]
+                avg_price = sum(matching) / len(matching) if matching else 0.0
+            ev = entry.percentage / 100 * avg_price
             profits.append(
                 {
                     "name": entry.name,
                     "spawn_chance_pct": entry.percentage,
-                    "price_chaos": price,
+                    "price_chaos": round(avg_price, 1),
                     "expected_value": round(ev, 2),
                 }
             )

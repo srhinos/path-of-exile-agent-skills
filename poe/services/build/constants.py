@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import re
 
-from poe.types import Rarity
-
 STALE_STATS_WARNING = (
     "PlayerStats are stale until the build is recalculated in PoB or via 'poe build engine load'."
 )
-
-VALID_RARITIES = frozenset(Rarity)
 
 CLASS_IDS: dict[str, int] = {
     "Scion": 0,
@@ -42,10 +38,40 @@ ASCENDANCY_IDS: dict[str, tuple[int, int]] = {
     "Assassin": (6, 1),
     "Trickster": (6, 2),
     "Saboteur": (6, 3),
+    "Warden": (2, 4),
+    "Reliquarian": (3, 4),
 }
 
 ASCENDANCY_ID_TO_NAME: dict[tuple[int, int], str] = {v: k for k, v in ASCENDANCY_IDS.items()}
 ASCENDANCY_ID_TO_NAME[(0, 0)] = ""
+
+VALID_BANDITS: frozenset[str] = frozenset({"None", "Alira", "Kraityn", "Oak"})
+
+VALID_PANTHEON_MAJOR: frozenset[str] = frozenset(
+    {
+        "",
+        "None",
+        "TheBrineKing",
+        "Lunaris",
+        "Solaris",
+        "Arakaali",
+    }
+)
+
+VALID_PANTHEON_MINOR: frozenset[str] = frozenset(
+    {
+        "",
+        "None",
+        "Abberath",
+        "Garukhan",
+        "Gruthkul",
+        "Yugul",
+        "Shakari",
+        "Tukohama",
+        "Ralakesh",
+        "Ryslatha",
+    }
+)
 
 DEFAULT_TREE_VERSION = "3_28"
 
@@ -67,6 +93,7 @@ BASE64_PAD = 4
 GEAR_SLOTS = ("Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt")
 
 FLASK_SLOT_NAMES: tuple[str, ...] = ("Flask 1", "Flask 2", "Flask 3", "Flask 4", "Flask 5")
+FLASK_SLOT_BY_CASEFOLD: dict[str, str] = {s.casefold(): s for s in FLASK_SLOT_NAMES}
 
 POB_CONFIG_KEYS: dict[str, dict[str, str]] = {
     "useFrenzyCharges": {"type": "boolean", "desc": "Enable Frenzy Charges"},
@@ -182,6 +209,10 @@ METADATA_PREFIXES = (
     "WardBasePercentile:",
     "Variant:",
     "Selected Variant:",
+    "Has Variant:",
+    "Has Alt Variant",
+    "Selected Alt Variant",
+    "AltVariant:",
     "League:",
     "{variant:",
     "Catalyst:",
@@ -195,12 +226,73 @@ METADATA_PREFIXES = (
     "Limited to:",
     "Item Class:",
     "Foil Unique",
+    "Fractured Item",
     "Corrupted",
     "Mirrored",
     "Split",
     "Has Veiled",
+    "Source:",
 )
 
 PREFIX_RE = re.compile(r"^Prefix:\s*(.*)")
 SUFFIX_RE = re.compile(r"^Suffix:\s*(.*)")
 SLOT_MOD_RE = re.compile(r"^\{range:([^}]*)\}(.+)$")
+
+POB_COLOR_RE = re.compile(r"\^x[0-9A-Fa-f]{6}|\^[0-9]")
+
+MAGIC_SUFFIX_RE = re.compile(r"\s+of\s+(?:the\s+)?\S[\w\s]*$", re.IGNORECASE)
+FLASK_SIZE_PREFIXES = (
+    r"(?:Divine |Eternal |Hallowed |Sanctified |Sulphur |Silver |"
+    r"Grand |Greater |Large |Medium |Small |Colossal |Giant )?"
+)
+FLASK_TYPES = (
+    r"(?:Life|Mana|Hybrid|Utility|Bismuth|Diamond|Jade|Quartz|"
+    r"Granite|Basalt|Quicksilver|Stibnite|Amethyst|Ruby|Sapphire|"
+    r"Topaz|Aquamarine|Gold|Iron|Silver|Sulphur) Flask"
+)
+FLASK_BASE_RE = re.compile(
+    rf"({FLASK_SIZE_PREFIXES}{FLASK_TYPES})",
+    re.IGNORECASE,
+)
+
+MOD_KEYWORD_NOISE = frozenset(
+    {"base", "local", "additional", "display", "old", "new", "is", "has", "per", "while"}
+)
+MIN_KEYWORD_LENGTH = 3
+
+AFFIX_NO_MATCH = object()
+
+CATEGORY_ALIASES: dict[str, str] = {
+    "offence": "off",
+    "offense": "off",
+    "defence": "def",
+    "defense": "def",
+}
+
+# Defensive bounds on Lua → Python table conversion. PoB's stat tables
+# normally nest 2-4 deep with hundreds of keys. The limits below stop a
+# malicious or corrupted Lua state (self-referential table, runaway
+# generator) from OOMing or stack-overflowing the bridge.
+LUA_TABLE_MAX_DEPTH = 32
+LUA_TABLE_MAX_KEYS = 10000
+
+ENGINE_OFF_TERMS = frozenset(
+    {"DPS", "Damage", "Hit", "Crit", "Speed", "AverageHit", "AverageBurst"}
+)
+ENGINE_DEF_TERMS = frozenset(
+    {
+        "Life",
+        "Mana",
+        "EnergyShield",
+        "Armour",
+        "Evasion",
+        "Resist",
+        "Block",
+        "Dodge",
+        "Suppress",
+        "EHP",
+        "DamageReduction",
+        "Regen",
+        "Ward",
+    }
+)

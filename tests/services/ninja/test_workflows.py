@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from poe.models.ninja.builds import (
     CharacterResponse,
     DimensionEntry,
@@ -10,9 +12,12 @@ from poe.models.ninja.builds import (
     ResolvedDimension,
     SearchResults,
 )
+from poe.services.ninja.errors import NinjaError
 from poe.services.ninja.workflows import (
+    WorkflowResult,
     budget_upgrade,
     fix_my_build,
+    how_should_i_craft,
     what_build_to_play,
     what_changed,
     what_to_farm,
@@ -36,7 +41,12 @@ def _mock_char():
             },
             "keyStones": [{"name": "Acrobatics"}],
             "skills": [{"allGems": [{"name": "Lightning Arrow"}]}],
-            "items": [{"name": "Headhunter", "inventoryId": "Belt", "rarity": "unique"}],
+            "items": [
+                {
+                    "itemSlot": 0,
+                    "itemData": {"name": "Headhunter", "inventoryId": "Belt", "rarity": "unique"},
+                },
+            ],
             "flasks": [],
             "jewels": [],
         }
@@ -188,3 +198,161 @@ class TestWhatChanged:
         builds.search.side_effect = ValueError("fail")
         result = what_changed(builds)
         assert len(result.errors) > 0
+
+
+class TestWorkflowResultInvariants:
+    def test_default_success_true(self):
+        wr = WorkflowResult(workflow="x")
+        assert wr.success is True
+        assert wr.data == {}
+        assert wr.errors == []
+
+    def test_workflow_name_required(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            WorkflowResult()
+
+
+class TestFixMyBuildErrors:
+    def test_swallows_value_error_in_costing(self):
+        builds = _mock_builds()
+        economy = _mock_economy()
+        economy.get_prices.side_effect = ValueError("boom")
+        result = fix_my_build("test", "TestChar", builds, economy, "Mirage")
+        assert result.success is True
+        assert "character" in result.data
+
+    def test_workflow_name_set(self):
+        result = fix_my_build("test", "TestChar", _mock_builds(), _mock_economy(), "Mirage")
+        assert result.workflow == "fix_my_build"
+
+    def test_ninja_error_recorded_not_propagated(self):
+        """_try now catches PoeError (NinjaError parent). The workflow
+        records the error in result.errors and degrades gracefully rather
+        than crashing the whole flow on a single transient failure."""
+        builds = _mock_builds()
+        builds.get_character.side_effect = NinjaError("transient")
+        result = fix_my_build("test", "TestChar", builds, _mock_economy(), "Mirage")
+        assert result.success is False
+        assert any("transient" in e for e in result.errors)
+
+    @pytest.mark.parametrize("game", ["poe1", "poe2"])
+    def test_passes_game_through(self, game):
+        builds = _mock_builds()
+        fix_my_build("test", "TestChar", builds, _mock_economy(), "Mirage", game=game)
+        builds.get_character.assert_called_with("test", "TestChar", game=game)
+
+
+class TestWhatToFarmEdgeCases:
+    def test_empty_profits_and_nodes(self):
+        atlas = MagicMock()
+        atlas.estimate_profit.return_value = []
+        atlas.get_popular_nodes.return_value = []
+        result = what_to_farm(atlas, _mock_economy(), "Mirage")
+        assert result.workflow == "what_to_farm"
+        assert "top_strategies" not in result.data
+        assert "popular_atlas_nodes" not in result.data
+
+    def test_ninja_error_in_estimate_profit_recorded(self):
+        atlas = MagicMock()
+        atlas.estimate_profit.side_effect = NinjaError("no scarab prices")
+        atlas.get_popular_nodes.return_value = []
+        result = what_to_farm(atlas, _mock_economy(), "Mirage")
+        assert any("no scarab prices" in e for e in result.errors)
+        assert "top_strategies" not in result.data
+
+    def test_truncates_top_strategies_to_ten(self):
+        atlas = MagicMock()
+        atlas.estimate_profit.return_value = [
+            {"name": f"S{i}", "expected_value": float(i)} for i in range(50)
+        ]
+        atlas.get_popular_nodes.return_value = []
+        result = what_to_farm(atlas, _mock_economy(), "Mirage")
+        assert len(result.data["top_strategies"]) == 10
+
+
+class TestWhatBuildToPlayEdgeCases:
+    def test_empty_meta(self):
+        builds = _mock_builds(meta=MetaSummary(game="poe1"))
+        result = what_build_to_play(builds)
+        assert result.workflow == "what_build_to_play"
+        assert result.data.get("total_builds") == 0
+
+    @pytest.mark.parametrize("game", ["poe1", "poe2"])
+    def test_passes_game(self, game):
+        builds = _mock_builds()
+        what_build_to_play(builds, game=game)
+        builds.get_meta_summary.assert_called_with(game=game)
+
+    def test_budget_optional(self):
+        result = what_build_to_play(_mock_builds())
+        assert "budget_chaos" not in result.data
+
+
+class TestBudgetUpgradeMore:
+    def test_workflow_name(self):
+        result = budget_upgrade("a", "b", _mock_builds(), _mock_economy(), "L", 100.0)
+        assert result.workflow == "budget_upgrade"
+
+    def test_budget_recorded_even_on_failure(self):
+        builds = _mock_builds()
+        builds.get_character.return_value = None
+        result = budget_upgrade("a", "b", builds, _mock_economy(), "L", 250.5)
+        assert result.success is False
+        assert result.data["budget_chaos"] == 250.5
+
+    def test_budget_is_finite_non_negative(self):
+        result = budget_upgrade("a", "b", _mock_builds(), _mock_economy(), "L", 0.0)
+        assert result.data["budget_chaos"] >= 0.0
+
+
+class TestHowShouldICraft:
+    def test_workflow_name(self):
+        economy = _mock_economy()
+        economy.get_crafting_prices.return_value = MagicMock(
+            currency={"Chaos": 1.0, "Divine": 200.0},
+            fossils={"Pristine": 5.0},
+            essences={"Greed": 2.0},
+            resonators={"Primitive": 1.5},
+        )
+        result = how_should_i_craft(economy, "L")
+        assert result.workflow == "how_should_i_craft"
+
+    def test_currency_sorted_ascending(self):
+        economy = _mock_economy()
+        economy.get_crafting_prices.return_value = MagicMock(
+            currency={"Divine": 200.0, "Chaos": 1.0, "Exalted": 50.0},
+            fossils={},
+            essences={},
+            resonators={},
+        )
+        result = how_should_i_craft(economy, "L")
+        currency_values = list(result.data["currency"].values())
+        assert currency_values == sorted(currency_values)
+
+    def test_partial_failure_recorded(self):
+        economy = _mock_economy()
+        economy.get_crafting_prices.side_effect = ValueError("boom")
+        result = how_should_i_craft(economy, "L")
+        assert any("crafting_prices" in e for e in result.errors)
+
+
+class TestWhatChangedEdgeCases:
+    def test_when_only_current_succeeds(self):
+        builds = _mock_builds()
+        builds.search.side_effect = [_mock_search(), ValueError("old failed")]
+        result = what_changed(builds)
+        assert any("old_snapshot" in e for e in result.errors)
+        assert "added" not in result.data
+
+    @pytest.mark.parametrize(
+        "old_time",
+        ["week-1", "week-2", "month-1"],
+    )
+    def test_passes_old_time_machine(self, old_time):
+        builds = _mock_builds()
+        what_changed(builds, old_time_machine=old_time)
+        kwargs_list = [c.kwargs for c in builds.search.call_args_list]
+        time_machines = [k.get("time_machine") for k in kwargs_list]
+        assert old_time in time_machines

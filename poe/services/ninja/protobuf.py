@@ -2,23 +2,55 @@ from __future__ import annotations
 
 import struct
 
-WIRE_VARINT = 0
-WIRE_64BIT = 1
-WIRE_LENGTH_DELIMITED = 2
-WIRE_32BIT = 5
+from poe.services.ninja.constants import (
+    SIGNED_INT64_MAX,
+    UNSIGNED_INT64_OVERFLOW,
+    VARINT_MAX_SHIFT_BITS,
+    WIRE_32BIT,
+    WIRE_32BIT_LEN,
+    WIRE_64BIT,
+    WIRE_64BIT_LEN,
+    WIRE_LENGTH_DELIMITED,
+    WIRE_VARINT,
+)
+from poe.services.ninja.errors import NinjaError
+
+
+class ProtobufDecodeError(NinjaError):
+    """Raised when a protobuf payload is truncated or malformed.
+
+    Inherits from NinjaError so callers using `except NinjaError:` catch
+    protobuf decode failures alongside HTTP / schema errors. The audit
+    found two distinct ProtobufDecodeError classes (a dead one in
+    errors.py inheriting from NinjaError and a live one in this module
+    inheriting from PoeError directly) — anything catching NinjaError
+    missed the live class. Consolidated to a single hierarchy.
+    """
 
 
 def decode_varint(buf: bytes, pos: int) -> tuple[int, int]:
     result = 0
     shift = 0
+    start = pos
     while pos < len(buf):
         b = buf[pos]
         pos += 1
         result |= (b & 0x7F) << shift
         if not (b & 0x80):
+            if result > SIGNED_INT64_MAX:
+                result -= UNSIGNED_INT64_OVERFLOW
             return result, pos
         shift += 7
-    return result, pos
+        # Protobuf int64 spec caps a varint at 10 bytes (10 * 7 = 70 bits).
+        # Without this cap an adversarial payload of continuation-bit-set
+        # bytes drives shift unbounded and `result` grows arbitrarily large
+        # — CPU/memory DoS shape called out in round 3.
+        if shift >= VARINT_MAX_SHIFT_BITS:
+            raise ProtobufDecodeError(
+                f"varint at offset {start} exceeds 10 bytes (max int64 varint length)"
+            )
+    # Ran off the end mid-varint — payload is truncated.
+    raise ProtobufDecodeError(f"truncated varint at offset {start}: buffer ends mid-encoding")
 
 
 def decode_fields(buf: bytes) -> list[tuple[int, int, object]]:
@@ -34,16 +66,37 @@ def decode_fields(buf: bytes) -> list[tuple[int, int, object]]:
             fields.append((field_number, wire_type, value))
         elif wire_type == WIRE_LENGTH_DELIMITED:
             length, pos = decode_varint(buf, pos)
+            # `decode_varint` sign-adjusts values >2^63 to negative ints.
+            # A negative length passes `pos + length > len(buf)` (since
+            # adding a negative number stays <= len(buf)), then the slice
+            # is empty and `pos += length` rewinds — driving subsequent
+            # decode iterations on garbage data. Reject explicitly.
+            if length < 0:
+                raise ProtobufDecodeError(
+                    f"length-delimited field {field_number}: "
+                    f"length={length} interpreted as negative"
+                )
+            if pos + length > len(buf):
+                raise ProtobufDecodeError(
+                    f"truncated length-delimited field {field_number}: "
+                    f"length={length} exceeds remaining {len(buf) - pos} bytes"
+                )
             fields.append((field_number, wire_type, buf[pos : pos + length]))
             pos += length
         elif wire_type == WIRE_64BIT:
-            fields.append((field_number, wire_type, buf[pos : pos + 8]))
-            pos += 8
+            if pos + WIRE_64BIT_LEN > len(buf):
+                raise ProtobufDecodeError(f"truncated 64-bit field {field_number} at offset {pos}")
+            fields.append((field_number, wire_type, buf[pos : pos + WIRE_64BIT_LEN]))
+            pos += WIRE_64BIT_LEN
         elif wire_type == WIRE_32BIT:
-            fields.append((field_number, wire_type, buf[pos : pos + 4]))
-            pos += 4
+            if pos + WIRE_32BIT_LEN > len(buf):
+                raise ProtobufDecodeError(f"truncated 32-bit field {field_number} at offset {pos}")
+            fields.append((field_number, wire_type, buf[pos : pos + WIRE_32BIT_LEN]))
+            pos += WIRE_32BIT_LEN
         else:
-            break
+            raise ProtobufDecodeError(
+                f"unknown wire type {wire_type} for field {field_number} at offset {pos}"
+            )
     return fields
 
 

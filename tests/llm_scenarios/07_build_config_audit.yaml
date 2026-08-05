@@ -1,0 +1,13 @@
+name: build-config-audit
+category: local-build
+goal: >
+  Pick the highest DPS build and audit its configuration. Are charges enabled?
+  Is it configured against a boss? Are there any custom mods that might be
+  inflating the DPS? Give me a reality check.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build config get"
+  must_not_find:
+    - "traceback"
+  blocked: false

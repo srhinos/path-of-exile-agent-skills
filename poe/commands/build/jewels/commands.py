@@ -15,7 +15,7 @@ def _svc() -> JewelsService:
 
 
 @jewels_app.command(name="list")
-def jewels_list(name: str, *, file: str | None = None, human: bool = False) -> None:
+def jewels_list(name: str, *, file: str | None = None, json: bool = False) -> None:
     """List jewels with tree socket cross-reference.
 
     Parameters
@@ -24,10 +24,10 @@ def jewels_list(name: str, *, file: str | None = None, human: bool = False) -> N
         Build name or unique prefix.
     file
         Explicit file path.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().list_jewels(name, file_path=file), human=human)
+    _output(_svc().list_jewels(name, file_path=file), json_mode=json)
 
 
 @jewels_app.command(name="add")

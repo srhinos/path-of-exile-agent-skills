@@ -1,0 +1,12 @@
+name: heatmap-analysis
+category: ninja
+goal: >
+  I'm playing an Elementalist. What passives and keystones are most popular
+  for my ascendancy? Show me the heatmap — what's mandatory vs optional?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds heatmap"
+  must_not_find:
+    - "traceback"
+  blocked: false

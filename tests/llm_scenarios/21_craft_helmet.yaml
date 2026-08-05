@@ -1,0 +1,14 @@
+name: craft-es-helmet
+category: crafting
+goal: >
+  I want to craft an ES helmet. Search for "Hubris Circlet" as a base,
+  then show me what prefix and suffix mods can roll on it at ilvl 86.
+  How many life mods vs ES mods are there?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim search"
+    - "poe sim mods"
+  must_not_find:
+    - "traceback"
+  blocked: false

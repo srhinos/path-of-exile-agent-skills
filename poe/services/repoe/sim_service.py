@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from poe.exceptions import SimDataError, SlotError
+import dataclasses
+import logging
+import math
+import re
+
+from poe.constants import MIN_SEARCH_TERM_LENGTH
+from poe.exceptions import BuildNotFoundError, SimDataError, SlotError
 from poe.models.build.items import EquippedItem
 from poe.models.sim import (
     BaseItemSearchResult,
@@ -14,10 +20,33 @@ from poe.models.sim import (
 )
 from poe.paths import resolve_build_file
 from poe.services.build.xml.parser import parse_build_file
-from poe.services.repoe.constants import DEFAULT_ILVL, DEFAULT_ITERATIONS
+from poe.services.ninja.client import NinjaClient
+from poe.services.ninja.discovery import DiscoveryService
+from poe.services.ninja.economy import EconomyService
+from poe.services.ninja.errors import NinjaError
+from poe.services.repoe.constants import (
+    DEFAULT_ILVL,
+    DEFAULT_ITERATIONS,
+    DEFAULT_MAX_ATTEMPTS,
+    MAX_ILVL,
+    MIN_ILVL,
+    MULTISTEP_SUPPORTED_METHODS,
+    RARITY_PRODUCED,
+    RARITY_REQUIRED,
+)
 from poe.services.repoe.data import RepoEData
 from poe.services.repoe.sim import CraftingEngine
-from poe.types import CraftMethod
+from poe.types import CraftMethod, Influence, MatchMode, Rarity
+
+_logger = logging.getLogger("poe.sim")
+
+
+def _validate_ilvl(ilvl: int) -> int:
+    if not isinstance(ilvl, int) or isinstance(ilvl, bool):
+        raise SimDataError(f"ilvl must be an integer, got {ilvl!r}")
+    if ilvl < MIN_ILVL or ilvl > MAX_ILVL:
+        raise SimDataError(f"ilvl must be in [{MIN_ILVL}, {MAX_ILVL}], got {ilvl}")
+    return ilvl
 
 
 class SimService:
@@ -35,10 +64,27 @@ class SimService:
         affix_type: str | None = None,
         limit: int = 30,
     ) -> ModPoolResult:
+        ilvl = _validate_ilvl(ilvl)
+        if affix_type is not None:
+            affix_type = affix_type.casefold() if isinstance(affix_type, str) else affix_type
+            if affix_type not in {"prefix", "suffix"}:
+                raise SimDataError(
+                    f"Unknown affix_type: {affix_type!r}. Valid: 'prefix' or 'suffix'"
+                )
+        resolved_influences: list[str] = []
+        if influences:
+            valid_map = {i.value.casefold(): i.value for i in Influence}
+            for inf in influences:
+                matched = valid_map.get(inf.casefold())
+                if not matched:
+                    raise SimDataError(
+                        f"Unknown influence: {inf!r}. Valid: {sorted(valid_map.values())}"
+                    )
+                resolved_influences.append(matched)
         mods = self._data.get_mod_pool(
             base_name,
             ilvl=ilvl,
-            influences=influences or [],
+            influences=resolved_influences,
             affix_type=affix_type,
         )
         if not mods:
@@ -51,14 +97,23 @@ class SimService:
         return ModPoolResult(
             base=base_name,
             ilvl=ilvl,
-            influences=influences or ["none"],
+            influences=resolved_influences or ["none"],
             filter=affix_type or "all",
             total_mods=len(mods),
-            mods=mods[:limit],
+            mods=[dataclasses.asdict(m) for m in mods[:limit]],
         )
 
     def get_tiers(self, mod_id: str, base_name: str, *, ilvl: int = DEFAULT_ILVL) -> ModTierResult:
+        ilvl = _validate_ilvl(ilvl)
         tiers = self._data.get_mod_tiers(mod_id, base_name, ilvl=ilvl)
+        if not tiers:
+            pool = self._data.get_mod_pool(base_name, ilvl=ilvl)
+            for mod in pool:
+                if mod.group.casefold() == mod_id.casefold():
+                    tiers = self._data.get_mod_tiers(mod.mod_id, base_name, ilvl=ilvl)
+                    if tiers:
+                        mod_id = mod.mod_id
+                        break
         if not tiers:
             raise SimDataError(f"No tiers found for mod {mod_id} on {base_name}")
         return ModTierResult(mod_id=mod_id, base=base_name, ilvl=ilvl, tiers=tiers)
@@ -72,6 +127,9 @@ class SimService:
         return EssenceListResult(base=base_name or "all", count=len(essences), essences=essences)
 
     def get_bench_crafts(self, base_name: str) -> BenchCraftListResult:
+        bitem = self._data.get_base_item(base_name)
+        if not bitem:
+            raise SimDataError(f"Base item '{base_name}' not found. Use 'poe sim search <query>'.")
         crafts = self._data.get_bench_crafts(base_name)
         return BenchCraftListResult(base=base_name, count=len(crafts), crafts=crafts)
 
@@ -91,7 +149,10 @@ class SimService:
         self, build_name: str, *, slot: str, ilvl: int | None = None
     ) -> ItemAnalysisResult:
         """Analyze an equipped item's mods, tiers, and open affix slots."""
-        path = resolve_build_file(build_name)
+        try:
+            path = resolve_build_file(build_name)
+        except (FileNotFoundError, BuildNotFoundError) as e:
+            raise BuildNotFoundError(str(e)) from e
         build_obj = parse_build_file(path)
 
         equipped = build_obj.get_equipped_items()
@@ -105,7 +166,7 @@ class SimService:
         if not target_item or not target_slot:
             raise SlotError(f"No item found in slot matching '{slot}'")
 
-        item_ilvl = ilvl or DEFAULT_ILVL
+        item_ilvl = ilvl or target_item.item_level or DEFAULT_ILVL
         bitem = self._data.get_base_item(target_item.base_type)
         base_found = bitem is not None
         analysis: dict = {"base_found": base_found, "ilvl_used": item_ilvl}
@@ -116,16 +177,20 @@ class SimService:
                 ilvl=item_ilvl,
                 influences=target_item.influences,
             )
-            avail_prefixes = [m for m in mods if m["affix"] == "prefix"]
-            avail_suffixes = [m for m in mods if m["affix"] == "suffix"]
+            avail_prefixes = [m for m in mods if m.affix == "prefix"]
+            avail_suffixes = [m for m in mods if m.affix == "suffix"]
             analysis["total_rollable_prefixes"] = len(avail_prefixes)
             analysis["total_rollable_suffixes"] = len(avail_suffixes)
             analysis["open_prefix_slots"] = target_item.open_prefixes
             analysis["open_suffix_slots"] = target_item.open_suffixes
             if target_item.open_prefixes > 0:
-                analysis["top_available_prefixes"] = avail_prefixes[:10]
+                analysis["top_available_prefixes"] = [
+                    dataclasses.asdict(m) for m in avail_prefixes[:10]
+                ]
             if target_item.open_suffixes > 0:
-                analysis["top_available_suffixes"] = avail_suffixes[:10]
+                analysis["top_available_suffixes"] = [
+                    dataclasses.asdict(m) for m in avail_suffixes[:10]
+                ]
             bench = self._data.get_bench_crafts(target_item.base_type)
             if bench:
                 analysis["bench_craft_count"] = len(bench)
@@ -138,7 +203,91 @@ class SimService:
             analysis=analysis,
         )
 
-    def simulate(
+    def _resolve_and_validate_existing_mods(
+        self,
+        *,
+        base_name: str,
+        existing_mods: list[str] | None,
+        resolved_targets: list[str],
+        mod_pool: list,
+        pool_groups: set[str],
+        resolved_influences: list[str],
+    ) -> list[str]:
+        # Resolves display-name existing_mods to canonical groups, validates
+        # against the pool + base bounds, and ensures no overlap with targets.
+        # Without this, the validator passed on the resolved name but the
+        # engine received the raw display string and silently ran unpinned.
+        if not existing_mods:
+            return []
+        resolved_existing: list[str] = []
+        for em in existing_mods:
+            if not isinstance(em, str) or not em.strip():
+                continue
+            cleaned = em.strip()
+            resolved = self.resolve_mod_name(cleaned, base_name, influences=resolved_influences)
+            resolved_existing.append(resolved or cleaned)
+        if not resolved_existing:
+            return []
+        target_set = {t.casefold() for t in resolved_targets}
+        existing_set = {e.casefold() for e in resolved_existing}
+        overlap = target_set & existing_set
+        if overlap:
+            raise SimDataError(
+                f"target and existing_mods overlap on {sorted(overlap)}; "
+                "pinned-as-target makes simulation degenerate (always-hit)"
+            )
+        self._validate_existing_mods(
+            base_name, resolved_existing, mod_pool, pool_groups, resolved_influences
+        )
+        return resolved_existing
+
+    def _validate_existing_mods(
+        self,
+        base_name: str,
+        existing_mods: list[str],
+        mod_pool: list,
+        pool_groups: set[str],
+        resolved_influences: list[str],
+    ) -> None:
+        """Validate existing_mods against pool and base max_{prefix,suffix} counts.
+
+        Raises SimDataError on any violation. Without this, the engine's
+        defensive max(0, max_prefixes - pinned) clamp silently truncated
+        the pinned mods rather than reporting the over-pin.
+        """
+        mods_by_group = {m.group.casefold(): m for m in mod_pool}
+        prefix_count = 0
+        suffix_count = 0
+        for em in existing_mods:
+            resolved_em = self.resolve_mod_name(em, base_name, influences=resolved_influences) or em
+            key = resolved_em.casefold()
+            if key not in pool_groups:
+                available = sorted({mod.group for mod in mod_pool})[:20]
+                raise SimDataError(
+                    f"Existing mod {em!r} not found in mod pool for {base_name!r}. "
+                    f"Available groups (first 20): {available}"
+                )
+            if mods_by_group[key].affix == "prefix":
+                prefix_count += 1
+            else:
+                suffix_count += 1
+        bitem = self._data.get_base_item(base_name)
+        if bitem is None:
+            return
+        max_p = bitem.get("max_prefixes", 3)
+        max_s = bitem.get("max_suffixes", 3)
+        if prefix_count > max_p:
+            raise SimDataError(
+                f"Too many existing prefixes for {base_name!r}: "
+                f"{prefix_count} given, base supports {max_p}"
+            )
+        if suffix_count > max_s:
+            raise SimDataError(
+                f"Too many existing suffixes for {base_name!r}: "
+                f"{suffix_count} given, base supports {max_s}"
+            )
+
+    async def simulate(
         self,
         base_name: str,
         *,
@@ -151,24 +300,90 @@ class SimService:
         iterations: int = DEFAULT_ITERATIONS,
         match: str = "all",
         existing_mods: list[str] | None = None,
-        max_attempts: int = DEFAULT_ITERATIONS,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        workers: int | None = None,
     ) -> SimulationResult:
+        ilvl = _validate_ilvl(ilvl)
+        # Normalize before validation so --method Chaos / FOSSIL / Essence
+        # all hit the canonical lowercase enum values.
+        method = method.casefold() if isinstance(method, str) else method
+        match = match.casefold() if isinstance(match, str) else match
+        valid_methods = {m.value for m in CraftMethod}
+        if method not in valid_methods:
+            raise SimDataError(f"Unknown craft method: {method!r}. Valid: {sorted(valid_methods)}")
+        valid_match_modes = {m.value for m in MatchMode}
+        if match not in valid_match_modes:
+            raise SimDataError(f"Unknown match mode: {match!r}. Valid: {sorted(valid_match_modes)}")
+        # Strip + reject empty/whitespace target entries — substring-on-empty
+        # always matches, so a single " " sneaks past the if-truthy check and
+        # makes resolve_mod_name return the first arbitrary mod's group.
+        target = [t.strip() for t in target if isinstance(t, str) and t.strip()]
+        if not target:
+            raise SimDataError(
+                "--target is required (empty target makes match='all' trivially True "
+                "and match='any' trivially False, both of which produce meaningless results)"
+            )
+        if iterations < 1:
+            raise SimDataError(f"iterations must be >= 1, got {iterations}")
+        if max_attempts < 1:
+            raise SimDataError(f"max_attempts must be >= 1, got {max_attempts}")
         if method == CraftMethod.ESSENCE and not essence:
             raise SimDataError("--essence is required when method is 'essence'")
-        eng = CraftingEngine(self._data)
-        sim_result = eng.simulate(
-            base=base_name,
-            ilvl=ilvl,
-            method=method,
-            target_mods=target,
-            iterations=iterations,
-            influences=influence or [],
-            fossils=fossils,
-            match_mode=match,
-            essence_name=essence,
+        if method == CraftMethod.FOSSIL and not fossils:
+            raise SimDataError("--fossils is required when method is 'fossil'")
+        resolved_influences: list[str] = []
+        if influence:
+            valid_map = {i.value.casefold(): i.value for i in Influence}
+            for inf in influence:
+                matched = valid_map.get(inf.casefold())
+                if not matched:
+                    raise SimDataError(
+                        f"Unknown influence: {inf!r}. Valid: {sorted(valid_map.values())}"
+                    )
+                resolved_influences.append(matched)
+        mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=resolved_influences)
+        pool_groups = {mod.group.casefold() for mod in mod_pool}
+        resolved_targets = []
+        for t in target:
+            resolved = self.resolve_mod_name(t, base_name, influences=resolved_influences)
+            final = resolved or t
+            if final.casefold() not in pool_groups:
+                available = sorted({mod.group for mod in mod_pool})[:20]
+                raise SimDataError(
+                    f"Target mod {t!r} not found in mod pool for {base_name!r}. "
+                    f"Available groups (first 20): {available}"
+                )
+            resolved_targets.append(final)
+        resolved_existing = self._resolve_and_validate_existing_mods(
+            base_name=base_name,
             existing_mods=existing_mods,
-            max_attempts=max_attempts,
+            resolved_targets=resolved_targets,
+            mod_pool=mod_pool,
+            pool_groups=pool_groups,
+            resolved_influences=resolved_influences,
         )
+        eng = CraftingEngine(self._data.snapshot())
+        try:
+            sim_result = await eng.simulate(
+                base=base_name,
+                ilvl=ilvl,
+                method=method,
+                target_mods=resolved_targets,
+                iterations=iterations,
+                influences=resolved_influences,
+                fossils=fossils,
+                match_mode=match,
+                essence_name=essence,
+                existing_mods=resolved_existing,
+                max_attempts=max_attempts,
+                workers=workers,
+            )
+        except ValueError as e:
+            raise SimDataError(str(e)) from e
+
+        def _finite(v: float) -> float | None:
+            return None if not math.isfinite(v) else v
+
         return SimulationResult(
             base=base_name,
             ilvl=ilvl,
@@ -179,9 +394,9 @@ class SimService:
             match_mode=match,
             iterations=sim_result.iterations,
             hit_rate=f"{sim_result.hit_rate:.1%}",
-            avg_attempts=round(sim_result.avg_attempts, 1),
-            cost_per_attempt=round(sim_result.cost_per_attempt, 1),
-            avg_cost_chaos=round(sim_result.avg_cost_chaos, 1),
+            avg_attempts=_finite(round(sim_result.avg_attempts, 1)),
+            cost_per_attempt=_finite(round(sim_result.cost_per_attempt, 1)),
+            avg_cost_chaos=_finite(round(sim_result.avg_cost_chaos, 1)),
             percentiles=sim_result.percentiles,
         )
 
@@ -196,24 +411,85 @@ class SimService:
         influence: list[str] | None = None,
         match: str = "all",
     ) -> dict:
-        eng = CraftingEngine(self._data)
-        target_set = {t.casefold() for t in target}
+        ilvl = _validate_ilvl(ilvl)
+        # Mirror the simulate() boundary discipline so multistep can't bypass
+        # the same gates: validate match against MatchMode, casefold + validate
+        # each step's method, reject iterations<1, strip empty targets.
+        match = match.casefold() if isinstance(match, str) else match
+        valid_match_modes = {m.value for m in MatchMode}
+        if match not in valid_match_modes:
+            raise SimDataError(f"Unknown match mode: {match!r}. Valid: {sorted(valid_match_modes)}")
+        if iterations < 1:
+            raise SimDataError(f"iterations must be >= 1, got {iterations}")
+        target = [t.strip() for t in target if isinstance(t, str) and t.strip()]
+        if not target:
+            raise SimDataError("--target is required")
+        # Narrow validation to methods _apply_multistep_method actually
+        # dispatches. Single-step `simulate()` validates against the full
+        # CraftMethod enum, but multistep doesn't yet implement AWAKENER /
+        # RECOMBINATE / BEAST_* / TAINTED_CHAOS+EXALT / HARVEST_AUGMENT /
+        # AISLING_BENCH. Validating against the full enum let them through
+        # the gate only to raise "Unknown step method" mid-loop per
+        # iteration. Fail loudly at the boundary instead.
+        valid_methods = MULTISTEP_SUPPORTED_METHODS
+        for i, step in enumerate(steps):
+            raw_method = step.get("method", "chaos")
+            method = raw_method.casefold() if isinstance(raw_method, str) else raw_method
+            if method not in valid_methods:
+                raise SimDataError(
+                    f"Step {i + 1} method {raw_method!r} unknown or unsupported in multistep. "
+                    f"Valid: {sorted(valid_methods)}"
+                )
+            step["method"] = method
+        # Normalize influence names through the Influence enum, same gate
+        # as `simulate()`. Without this, a per-step `influence` lookup hits
+        # CONQUEROR_EXCLUSIONS (Title-Cased keys) with a user-friendly
+        # lowercase string and raises "Unknown conqueror influence" mid-loop.
+        influence = self._normalize_multistep_influences(influence, steps)
+        produced_rarity: Rarity = Rarity.NORMAL
+        for i, step in enumerate(steps):
+            method = step["method"]
+            required = RARITY_REQUIRED.get(method)
+            if required and produced_rarity != required:
+                raise SimDataError(
+                    f"Step {i + 1} ({method}) requires {required.value.lower()} rarity, "
+                    f"but previous step produces {produced_rarity.value.lower()} items"
+                )
+            produced_rarity = RARITY_PRODUCED.get(method, produced_rarity)
+        mod_pool = self._data.get_mod_pool(base_name, ilvl=ilvl, influences=influence or [])
+        pool_groups = {mod.group.casefold() for mod in mod_pool}
+        resolved_targets = []
+        for t in target:
+            resolved = self.resolve_mod_name(t, base_name, influences=influence)
+            final = resolved or t
+            if final.casefold() not in pool_groups:
+                available = sorted({mod.group for mod in mod_pool})[:20]
+                raise SimDataError(
+                    f"Target mod {t!r} not found in mod pool for {base_name!r}. "
+                    f"Available groups (first 20): {available}"
+                )
+            resolved_targets.append(final)
+        eng = CraftingEngine(self._data.snapshot())
+        target_set = {t.casefold() for t in resolved_targets}
         hits = 0
         attempts_on_hit: list[int] = []
-        for _ in range(iterations):
-            item = eng.create_item(base_name, ilvl, influence)
-            for step in steps:
-                method = step.get("method", "chaos")
-                self._apply_multistep_method(eng, item, method, step)
-            rolled_groups = {m.group.casefold() for m in item.all_mods}
-            hit = (
-                target_set.issubset(rolled_groups)
-                if match == "all"
-                else bool(target_set & rolled_groups)
-            )
-            if hit:
-                hits += 1
-                attempts_on_hit.append(1)
+        try:
+            for _ in range(iterations):
+                item = eng.create_item(base_name, ilvl, influence)
+                for step in steps:
+                    method = step.get("method", "chaos")
+                    self._apply_multistep_method(eng, item, method, step)
+                rolled_groups = {m.group.casefold() for m in item.all_mods}
+                hit = (
+                    target_set.issubset(rolled_groups)
+                    if match == "all"
+                    else bool(target_set & rolled_groups)
+                )
+                if hit:
+                    hits += 1
+                    attempts_on_hit.append(1)
+        except ValueError as e:
+            raise SimDataError(str(e)) from e
         hit_rate = hits / iterations if iterations > 0 else 0
         return {
             "base": base_name,
@@ -223,6 +499,31 @@ class SimService:
             "hit_rate": f"{hit_rate:.1%}",
             "hits": hits,
         }
+
+    @staticmethod
+    def _normalize_multistep_influences(
+        influence: list[str] | None, steps: list[dict]
+    ) -> list[str] | None:
+        valid_inf_map = {i.value.casefold(): i.value for i in Influence}
+        resolved: list[str] = []
+        for inf in influence or []:
+            matched = valid_inf_map.get(inf.casefold())
+            if not matched:
+                raise SimDataError(
+                    f"Unknown influence: {inf!r}. Valid: {sorted(valid_inf_map.values())}"
+                )
+            resolved.append(matched)
+        for i, step in enumerate(steps):
+            inf_raw = step.get("influence")
+            if inf_raw:
+                matched = valid_inf_map.get(inf_raw.casefold())
+                if matched is None:
+                    raise SimDataError(
+                        f"Step {i + 1} influence {inf_raw!r} unknown. "
+                        f"Valid: {sorted(valid_inf_map.values())}"
+                    )
+                step["influence"] = matched
+        return resolved or None
 
     @staticmethod
     def _apply_multistep_method(
@@ -265,49 +566,79 @@ class SimService:
 
     def fossil_optimizer(self, mod_name: str) -> list[dict]:
         fossils = self._data.get_fossils()
+        seen: set[tuple[str, str]] = set()
         results = []
         mod_cf = mod_name.casefold()
+        search_terms = self._expand_mod_search_terms(mod_cf)
+
+        def _matches(tag: str) -> bool:
+            tag_cf = tag.casefold()
+            return any(term in tag_cf or tag_cf in term for term in search_terms)
+
         for fossil in fossils:
             for tag, multiplier in fossil.get("positive_weights", {}).items():
-                if mod_cf in tag.casefold():
-                    results.append(
-                        {
-                            "fossil": fossil["name"],
-                            "tag": tag,
-                            "multiplier": multiplier,
-                            "effect": (
-                                "boost"
-                                if multiplier > 1
-                                else "reduce"
-                                if multiplier < 1
-                                else "neutral"
-                            ),
-                        }
-                    )
+                if _matches(tag):
+                    key = (fossil["name"], tag)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(
+                            {
+                                "fossil": fossil["name"],
+                                "tag": tag,
+                                "multiplier": multiplier,
+                                "effect": (
+                                    "boost"
+                                    if multiplier > 1
+                                    else "reduce"
+                                    if multiplier < 1
+                                    else "neutral"
+                                ),
+                            }
+                        )
             for tag, multiplier in fossil.get("negative_weights", {}).items():
-                if mod_cf in tag.casefold():
-                    results.append(
-                        {
-                            "fossil": fossil["name"],
-                            "tag": tag,
-                            "multiplier": multiplier,
-                            "effect": "block" if multiplier == 0 else "reduce",
-                        }
-                    )
-            results.extend(
-                {
-                    "fossil": fossil["name"],
-                    "tag": tag,
-                    "multiplier": 0.0,
-                    "effect": "block",
-                }
-                for tag in fossil.get("blocked", [])
-                if mod_cf in tag.casefold()
-            )
+                if _matches(tag):
+                    key = (fossil["name"], tag)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(
+                            {
+                                "fossil": fossil["name"],
+                                "tag": tag,
+                                "multiplier": multiplier,
+                                "effect": "block" if multiplier == 0 else "reduce",
+                            }
+                        )
+            for tag in fossil.get("blocked", []):
+                if _matches(tag):
+                    key = (fossil["name"], tag)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(
+                            {
+                                "fossil": fossil["name"],
+                                "tag": tag,
+                                "multiplier": 0.0,
+                                "effect": "block",
+                            }
+                        )
         results.sort(key=lambda x: x["multiplier"], reverse=True)
         return results
 
-    def compare_methods(
+    @staticmethod
+    def _expand_mod_search_terms(mod_cf: str) -> list[str]:
+        """Expand a mod name into search terms for fossil tag matching.
+
+        Splits camelCase/PascalCase names into components so "ColdResistance"
+        matches fossil tags like "cold" and "resistance".
+        """
+        terms = [mod_cf]
+        parts = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\b)", mod_cf, re.IGNORECASE)
+        terms.extend(p.casefold() for p in parts if len(p) > MIN_SEARCH_TERM_LENGTH)
+        if "_" in mod_cf:
+            terms.extend(p.casefold() for p in mod_cf.split("_") if len(p) > MIN_SEARCH_TERM_LENGTH)
+        return list(dict.fromkeys(terms))
+
+    async def compare_methods(
         self,
         base_name: str,
         *,
@@ -318,14 +649,26 @@ class SimService:
         influence: list[str] | None = None,
         iterations: int = DEFAULT_ITERATIONS,
     ) -> list[dict]:
+        # Alt orb forces 1p/1s on Magic items, so for any 2+ mod target
+        # (every realistic compare) it produces a hardcoded 0% row that
+        # sorts to the bottom but is still presented as a real comparison.
+        # Restrict alt to single-target compares where it can plausibly hit.
         methods_to_try = ["chaos"]
+        if len(target) <= 1:
+            methods_to_try.append("alt")
         if fossils:
             methods_to_try.append("fossil")
         if essence:
             methods_to_try.append("essence")
         results = []
+
+        def _finite(v: float | None) -> float | None:
+            if v is None:
+                return None
+            return None if not math.isfinite(v) else v
+
         for method in methods_to_try:
-            sim = self.simulate(
+            sim = await self.simulate(
                 base_name,
                 ilvl=ilvl,
                 method=method,
@@ -334,17 +677,21 @@ class SimService:
                 essence=essence if method == "essence" else None,
                 influence=influence,
                 iterations=iterations,
+                workers=1,
             )
+
             results.append(
                 {
                     "method": method,
                     "hit_rate": sim.hit_rate,
-                    "avg_attempts": sim.avg_attempts,
-                    "avg_cost_chaos": sim.avg_cost_chaos,
+                    "avg_attempts": _finite(sim.avg_attempts),
+                    "avg_cost_chaos": _finite(sim.avg_cost_chaos),
                     "cost_per_attempt": sim.cost_per_attempt,
                 }
             )
-        results.sort(key=lambda x: x["avg_cost_chaos"])
+        results.sort(
+            key=lambda x: x["avg_cost_chaos"] if x["avg_cost_chaos"] is not None else float("inf")
+        )
         return results
 
     def suggest_craft(self, mod_names: list[str]) -> list[dict]:
@@ -371,12 +718,41 @@ class SimService:
                 )
         return suggestions
 
-    def resolve_mod_name(self, display_name: str, base_name: str) -> str | None:
-        mods = self._data.get_mod_pool(base_name)
+    def resolve_mod_name(
+        self,
+        display_name: str,
+        base_name: str,
+        *,
+        influences: list[str] | None = None,
+    ) -> str | None:
+        # Empty/whitespace input would make the substring fallback return the
+        # first arbitrary mod's group ("" is a substring of every name).
+        if not display_name or not display_name.strip():
+            return None
+        mods = self._data.get_mod_pool(base_name, influences=influences or [])
+
+        # Stat-translation path: user types canonical PoB display text like
+        # "+# to maximum Life" or "to maximum Life"; map it through
+        # stat_translations.json to a stat_id, then return the highest-weight
+        # mod in the pool that produces that stat. Real RePoE mod.name values
+        # are flavor strings ("Hale", "of Calm") that substring-search misses,
+        # so without this path display-name targets never resolve.
+        stat_ids = self._data.resolve_stat_ids(display_name)
+        if stat_ids:
+            best = max(
+                (m for m in mods if any(sid in stat_ids for sid in m.stat_ids)),
+                key=lambda m: m.weight,
+                default=None,
+            )
+            if best is not None:
+                return best.group
+
+        # Substring fallback covers flavor-name queries ("Hale", "of the
+        # Marksman") and tests where mod.name is the display text directly.
         name_cf = display_name.casefold()
         for mod in mods:
-            if name_cf in mod["name"].casefold():
-                return mod["group"]
+            if name_cf in mod.name.casefold():
+                return mod.group
         return None
 
     def mod_weights(
@@ -387,26 +763,46 @@ class SimService:
         influences: list[str] | None = None,
         limit: int = 20,
     ) -> list[dict]:
+        ilvl = _validate_ilvl(ilvl)
         mods = self._data.get_mod_pool(
             base_name,
             ilvl=ilvl,
             influences=influences or [],
         )
-        total = sum(m["weight"] for m in mods)
+        total = sum(m.weight for m in mods)
         results = []
         for mod in mods[:limit]:
-            pct = (mod["weight"] / total * 100) if total > 0 else 0
+            pct = (mod.weight / total * 100) if total > 0 else 0
             results.append(
                 {
-                    "mod_id": mod["mod_id"],
-                    "name": mod["name"],
-                    "group": mod["group"],
-                    "affix": mod["affix"],
-                    "weight": mod["weight"],
+                    "mod_id": mod.mod_id,
+                    "name": mod.name,
+                    "group": mod.group,
+                    "affix": mod.affix,
+                    "weight": mod.weight,
                     "probability": f"{pct:.2f}%",
                 }
             )
         return results
 
     def get_prices(self, *, league: str = "current") -> dict:
-        return self._data.get_prices(league=league)
+        try:
+            with NinjaClient() as client:
+                if league == "current":
+                    discovery = DiscoveryService(client)
+                    info = discovery.get_current_league()
+                    resolved = info.name if info else league
+                else:
+                    resolved = league
+                economy = EconomyService(client)
+                crafting = economy.get_crafting_prices(resolved)
+                result = crafting.model_dump()
+                result["league"] = resolved
+                return result
+        except NinjaError as e:
+            _logger.warning(
+                "ninja unavailable for league=%r (%s); falling back to bundled RePoE prices",
+                league,
+                e,
+            )
+            return self._data.get_prices(league=league)

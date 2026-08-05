@@ -1,0 +1,15 @@
+name: bad-target-gives-help
+category: crafting
+goal: >
+  Try to simulate crafting for "EnergyShield" on a Vaal Regalia. If that's
+  not the right mod name, use whatever error message you get to find the
+  correct name and re-run the simulation.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim simulate"
+  must_find:
+    - "hit_rate"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -1,0 +1,14 @@
+name: cluster-jewel-mods
+category: crafting
+goal: >
+  What mods can roll on a Large Cluster Jewel? Search for the base item
+  first, then check its mod pool. Are there notables in the pool?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim search"
+    - "poe sim mods"
+  must_not_find:
+    - "traceback"
+    - "not found"
+  blocked: false

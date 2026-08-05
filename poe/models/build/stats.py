@@ -1,13 +1,24 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from math import isfinite
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StatEntry(BaseModel):
     """A single player stat parsed from the build XML's PlayerStat elements."""
 
-    stat: str
+    model_config = ConfigDict(validate_assignment=True)
+
+    stat: str = Field(min_length=1)
     value: float
+
+    @field_validator("value")
+    @classmethod
+    def _validate_value_finite(cls, v: float) -> float:
+        if not isfinite(v):
+            raise ValueError("value must be finite (not NaN or +/-inf)")
+        return v
 
 
 class StatBlock(BaseModel):
@@ -16,12 +27,16 @@ class StatBlock(BaseModel):
     Category is "off", "def", or "all" — controls which stats are included.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     category: str = "all"
     stats: dict[str, float] = {}
 
 
 class StatDiff(BaseModel):
     """A single stat's values across two builds, with computed diff and pct change."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     stat: str
     value1: float

@@ -31,7 +31,7 @@ class TestParseBuildSection:
 
     def test_bandit_and_view_mode(self, minimal_build_xml):
         build = parse_build_file(minimal_build_xml)
-        assert build.bandit == "None"
+        assert build.bandit is None
         assert build.view_mode == "TREE"
         assert build.target_version == "3_0"
 
@@ -168,7 +168,7 @@ class TestParseItems:
         item = build.items[0]
         assert "IncreasedLife6" in item.prefix_slots
         assert "SpellDamage3" in item.prefix_slots
-        assert "None" in item.prefix_slots
+        assert None in item.prefix_slots
         assert item.open_prefixes == 1
         assert "ColdResistance5" in item.suffix_slots
         assert item.open_suffixes == 1
@@ -676,3 +676,830 @@ class TestParseBuildFile:
         assert len(build.items) >= 1
         equipped = build.get_equipped_items()
         assert any(slot == "Helmet" for slot, _ in equipped)
+
+
+# ── Metadata filter (Bug 1) ──────────────────────────────────────────────────
+
+
+class TestPoBMetadataNotExplicits:
+    def _make_xml(self, item_text: str) -> str:
+        return textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+{item_text}
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+
+    def test_has_alt_variant_not_in_explicits(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: UNIQUE\nWatcher's Eye\nPrismatic Jewel\n"
+            "Has Alt Variant: true\nSelected Alt Variant: 9\n"
+            "Implicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        texts = [m.text for m in item.explicits]
+        assert not any("Has Alt Variant" in t for t in texts)
+        assert not any("Selected Alt Variant" in t for t in texts)
+
+    def test_has_alt_variant_two_not_in_explicits(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: UNIQUE\nWatcher's Eye\nPrismatic Jewel\n"
+            "Has Alt Variant: true\nSelected Alt Variant: 29\n"
+            "Has Alt Variant Two: true\nSelected Alt Variant Two: 1\n"
+            "Implicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        texts = [m.text for m in item.explicits]
+        assert not any("Has Alt Variant" in t for t in texts)
+        assert not any("Selected Alt Variant" in t for t in texts)
+        assert len(item.explicits) == 1
+        assert item.explicits[0].text == "+50 to maximum Life"
+
+    def test_has_variant_not_in_explicits(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: UNIQUE\nSome Jewel\nPrismatic Jewel\n"
+            "Has Variant: 2\n"
+            "Implicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        texts = [m.text for m in item.explicits]
+        assert not any("Has Variant" in t for t in texts)
+
+    def test_source_not_in_explicits(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Crown\nHubris Circlet\n"
+            "Source: Some League\n"
+            "Implicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        texts = [m.text for m in item.explicits]
+        assert not any("Source:" in t for t in texts)
+        assert len(item.explicits) == 1
+
+
+# ── Magic item base_type (Bug 2) ─────────────────────────────────────────────
+
+
+class TestMagicItemBaseType:
+    def _make_xml(self, item_text: str) -> str:
+        return textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+{item_text}
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+
+    def test_magic_flask_base_type_strips_suffix(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: MAGIC\nChemist's Silver Flask of the Owl\n"
+            "Crafted: true\nPrefix: FlaskChargesUsed4\nSuffix: FlaskBuff\n"
+            "Quality: 20\nLevelReq: 22\nImplicits: 0\n"
+            "24% reduced Charges per use"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.rarity == "MAGIC"
+        assert item.name == "Chemist's Silver Flask of the Owl"
+        assert item.base_type == "Silver Flask"
+
+    def test_magic_flask_suffix_only_strips(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: MAGIC\nJade Flask of the Deer\n"
+            "Quality: 0\nLevelReq: 27\nImplicits: 0\n"
+            "20% increased Movement Speed during Effect"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.base_type == "Jade Flask"
+
+    def test_normal_item_base_type_equals_name(self, tmp_path):
+        xml = self._make_xml("Rarity: NORMAL\nSilver Flask\nQuality: 0\nLevelReq: 22\nImplicits: 0")
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.name == "Silver Flask"
+        assert item.base_type == "Silver Flask"
+
+    def test_rare_item_base_type_distinct_from_name(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nDoom Crown\nHubris Circlet\nImplicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.name == "Doom Crown"
+        assert item.base_type == "Hubris Circlet"
+
+
+# ── _parse_affix_slot sentinel pattern ───────────────────────────────────────
+
+
+class TestParseAffixSlotSentinel:
+    """AFFIX_NO_MATCH must be distinguishable from None and from real mod IDs."""
+
+    def test_affix_no_match_is_distinct_object(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH
+
+        assert AFFIX_NO_MATCH is not None
+        assert AFFIX_NO_MATCH != ""
+        assert AFFIX_NO_MATCH is not False
+
+    def test_non_affix_line_returns_sentinel(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("+50 to maximum Life", PREFIX_RE)
+        assert result is AFFIX_NO_MATCH
+
+    def test_prefix_line_with_none_returns_python_none(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: None", PREFIX_RE)
+        assert result is None
+        assert result is not AFFIX_NO_MATCH
+
+    def test_prefix_with_mod_id_returns_string(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: IncreasedLife6", PREFIX_RE)
+        assert result == "IncreasedLife6"
+        assert result is not AFFIX_NO_MATCH
+
+    def test_prefix_with_range_marker_strips_range(self):
+        from poe.services.build.constants import PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: {range:0.5}IncreasedLife6", PREFIX_RE)
+        assert result == "IncreasedLife6"
+
+    def test_suffix_line_with_none_returns_python_none(self):
+        from poe.services.build.constants import SUFFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Suffix: None", SUFFIX_RE)
+        assert result is None
+
+    def test_suffix_pattern_does_not_match_prefix_line(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, SUFFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        result = _parse_affix_slot("Prefix: IncreasedLife6", SUFFIX_RE)
+        assert result is AFFIX_NO_MATCH
+
+    def test_sentinel_distinguishable_in_filtered_list(self):
+        from poe.services.build.constants import AFFIX_NO_MATCH, PREFIX_RE
+        from poe.services.build.xml.parser import _parse_affix_slot
+
+        lines = ["Prefix: IncreasedLife6", "Prefix: None", "Random text"]
+        results = [_parse_affix_slot(line, PREFIX_RE) for line in lines]
+        # Filter sentinel out
+        prefixes = [r for r in results if r is not AFFIX_NO_MATCH]
+        assert len(prefixes) == 2
+        assert "IncreasedLife6" in prefixes
+        assert None in prefixes
+
+
+# ── _assign_affix_metadata keyword matching ──────────────────────────────────
+
+
+class TestAssignAffixMetadata:
+    """Test the keyword-based prefix/suffix assignment using slot mod IDs."""
+
+    def _make_xml(self, item_text: str) -> str:
+        return textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+{item_text}
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+
+    def test_prefix_count_invariant(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: ColdResistance5\n"
+            "+50 to maximum Life\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        # Invariant: number of prefix-tagged mods must not exceed filled prefix slots
+        prefix_tagged = sum(1 for m in item.explicits if m.is_prefix)
+        suffix_tagged = sum(1 for m in item.explicits if m.is_suffix)
+        assert prefix_tagged <= item.filled_prefixes
+        assert suffix_tagged <= item.filled_suffixes
+
+    def test_assigned_explicits_have_mod_ids(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: ColdResistance5\n"
+            "+50 to maximum Life\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        for m in item.explicits:
+            if m.is_prefix:
+                assert m.mod_id != ""
+            if m.is_suffix:
+                assert m.mod_id != ""
+
+    def test_no_slots_no_affix_assignment(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        for m in item.explicits:
+            assert not m.is_prefix
+            assert not m.is_suffix
+            assert m.mod_id == ""
+
+    def test_crafted_mods_excluded_from_assignment(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: None\n"
+            "+50 to maximum Life\n"
+            "{crafted}+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        crafted = [m for m in item.explicits if m.is_crafted]
+        # Crafted should not be tagged as prefix/suffix or get mod_id from slot
+        for m in crafted:
+            assert m.mod_id == ""
+
+    def test_mod_index_claim_uniqueness(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Helm\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Prefix: SpellDamage3\n"
+            "Suffix: ColdResistance5\n"
+            "+50 to maximum Life\n"
+            "Adds 30 to 50 Spell Damage\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assigned_ids = [m.mod_id for m in item.explicits if m.mod_id]
+        # No duplicate mod_ids should be claimed
+        assert len(assigned_ids) == len(set(assigned_ids))
+
+
+# ── Bandit field None handling ──────────────────────────────────────────────
+
+
+class TestBanditField:
+    def test_bandit_none_string_becomes_python_none(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="" bandit="None"/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.bandit is None
+
+    def test_bandit_empty_string_becomes_python_none(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="" bandit=""/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.bandit is None
+
+    @pytest.mark.parametrize("bandit", ["Alira", "Kraityn", "Oak"])
+    def test_bandit_named_choice_preserved(self, tmp_path, bandit):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="" bandit="{bandit}"/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.bandit == bandit
+
+
+# ── Level bounds parsing ─────────────────────────────────────────────────────
+
+
+class TestLevelParsing:
+    @pytest.mark.parametrize("level", [1, 50, 90, 100])
+    def test_level_within_bounds_preserved(self, tmp_path, level):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="{level}" className="Witch" ascendClassName=""/>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == level
+
+    def test_level_zero_clamped_to_one_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="0" className="Witch" ascendClassName=""/>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == 1
+        assert any("level=0" in r.message and "minimum" in r.message for r in caplog.records)
+
+    def test_level_above_max_clamped_to_100_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="9999" className="Witch" ascendClassName=""/>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.level == 100
+        assert any("level=9999" in r.message and "maximum" in r.message for r in caplog.records)
+
+
+class TestParseStatBoundary:
+    def test_player_stat_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="">
+                    <PlayerStat stat="" value="42"/>
+                    <PlayerStat stat="Life" value="4500"/>
+                </Build>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [s.stat for s in build.player_stats] == ["Life"]
+        assert any("missing 'stat'" in r.message for r in caplog.records)
+
+    def test_minion_stat_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName="">
+                    <MinionStat stat="" value="100"/>
+                </Build>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.minion_stats == []
+        assert any("missing 'stat'" in r.message for r in caplog.records)
+
+
+class TestParseItemBoundary:
+    def test_item_with_zero_id_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="0">
+Rarity: RARE
+Test
+Hubris Circlet
+                    </Item>
+                    <Item id="2">
+Rarity: RARE
+Real
+Hubris Circlet
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [i.id for i in build.items] == [2]
+        assert any("non-positive id" in r.message for r in caplog.records)
+
+    def test_item_quality_above_50_clamped_with_warning(self, tmp_path, caplog):
+        # Quality cap is 50 (corrupted/imbued items go past the base-30 mark);
+        # values above 50 still clamp + warn so a malformed XML doesn't crash.
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+Quality: 99
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].quality == 50
+        assert any("quality=99" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_item_quality_in_corrupted_range_preserved(self, tmp_path):
+        # Quality 40 (Hillock-imbued corrupted) round-trips without clamp.
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+Quality: 40
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].quality == 40
+
+    def test_item_level_above_100_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+Item Level: 200
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].item_level == 100
+        assert any("item_level=200" in r.message and "maximum" in r.message for r in caplog.records)
+
+
+class TestParseConfigBoundary:
+    def test_config_input_with_empty_name_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Config>
+                    <Input name="" boolean="true"/>
+                    <Input name="useFrenzyCharges" boolean="true"/>
+                </Config>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        names = [e.name for e in build.config_sets[0].inputs]
+        assert names == ["useFrenzyCharges"]
+        assert any("missing 'name'" in r.message for r in caplog.records)
+
+    def test_config_set_with_empty_id_defaulted_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Config activeConfigSet="1">
+                    <ConfigSet id="" title="Empty Id">
+                        <Input name="useFrenzyCharges" boolean="true"/>
+                    </ConfigSet>
+                </Config>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.config_sets[0].id == "1"
+        assert any("missing 'id'" in r.message for r in caplog.records)
+
+
+class TestParseGemBoundary:
+    def test_gem_level_above_max_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="Fireball" level="999" quality="0"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.skill_groups[0].gems[0].level == 40
+        assert any("gem level=999" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_gem_quality_above_max_clamped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="Fireball" level="20" quality="99"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.skill_groups[0].gems[0].quality == 30
+        assert any("gem quality=99" in r.message and "maximum" in r.message for r in caplog.records)
+
+    def test_gem_zero_count_clamped_to_one_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="Fireball" level="20" quality="0" count="0"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.skill_groups[0].gems[0].count == 1
+        assert any("gem count=0" in r.message and "minimum" in r.message for r in caplog.records)
+
+    def test_gem_with_empty_name_spec_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Skills>
+                    <SkillSet id="1">
+                        <Skill>
+                            <Gem nameSpec="" level="20" quality="0"/>
+                            <Gem nameSpec="Fireball" level="20" quality="0"/>
+                        </Skill>
+                    </SkillSet>
+                </Skills>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [g.name_spec for g in build.skill_groups[0].gems] == ["Fireball"]
+        assert any("empty nameSpec" in r.message for r in caplog.records)
+
+
+class TestParseItemSlotBoundary:
+    def test_slot_with_empty_name_is_skipped_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+                    </Item>
+                    <ItemSet id="1" title="Default">
+                        <Slot name="" itemId="1"/>
+                        <Slot name="Helmet" itemId="1"/>
+                    </ItemSet>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [s.name for s in build.item_sets[0].slots] == ["Helmet"]
+        assert any("empty name" in r.message for r in caplog.records)
+
+    def test_slot_with_zero_item_id_is_skipped_silently(self, tmp_path):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test
+Hubris Circlet
+                    </Item>
+                    <ItemSet id="1" title="Default">
+                        <Slot name="Helmet" itemId="0"/>
+                        <Slot name="Body" itemId="1"/>
+                    </ItemSet>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert [s.name for s in build.item_sets[0].slots] == ["Body"]
+
+
+class TestParseItemSetBoundary:
+    def test_item_set_with_empty_id_is_defaulted_with_warning(self, tmp_path, caplog):
+        xml = textwrap.dedent("""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <ItemSet id="" title="Default"/>
+                </Items>
+            </PathOfBuilding>
+        """)
+        with caplog.at_level("WARNING", logger="poe.parser"):
+            build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.item_sets[0].id == "1"
+        assert any("missing 'id'" in r.message for r in caplog.records)
+
+
+# ── Influence enum coverage ──────────────────────────────────────────────────
+
+
+class TestInfluenceEnumCoverage:
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("Shaper Item", "Shaper"),
+            ("Elder Item", "Elder"),
+            ("Crusader Item", "Crusader"),
+            ("Hunter Item", "Hunter"),
+            ("Redeemer Item", "Redeemer"),
+            ("Warlord Item", "Warlord"),
+            ("Searing Exarch Item", "Searing Exarch"),
+            ("Eater of Worlds Item", "Eater of Worlds"),
+        ],
+    )
+    def test_each_influence_parsed(self, tmp_path, line, expected):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test Crown
+Hubris Circlet
+{line}
+Implicits: 0
++50 to maximum Life
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert expected in build.items[0].influences
+
+
+# ── Rarity enum coverage ─────────────────────────────────────────────────────
+
+
+class TestRarityEnumCoverage:
+    @pytest.mark.parametrize("rarity", ["NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"])
+    def test_each_rarity_parsed(self, tmp_path, rarity):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: {rarity}
+Test Item
+Hubris Circlet
+Implicits: 0
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert build.items[0].rarity == rarity
+
+
+# ── Empty/invalid XML negative paths ─────────────────────────────────────────
+
+
+class TestParserNegativePaths:
+    def test_invalid_xml_raises(self, tmp_path):
+        from xml.etree.ElementTree import ParseError as XMLParseError
+
+        p = tmp_path / "bad.xml"
+        p.write_text("not valid xml at all <<<>>>", encoding="utf-8")
+        with pytest.raises(XMLParseError):
+            parse_build_file(p)
+
+    def test_truly_empty_file_raises(self, tmp_path):
+        from xml.etree.ElementTree import ParseError as XMLParseError
+
+        p = tmp_path / "empty.xml"
+        p.write_text("", encoding="utf-8")
+        with pytest.raises(XMLParseError):
+            parse_build_file(p)
+
+
+# ── Item state lines (negative tests for _parse_header_line) ─────────────────
+
+
+class TestItemStateLines:
+    @pytest.mark.parametrize(
+        ("line", "field"),
+        [
+            ("Synthesised Item", "is_synthesised"),
+            ("Fractured Item", "is_fractured"),
+            ("Crafted: true", "is_crafted"),
+            ("Corrupted", "is_corrupted"),
+            ("Mirrored", "is_mirrored"),
+            ("Split", "is_split"),
+            ("Has Veiled Prefix", "has_veiled_prefix"),
+            ("Has Veiled Suffix", "has_veiled_suffix"),
+        ],
+    )
+    def test_each_state_line_sets_field(self, tmp_path, line, field):
+        xml = textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+Rarity: RARE
+Test Item
+Hubris Circlet
+{line}
+Implicits: 0
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        assert getattr(build.items[0], field) is True
+
+
+# ── prefix_slots + open_prefixes invariants ─────────────────────────────────
+
+
+class TestPrefixSuffixSlotInvariants:
+    def _make_xml(self, item_text: str) -> str:
+        return textwrap.dedent(f"""\
+            <?xml version="1.0"?>
+            <PathOfBuilding>
+                <Build level="1" className="Witch" ascendClassName=""/>
+                <Items activeItemSet="1">
+                    <Item id="1">
+{item_text}
+                    </Item>
+                </Items>
+            </PathOfBuilding>
+        """)
+
+    def test_open_plus_filled_equals_total(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Item\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Prefix: None\n"
+            "Prefix: None\n"
+            "Suffix: ColdResistance5\n"
+            "Suffix: None\n"
+            "+50 to maximum Life\n"
+            "+30% to Cold Resistance"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.open_prefixes + item.filled_prefixes == len(item.prefix_slots)
+        assert item.open_suffixes + item.filled_suffixes == len(item.suffix_slots)
+
+    def test_filled_count_matches_non_none_entries(self, tmp_path):
+        xml = self._make_xml(
+            "Rarity: RARE\nTest Item\nHubris Circlet\nImplicits: 0\n"
+            "Prefix: IncreasedLife6\n"
+            "Suffix: None\n"
+            "+50 to maximum Life"
+        )
+        build = parse_build_file(_write_xml(tmp_path, xml))
+        item = build.items[0]
+        assert item.filled_prefixes == sum(1 for s in item.prefix_slots if s is not None)
+        assert item.open_suffixes == sum(1 for s in item.suffix_slots if s is None)

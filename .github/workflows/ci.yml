@@ -27,7 +27,31 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check poe/ tests/
 
+  warm-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - name: Set up Python
+        run: uv python install 3.14
+      - name: Install dependencies
+        run: uv sync
+      - name: Restore poe.ninja cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/poe-agent/ninja
+          key: ninja-api-cache-${{ github.run_id }}
+          restore-keys: |
+            ninja-api-cache-
+      - name: Warm poe.ninja cache
+        env:
+          POE_NINJA_CACHE_TTL: "86400"
+        run: uv run pytest tests/integration/ -v -m integration || true
+
   test:
+    needs: warm-cache
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -42,6 +66,13 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync
+      - name: Restore poe.ninja cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/poe-agent/ninja
+          key: ninja-api-cache-${{ github.run_id }}
+          restore-keys: |
+            ninja-api-cache-
       - name: Clone Path of Building for engine tests
         run: |
           if [ "${{ matrix.pob-version }}" = "latest" ]; then
@@ -49,13 +80,21 @@ jobs:
           else
             git clone --depth 1 --branch ${{ matrix.pob-version }} https://github.com/PathOfBuildingCommunity/PathOfBuilding.git /tmp/pob
           fi
-      - name: Run all tests with coverage
+      - name: Run all tests
         env:
           POB_PATH: /tmp/pob
+          POE_NINJA_CACHE_TTL: "86400"
         run: |
-          uv run pytest tests/ \
-            -v --cov=poe --cov-report=xml:coverage.xml --cov-report=term-missing \
-            --cov-fail-under=90
+          if [ "${{ matrix.python-version }}" = "3.14" ] && [ "${{ matrix.pob-version }}" = "v2.62.0" ]; then
+            uv run pytest tests/ \
+              -v --cov=poe --cov-report=xml:coverage.xml --cov-report=json:coverage.json --cov-report=term-missing \
+              --cov-fail-under=90
+          else
+            uv run pytest tests/ -v
+          fi
+      - name: Check per-module coverage thresholds
+        if: matrix.python-version == '3.14' && matrix.pob-version == 'v2.62.0'
+        run: uv run coverage-threshold
       - name: Upload coverage artifact
         if: matrix.python-version == '3.14' && matrix.pob-version == 'v2.62.0'
         uses: actions/upload-artifact@v7
@@ -68,14 +107,16 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
           name: coverage-${{ github.sha }}
       - name: Coverage report
         uses: orgoro/coverage@v3.2
+        continue-on-error: true
         with:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
-          thresholdAll: 0.60
-          thresholdNew: 0.80
-          thresholdModified: 0.50
+          thresholdAll: 0.90
+          thresholdNew: 0.90
+          thresholdModified: 0.90

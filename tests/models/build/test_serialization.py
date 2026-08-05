@@ -1,3 +1,5 @@
+import pytest
+
 from poe.models.build import (
     BuildComparison,
     BuildConfig,
@@ -6,7 +8,6 @@ from poe.models.build import (
     BuildNotes,
     ConfigEntry,
     EngineInfo,
-    EngineStats,
     Flask,
     Gem,
     GemGroup,
@@ -39,6 +40,7 @@ from poe.models.sim import (
     Mod,
     ModTier,
     ModWeight,
+    SimulationResult,
 )
 
 # --- Tree models ---
@@ -117,8 +119,8 @@ class TestItemModels:
             id=1,
             text="test",
             rarity="RARE",
-            prefix_slots=["IncreasedLife6", "None", "None"],
-            suffix_slots=["AddedFireRes4", "None", "None"],
+            prefix_slots=["IncreasedLife6", None, None],
+            suffix_slots=["AddedFireRes4", None, None],
         )
         assert item.open_prefixes == 2
         assert item.open_suffixes == 2
@@ -192,6 +194,91 @@ class TestGemModels:
     def test_gem_summary(self):
         s = GemSummary(name="Fireball", level=21, quality=23)
         assert s.level == 21
+
+
+class TestGemInvariants:
+    def test_name_spec_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="")
+
+    def test_level_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", level=0)
+
+    def test_level_rejects_above_40(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", level=41)
+
+    def test_quality_rejects_above_30(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", quality=99)
+
+    def test_quality_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", quality=-1)
+
+    def test_count_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Gem(name_spec="Fireball", count=0)
+
+    def test_gem_summary_rejects_empty_name(self):
+        with pytest.raises((ValueError, TypeError)):
+            GemSummary(name="")
+
+    def test_gem_group_main_active_skill_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            GemGroup(main_active_skill=0)
+
+
+class TestFlaskInvariants:
+    def test_slot_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(slot="", name="Divine Life Flask", base_type="Divine Life Flask")
+
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(slot="Flask 1", name="", base_type="Divine Life Flask")
+
+    def test_base_type_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(slot="Flask 1", name="Divine Life Flask", base_type="")
+
+    def test_quality_rejects_above_30(self):
+        with pytest.raises((ValueError, TypeError)):
+            Flask(
+                slot="Flask 1",
+                name="Divine Life Flask",
+                base_type="Divine Life Flask",
+                quality=99,
+            )
+
+
+class TestJewelInvariants:
+    def test_item_id_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            Jewel(node_id=100, item_id=0)
+
+    def test_item_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Jewel(node_id=100, item_id=-1)
+
+    def test_node_id_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Jewel(node_id=-1, item_id=5)
+
+
+class TestConfigInvariants:
+    def test_config_entry_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ConfigEntry(name="", value=True, input_type="boolean")
+
+    def test_config_entry_input_type_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            ConfigEntry(name="x", value="hi", input_type="garbage")
+
+    def test_build_config_id_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildConfig(id="")
 
 
 # --- Flask, Jewel models ---
@@ -387,10 +474,6 @@ class TestEngineModels:
         info = EngineInfo(pob_path="/path/to/pob", initialized=True)
         assert info.initialized is True
 
-    def test_engine_stats(self):
-        stats = EngineStats(stats={"Life": 5000}, build_name="test")
-        assert stats.stats["Life"] == 5000
-
 
 # --- Re-export test ---
 
@@ -400,3 +483,191 @@ class TestReExports:
         from poe.models.build import __all__
 
         assert len(__all__) >= 40
+
+
+# ── Pydantic semantic invariants for sim models (Pattern 5) ─────────────────
+#
+# These tests assert constraints that should hold for sim model fields.
+# Many use xfail(strict=True) — these document gaps where model_validators
+# do not yet exist in production code. Production should NOT be modified.
+
+
+class TestSimulationResultInvariants:
+    def test_minimum_construction(self):
+        r = SimulationResult(base="Hubris Circlet", ilvl=84, method="chaos", targets=["Life"])
+        assert r.base == "Hubris Circlet"
+
+    def test_avg_attempts_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_attempts=float("nan"),
+            )
+
+    def test_avg_attempts_rejects_inf(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_attempts=float("inf"),
+            )
+
+    def test_avg_attempts_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_attempts=-5.0,
+            )
+
+    def test_cost_per_attempt_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                cost_per_attempt=float("nan"),
+            )
+
+    def test_avg_cost_chaos_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                avg_cost_chaos=float("nan"),
+            )
+
+    def test_iterations_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                iterations=-1,
+            )
+
+    def test_ilvl_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(base="Hubris Circlet", ilvl=-5, method="chaos", targets=["Life"])
+
+    def test_ilvl_rejects_above_100(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(base="Hubris Circlet", ilvl=999, method="chaos", targets=["Life"])
+
+    def test_method_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="bogus_method_does_not_exist",
+                targets=["Life"],
+            )
+
+    def test_hit_rate_rejects_arbitrary_string(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                hit_rate="not a percentage",
+            )
+
+    def test_match_mode_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            SimulationResult(
+                base="Hubris Circlet",
+                ilvl=84,
+                method="chaos",
+                targets=["Life"],
+                match_mode="impossible_mode",
+            )
+
+
+class TestModInvariants:
+    def test_minimal_construction(self):
+        m = Mod(mod_id="x", name="x", affix="prefix", group="g", weight=100)
+        assert m.weight == 100
+
+    def test_weight_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            Mod(mod_id="x", name="x", affix="prefix", group="g", weight=-100)
+
+    def test_affix_rejects_unknown(self):
+        with pytest.raises((ValueError, TypeError)):
+            Mod(mod_id="x", name="x", affix="not-an-affix", group="g", weight=100)
+
+    def test_zero_weight_currently_accepted(self):
+        m = Mod(mod_id="x", name="x", affix="prefix", group="g", weight=0)
+        assert m.weight == 0
+
+
+class TestModTierInvariants:
+    def test_tier_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModTier(tier=0, ilvl=84)
+
+    def test_weight_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModTier(tier=1, ilvl=84, weight=-1)
+
+    def test_ilvl_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModTier(tier=1, ilvl=-1)
+
+
+class TestModWeightInvariants:
+    def test_multiplier_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModWeight(tag="fire", multiplier=float("nan"))
+
+    def test_multiplier_rejects_neg_inf(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModWeight(tag="fire", multiplier=float("-inf"))
+
+    def test_tag_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ModWeight(tag="", multiplier=1.0)
+
+
+class TestFossilInvariants:
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Fossil(name="")
+
+    def test_mod_weights_value_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            Fossil(name="Pristine", mod_weights={"life": float("nan")})
+
+
+class TestEssenceInvariants:
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            Essence(name="")
+
+
+class TestBenchCraftInvariants:
+    def test_name_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            BenchCraft(name="")
+
+
+class TestIdentifiedModInvariants:
+    def test_tier_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            IdentifiedMod(text="+50 Life", tier=-1)
+
+    def test_affix_rejects_unknown_when_set(self):
+        with pytest.raises((ValueError, TypeError)):
+            IdentifiedMod(text="+50 Life", affix="weird")

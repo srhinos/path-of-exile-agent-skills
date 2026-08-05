@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from poe.models.ninja.builds import DimensionEntry, SearchResults
@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 class NodeChange(BaseModel):
     """A single node that changed between two snapshots."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     name: str
     change_type: str
@@ -20,6 +22,8 @@ class NodeChange(BaseModel):
 
 class PatchDiff(BaseModel):
     """Diff between two search result snapshots."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     added: list[NodeChange] = []
     removed: list[NodeChange] = []

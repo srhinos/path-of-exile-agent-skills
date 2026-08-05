@@ -13,21 +13,21 @@ def _svc() -> TreeService:
 
 
 @tree_app.command(name="specs")
-def tree_specs(name: str, *, human: bool = False) -> None:
+def tree_specs(name: str, *, json: bool = False) -> None:
     """List all tree specs in a build.
 
     Parameters
     ----------
     name
         Build name or unique prefix.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().get_specs(name), human=human)
+    _output(_svc().get_specs(name), json_mode=json)
 
 
 @tree_app.command(name="get")
-def tree_get(name: str, *, spec: int | None = None, human: bool = False) -> None:
+def tree_get(name: str, *, spec: int | None = None, json: bool = False) -> None:
     """Get tree allocation for a spec.
 
     Parameters
@@ -36,14 +36,14 @@ def tree_get(name: str, *, spec: int | None = None, human: bool = False) -> None
         Build name or unique prefix.
     spec
         Spec index (1-based).
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().get_tree(name, spec_index=spec), human=human)
+    _output(_svc().get_tree(name, spec_index=spec), json_mode=json)
 
 
 @tree_app.command(name="compare")
-def tree_compare(name1: str, name2: str, *, human: bool = False) -> None:
+def tree_compare(name1: str, name2: str, *, json: bool = False) -> None:
     """Compare tree allocations between two builds.
 
     Parameters
@@ -52,10 +52,10 @@ def tree_compare(name1: str, name2: str, *, human: bool = False) -> None:
         First build name.
     name2
         Second build name.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().compare_trees(name1, name2), human=human)
+    _output(_svc().compare_trees(name1, name2), json_mode=json)
 
 
 @tree_app.command(name="set")
@@ -73,6 +73,7 @@ def tree_set(
     tree_version: str | None = None,
     spec: int | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Set or modify tree allocation for a spec.
 
@@ -113,7 +114,7 @@ def tree_set(
         spec_index=spec,
         file_path=file,
     )
-    _output(result)
+    _output(result, json_mode=json)
 
 
 @tree_app.command(name="search")
@@ -123,24 +124,28 @@ def tree_search(
     *,
     spec: int | None = None,
     file: str | None = None,
-    human: bool = False,
+    json: bool = False,
 ) -> None:
-    """Search allocated tree nodes by ID substring.
+    """Search allocated tree nodes by node ID or override name.
+
+    Matches node IDs as substrings and cluster/timeless jewel override
+    names and descriptions. Normal passive nodes cannot be searched by
+    name (PoB builds only store node IDs, not names).
 
     Parameters
     ----------
     name
         Build name or unique prefix.
     query
-        Search query (node ID substring).
+        Search query (node ID substring or override name).
     spec
         Tree spec index (1-based).
     file
         Explicit file path.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().search_nodes(name, query, spec_index=spec, file_path=file), human=human)
+    _output(_svc().search_nodes(name, query, spec_index=spec, file_path=file), json_mode=json)
 
 
 @tree_app.command(name="set-active")

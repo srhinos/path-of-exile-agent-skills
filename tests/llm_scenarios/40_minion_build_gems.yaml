@@ -1,0 +1,15 @@
+name: minion-build-gems
+category: cross-system
+goal: >
+  Search poe.ninja for a Necromancer build (minion player). Import it.
+  List the gems — what minion skills does it use? What support gems
+  are linked to the minions? How many gem groups are there?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build gems list"
+  must_not_find:
+    - "traceback"
+  blocked: false

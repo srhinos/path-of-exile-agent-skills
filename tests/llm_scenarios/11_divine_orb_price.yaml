@@ -1,0 +1,12 @@
+name: divine-orb-price
+category: ninja
+goal: >
+  What's a Divine Orb worth right now in the current league? Is the price
+  going up or down? Show me the trend.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja price"
+  must_not_find:
+    - "traceback"
+  blocked: false

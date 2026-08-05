@@ -1,0 +1,14 @@
+name: atlas-strategy
+category: ninja
+goal: >
+  I want to make currency in maps. What's the most profitable atlas scarab
+  specialization right now? What atlas nodes should I take?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja atlas"
+  must_find:
+    - "expected_value"
+  must_not_find:
+    - "traceback"
+  blocked: false

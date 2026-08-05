@@ -111,19 +111,24 @@ class TestSpectresAndTimeless:
         assert reparsed.timeless_data["timelessConqueror"] == "Doryani"
 
     def test_timeless_data_with_children(self, tmp_path):
+        # Children now live under a "children" subdict so a child tag
+        # matching an attribute name (e.g. SearchResult attribute +
+        # <SearchResult/> child) can't silently overwrite each other.
         build = _base_build(
             timeless_data={
                 "timelessType": "Lethal Pride",
                 "timelessSeed": "12345",
-                "TimelessJewelSocket": [
-                    {"nodeId": "100", "socketIndex": "1"},
-                    {"nodeId": "200", "socketIndex": "2"},
-                ],
+                "children": {
+                    "TimelessJewelSocket": [
+                        {"nodeId": "100", "socketIndex": "1"},
+                        {"nodeId": "200", "socketIndex": "2"},
+                    ],
+                },
             },
         )
         reparsed = _roundtrip(build, tmp_path, "timeless_children.xml")
         assert reparsed.timeless_data["timelessType"] == "Lethal Pride"
-        sockets = reparsed.timeless_data.get("TimelessJewelSocket", [])
+        sockets = reparsed.timeless_data.get("children", {}).get("TimelessJewelSocket", [])
         assert len(sockets) == 2
 
 

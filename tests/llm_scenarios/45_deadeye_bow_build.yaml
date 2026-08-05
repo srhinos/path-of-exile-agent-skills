@@ -1,0 +1,15 @@
+name: deadeye-bow-build
+category: cross-system
+goal: >
+  Search poe.ninja for a Deadeye build (bow character). Import it.
+  Check the summary and verify it's an attack build (should have attack DPS,
+  not spell DPS). What bow skill does it use?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build summary"
+  must_not_find:
+    - "traceback"
+  blocked: false

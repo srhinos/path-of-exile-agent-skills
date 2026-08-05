@@ -119,3 +119,161 @@ class TestJewelsCRUD:
         svc = JewelsService()
         with pytest.raises(BuildValidationError):
             svc.unsocket_jewel("ignored", file_path=str(rich_build))
+
+
+class TestJewelsAddInvariants:
+    @pytest.mark.parametrize(
+        "base",
+        [
+            "Cobalt Jewel",
+            "Crimson Jewel",
+            "Viridian Jewel",
+            "Prismatic Jewel",
+            "Murderous Eye Jewel",
+            "Searching Eye Jewel",
+            "Hypnotic Eye Jewel",
+            "Ghastly Eye Jewel",
+            "Large Cluster Jewel",
+            "Medium Cluster Jewel",
+            "Small Cluster Jewel",
+            "Timeless Jewel",
+        ],
+    )
+    def test_add_each_jewel_base(self, rich_build, base):
+        svc = JewelsService()
+        result = svc.add_jewel(
+            "ignored",
+            base=base,
+            slot="Jewel 1",
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    def test_add_jewel_assigns_unique_id(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = JewelsService()
+        _, before = BuildService().load("ignored", file_path=str(rich_build))
+        before_ids = {i.id for i in before.items}
+        result = svc.add_jewel(
+            "ignored",
+            base="Cobalt Jewel",
+            slot="Jewel 1",
+            file_path=str(rich_build),
+        )
+        assert result.item_id not in before_ids
+
+
+class TestJewelsRemoveInvariants:
+    def test_remove_clears_socket_binding(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = JewelsService()
+        svc.add_jewel(
+            "ignored",
+            base="Cobalt Jewel",
+            slot="Jewel 1",
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        jewel = next(i for i in build.items if i.base_type == "Cobalt Jewel")
+        svc.socket_jewel(
+            "ignored",
+            item_id=jewel.id,
+            node_id=26725,
+            file_path=str(rich_build),
+        )
+        svc.remove_jewel("ignored", item_id=jewel.id, file_path=str(rich_build))
+        _, after = BuildService().load("ignored", file_path=str(rich_build))
+        spec = after.get_active_spec()
+        assert all(s.item_id != jewel.id for s in spec.sockets)
+        assert not any(i.id == jewel.id for i in after.items)
+
+
+class TestSocketJewelOverrides:
+    def test_socket_jewel_overrides_existing_socket(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = JewelsService()
+        svc.add_jewel(
+            "ignored",
+            base="Cobalt Jewel",
+            slot="Jewel 1",
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        jewel = next(i for i in build.items if i.base_type == "Cobalt Jewel")
+        svc.socket_jewel(
+            "ignored",
+            item_id=jewel.id,
+            node_id=26725,
+            file_path=str(rich_build),
+        )
+        svc.socket_jewel(
+            "ignored",
+            item_id=jewel.id,
+            node_id=11111,
+            file_path=str(rich_build),
+        )
+        _, after = BuildService().load("ignored", file_path=str(rich_build))
+        spec = after.get_active_spec()
+        bindings = [s for s in spec.sockets if s.item_id == jewel.id]
+        assert len(bindings) == 1
+        assert bindings[0].node_id == 11111
+
+
+class TestUnsocketByItemId:
+    def test_unsocket_by_item_id(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = JewelsService()
+        svc.add_jewel(
+            "ignored",
+            base="Cobalt Jewel",
+            slot="Jewel 1",
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        jewel = next(i for i in build.items if i.base_type == "Cobalt Jewel")
+        svc.socket_jewel(
+            "ignored",
+            item_id=jewel.id,
+            node_id=44444,
+            file_path=str(rich_build),
+        )
+        result = svc.unsocket_jewel(
+            "ignored",
+            item_id=jewel.id,
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+        _, after = BuildService().load("ignored", file_path=str(rich_build))
+        spec = after.get_active_spec()
+        assert all(s.item_id != jewel.id for s in spec.sockets)
+
+
+class TestSocketJewelNoActiveSpec:
+    def test_socket_no_spec(self, tmp_path):
+        from tests.conftest import PoBXmlBuilder
+
+        builder = PoBXmlBuilder(tmp_path)
+        builder.with_class("Witch")
+        path = builder.write("nospec.xml")
+        from poe.services.build.build_service import BuildService
+        from poe.services.build.xml.parser import parse_build_file
+        from poe.services.build.xml.writer import write_build_file
+
+        b = parse_build_file(path)
+        b.specs = []
+        write_build_file(b, path)
+        svc = JewelsService()
+        b2 = BuildService()
+        _, build = b2.load("ignored", file_path=str(path))
+        if build.items:
+            with pytest.raises(BuildValidationError):
+                svc.socket_jewel(
+                    "ignored",
+                    item_id=build.items[0].id,
+                    node_id=1,
+                    file_path=str(path),
+                )

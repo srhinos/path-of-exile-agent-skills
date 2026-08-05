@@ -1,6 +1,6 @@
 # Build Tools
 
-For working with Path of Building `.xml` build files.
+For working with Path of Building `.xml` build files. All commands output human-readable text by default. Add `--json` for machine-readable JSON output.
 
 ## Getting Oriented
 
@@ -35,7 +35,7 @@ poe build gems list "<name>"                   # Active set (default)
 ## Stats, Comparison, Validation
 
 ```bash
-poe build summary "<name>"                     # Quick dashboard (class/level/DPS/life/resists)
+poe build summary "<name>"                     # Quick dashboard (class/level/main skill/DPS/life/resists)
 poe build stats "<name>" --category off        # Offensive stats
 poe build stats "<name>" --category def        # Defensive stats
 poe build compare "<build1>" "<build2>"        # Side-by-side stat diff
@@ -48,7 +48,7 @@ poe build config get "<name>"                  # Build config (charges, conditio
 
 ```bash
 # Create / delete / clone / rename
-poe build create "<name>" --class-name Witch --ascendancy Necromancer --level 90
+poe build create "<name>" --class Witch --ascendancy Necromancer --level 90
 poe build create "<name>" --file /path/to/output.xml
 poe build delete "<name>" --confirm
 poe build duplicate "<name>" "Clone Name"
@@ -149,7 +149,7 @@ poe build jewels socket "<name>" --id 3 --node 26725
 poe build jewels unsocket "<name>" --id 3
 ```
 
-All write commands accept `--file <path>` to specify an explicit file path instead of resolving by name. Note: `items remove --slot` searches only the active item set. `items add` replaces existing slot assignments. Config presets available: `mapping`, `boss`, `sirus`, `shaper`.
+All write commands accept `--file <path>` to specify an explicit file path instead of resolving by name. Read commands `items list`, `config get` also accept `--file`. Mutation commands `delete`, `rename`, `duplicate`, `import` support `--json` for structured output. Config presets available: `mapping`, `boss`, `sirus`, `shaper`.
 
 **Indexing**: Tree specs are 1-indexed (`--spec 1`). Gem groups are 0-indexed (`--index 0`). Main skill index is 1-based (`--index 1`).
 
@@ -209,6 +209,7 @@ Notes often contain critical context: gearing strategies, gem swaps, crafting gu
 ## Build File Location
 
 - Build files are auto-detected from the standard PoB builds directory
+- Build names support **prefix matching** — `"My RF"` resolves to `"My RF Jugg"` if it's the only match. Ambiguous prefixes return an error listing matches.
 - PoB installation path: `poe build engine info`
 
 ## Known Limitations

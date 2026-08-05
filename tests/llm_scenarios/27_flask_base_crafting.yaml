@@ -1,0 +1,14 @@
+name: flask-base-crafting
+category: crafting
+goal: >
+  Can I simulate crafting on flasks? Search for "Granite Flask" as a base
+  item. Then show me what mods can roll on it.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim search"
+    - "poe sim mods"
+  must_not_find:
+    - "traceback"
+    - "not found"
+  blocked: false

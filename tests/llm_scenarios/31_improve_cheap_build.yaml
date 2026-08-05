@@ -1,0 +1,16 @@
+name: improve-cheap-build
+category: cross-system
+goal: >
+  Search poe.ninja for a popular Juggernaut build. Import it locally.
+  Then analyze it — check the summary, look at the gear, and identify
+  the weakest item slot. What would you upgrade first?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build summary"
+    - "poe build items list"
+  must_not_find:
+    - "traceback"
+  blocked: false

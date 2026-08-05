@@ -13,21 +13,21 @@ def _svc() -> GemsService:
 
 
 @gems_app.command(name="sets")
-def gems_sets(name: str, *, human: bool = False) -> None:
+def gems_sets(name: str, *, json: bool = False) -> None:
     """List all skill sets in a build.
 
     Parameters
     ----------
     name
         Build name or unique prefix.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().list_sets(name), human=human)
+    _output(_svc().list_sets(name), json_mode=json)
 
 
 @gems_app.command(name="list")
-def gems_list(name: str, *, skill_set: int | None = None, human: bool = False) -> None:
+def gems_list(name: str, *, skill_set: int | None = None, json: bool = False) -> None:
     """List skill gem setups in a build.
 
     Parameters
@@ -36,10 +36,10 @@ def gems_list(name: str, *, skill_set: int | None = None, human: bool = False) -
         Build name or unique prefix.
     skill_set
         Skill set ID.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().list_gems(name, skill_set=skill_set), human=human)
+    _output(_svc().list_gems(name, skill_set=skill_set), json_mode=json)
 
 
 @gems_app.command(name="add")
@@ -53,6 +53,7 @@ def gems_add(
     quality_id: str = "Default",
     include_full_dps: bool = False,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Add a skill group with gems to a build.
 
@@ -85,7 +86,7 @@ def gems_add(
         include_full_dps=include_full_dps,
         file_path=file,
     )
-    _output(result)
+    _output(result, json_mode=json)
 
 
 @gems_app.command(name="remove")
@@ -116,6 +117,7 @@ def gems_edit(
     toggle: list[str] | None = None,
     set_slot: str | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Edit a skill group's gems in a build.
 
@@ -149,7 +151,7 @@ def gems_edit(
         set_slot=set_slot,
         file_path=file,
     )
-    _output(result)
+    _output(result, json_mode=json)
 
 
 @gems_app.command(name="add-to-group")

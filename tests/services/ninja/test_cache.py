@@ -4,7 +4,16 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from poe.services.ninja import cache as ninja_cache
+from poe.services.ninja.constants import (
+    NINJA_TTL_BUILDS,
+    NINJA_TTL_DICTIONARY,
+    NINJA_TTL_ECONOMY,
+    NINJA_TTL_HISTORY,
+    NINJA_TTL_INDEX_STATE,
+)
 
 
 class TestCacheDir:
@@ -18,11 +27,19 @@ class TestCacheDir:
 
 class TestCacheFile:
     def test_cache_file_basic(self, tmp_path):
-        cf = ninja_cache.cache_file(tmp_path, "poe1_index_state")
-        assert cf == tmp_path / "poe1_index_state.json"
+        # Files are namespaced under category subdirs so two services using
+        # the same key can't clobber each other.
+        cf = ninja_cache.cache_file(tmp_path, "poe1_index_state", "index")
+        assert cf == tmp_path / "index" / "poe1_index_state.json"
+
+    def test_cache_file_namespaces_by_category(self, tmp_path):
+        a = ninja_cache.cache_file(tmp_path, "shared", "index")
+        b = ninja_cache.cache_file(tmp_path, "shared", "economy")
+        assert a != b
+        assert a.parent != b.parent
 
     def test_cache_file_sanitizes_path_chars(self, tmp_path):
-        cf = ninja_cache.cache_file(tmp_path, "path/with?special&chars")
+        cf = ninja_cache.cache_file(tmp_path, "path/with?special&chars", "index")
         assert "/" not in cf.name
         assert "?" not in cf.name
         assert "&" not in cf.name
@@ -36,15 +53,25 @@ class TestMetaPath:
 
 
 class TestTtlForCategory:
-    def test_known_categories(self):
-        assert ninja_cache.ttl_for_category("index") == 5 * 60
-        assert ninja_cache.ttl_for_category("economy") == 15 * 60
-        assert ninja_cache.ttl_for_category("builds") == 30 * 60
-        assert ninja_cache.ttl_for_category("history") == 4 * 3600
-        assert ninja_cache.ttl_for_category("dictionary") == 0
+    def test_known_categories_have_positive_ttl(self, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        for cat in ("index", "economy", "builds", "history"):
+            assert ninja_cache.ttl_for_category(cat) > 0
 
-    def test_unknown_defaults_to_economy(self):
-        assert ninja_cache.ttl_for_category("unknown") == 15 * 60
+    def test_dictionary_has_30_day_ttl(self, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        # Dictionaries are stable but not eternal; 30 days caps stale-forever
+        # bugs without forcing a re-fetch on every workflow.
+        assert ninja_cache.ttl_for_category("dictionary") == 30 * 86400
+
+    def test_unknown_defaults_to_positive(self, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        assert ninja_cache.ttl_for_category("unknown") > 0
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "99999")
+        assert ninja_cache.ttl_for_category("index") == 99999
+        assert ninja_cache.ttl_for_category("economy") == 99999
 
 
 class TestIsFresh:
@@ -52,26 +79,55 @@ class TestIsFresh:
         assert not ninja_cache.is_fresh(tmp_path, "missing", "index")
 
     def test_fresh_entry(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "test", {"data": 1})
+        ninja_cache.write_cache(tmp_path, "test", {"data": 1}, "index")
         assert ninja_cache.is_fresh(tmp_path, "test", "index")
 
-    def test_stale_entry(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "test", {"data": 1})
-        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test"))
+    def test_stale_entry(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        ninja_cache.write_cache(tmp_path, "test", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test", "index"))
         old_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-        mf.write_text(json.dumps({"fetched_at": old_time}))
+        mf.write_text(
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
+        )
         assert not ninja_cache.is_fresh(tmp_path, "test", "index")
 
-    def test_dictionary_always_fresh_if_exists(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "dict_abc", {"values": []})
+    def test_dictionary_fresh_if_exists_within_max_age(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "dict_abc", {"values": []}, "dictionary")
         assert ninja_cache.is_fresh(tmp_path, "dict_abc", "dictionary")
+
+    def test_dictionary_stale_after_max_age(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        ninja_cache.write_cache(tmp_path, "dict_abc", {"values": []}, "dictionary")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "dict_abc", "dictionary"))
+        # 31 days old — past the 30-day dictionary cap.
+        old_time = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+        mf.write_text(
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
+        )
+        assert not ninja_cache.is_fresh(tmp_path, "dict_abc", "dictionary")
 
     def test_dictionary_not_fresh_if_missing(self, tmp_path):
         assert not ninja_cache.is_fresh(tmp_path, "dict_abc", "dictionary")
 
+    def test_schema_version_mismatch_invalidates(self, tmp_path):
+        # Bumping NINJA_CACHE_SCHEMA_VERSION must invalidate every old cache
+        # entry so model schema changes don't feed stale JSON to a strict
+        # validator that may now reject the old shape.
+        ninja_cache.write_cache(tmp_path, "test", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test", "index"))
+        info = json.loads(mf.read_text())
+        info["schema_version"] = -1
+        mf.write_text(json.dumps(info))
+        assert not ninja_cache.is_fresh(tmp_path, "test", "index")
+
     def test_corrupted_meta(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "bad", {"data": 1})
-        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "bad"))
+        ninja_cache.write_cache(tmp_path, "bad", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "bad", "index"))
         mf.write_text("not json")
         assert not ninja_cache.is_fresh(tmp_path, "bad", "index")
 
@@ -79,28 +135,29 @@ class TestIsFresh:
 class TestReadWriteCache:
     def test_write_and_read(self, tmp_path):
         data = {"leagues": ["Mirage", "Standard"]}
-        ninja_cache.write_cache(tmp_path, "test", data)
-        result = ninja_cache.read_cache(tmp_path, "test")
+        ninja_cache.write_cache(tmp_path, "test", data, "economy")
+        result = ninja_cache.read_cache(tmp_path, "test", "economy")
         assert result == data
 
     def test_read_missing(self, tmp_path):
-        assert ninja_cache.read_cache(tmp_path, "nonexistent") is None
+        assert ninja_cache.read_cache(tmp_path, "nonexistent", "economy") is None
 
     def test_read_corrupted(self, tmp_path):
-        cf = ninja_cache.cache_file(tmp_path, "bad")
+        cf = ninja_cache.cache_file(tmp_path, "bad", "economy")
+        cf.parent.mkdir(parents=True, exist_ok=True)
         cf.write_text("not json")
-        assert ninja_cache.read_cache(tmp_path, "bad") is None
+        assert ninja_cache.read_cache(tmp_path, "bad", "economy") is None
 
 
 class TestReadWriteCacheBytes:
     def test_write_and_read_bytes(self, tmp_path):
         data = b"\x08\x01\x10\x02"
-        ninja_cache.write_cache_bytes(tmp_path, "proto", data)
-        result = ninja_cache.read_cache_bytes(tmp_path, "proto")
+        ninja_cache.write_cache_bytes(tmp_path, "proto", data, "dictionary")
+        result = ninja_cache.read_cache_bytes(tmp_path, "proto", "dictionary")
         assert result == data
 
     def test_read_missing_bytes(self, tmp_path):
-        assert ninja_cache.read_cache_bytes(tmp_path, "nonexistent") is None
+        assert ninja_cache.read_cache_bytes(tmp_path, "nonexistent", "dictionary") is None
 
 
 class TestGetFreshness:
@@ -111,41 +168,62 @@ class TestGetFreshness:
         assert f["is_stale"] is True
 
     def test_fresh_entry(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "test", {"data": 1})
+        ninja_cache.write_cache(tmp_path, "test", {"data": 1}, "index")
         f = ninja_cache.get_freshness(tmp_path, "test", "index")
         assert f["fetched_at"] is not None
         assert f["cache_age_seconds"] < 5
         assert f["is_stale"] is False
 
-    def test_stale_entry(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "test", {"data": 1})
-        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test"))
+    def test_stale_entry(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        ninja_cache.write_cache(tmp_path, "test", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "test", "index"))
         old_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-        mf.write_text(json.dumps({"fetched_at": old_time}))
+        mf.write_text(
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
+        )
         f = ninja_cache.get_freshness(tmp_path, "test", "index")
         assert f["is_stale"] is True
         assert f["cache_age_seconds"] > 3500
 
-    def test_dictionary_never_stale(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "dict", {"v": 1})
+    def test_dictionary_fresh_within_30_days(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "dict", {"v": 1}, "dictionary")
         f = ninja_cache.get_freshness(tmp_path, "dict", "dictionary")
         assert f["is_stale"] is False
 
     def test_corrupted_meta(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "bad", {"data": 1})
-        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "bad"))
+        ninja_cache.write_cache(tmp_path, "bad", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "bad", "index"))
         mf.write_text("not json")
         f = ninja_cache.get_freshness(tmp_path, "bad", "index")
         assert f["is_stale"] is True
 
+    def test_clock_skew_clamped_to_zero_with_warning(self, tmp_path, caplog):
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        ninja_cache.write_cache(tmp_path, "skewed", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "skewed", "index"))
+        future_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        mf.write_text(
+            json.dumps({"fetched_at": future_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
+        )
+        with caplog.at_level("WARNING", logger="poe.ninja.cache"):
+            f = ninja_cache.get_freshness(tmp_path, "skewed", "index")
+        assert f["cache_age_seconds"] == 0.0
+        assert any("negative" in r.message for r in caplog.records)
+
 
 class TestInvalidateAll:
     def test_removes_all_files(self, tmp_path):
-        ninja_cache.write_cache(tmp_path, "a", {"x": 1})
-        ninja_cache.write_cache(tmp_path, "b", {"y": 2})
-        assert len(list(tmp_path.iterdir())) > 0
+        ninja_cache.write_cache(tmp_path, "a", {"x": 1}, "index")
+        ninja_cache.write_cache(tmp_path, "b", {"y": 2}, "economy")
+        # invalidate_all now recurses into category subdirs and removes the
+        # files (subdirs themselves may remain).
         ninja_cache.invalidate_all(tmp_path)
-        assert len(list(tmp_path.iterdir())) == 0
+        assert ninja_cache.read_cache(tmp_path, "a", "index") is None
+        assert ninja_cache.read_cache(tmp_path, "b", "economy") is None
 
     def test_handles_empty_dir(self, tmp_path):
         ninja_cache.invalidate_all(tmp_path)
@@ -171,3 +249,226 @@ class TestAtomicWrite:
         path = tmp_path / "sub" / "dir" / "test.json"
         ninja_cache._atomic_write(path, b"data")
         assert path.exists()
+
+
+class TestTtlByCategoryFullEnumCoverage:
+    @pytest.mark.parametrize(
+        ("category", "expected_ttl"),
+        [
+            ("index", NINJA_TTL_INDEX_STATE),
+            ("economy", NINJA_TTL_ECONOMY),
+            ("builds", NINJA_TTL_BUILDS),
+            ("history", NINJA_TTL_HISTORY),
+            ("dictionary", NINJA_TTL_DICTIONARY),
+        ],
+    )
+    def test_every_category_resolves_to_constant(self, monkeypatch, category, expected_ttl):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        assert ninja_cache.ttl_for_category(category) == expected_ttl
+
+    def test_ttl_by_category_table_matches_constants(self):
+        assert ninja_cache.TTL_BY_CATEGORY == {
+            "index": NINJA_TTL_INDEX_STATE,
+            "economy": NINJA_TTL_ECONOMY,
+            "builds": NINJA_TTL_BUILDS,
+            "history": NINJA_TTL_HISTORY,
+            "dictionary": NINJA_TTL_DICTIONARY,
+        }
+
+    def test_unknown_category_falls_back_to_economy(self, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        assert ninja_cache.ttl_for_category("totally-unknown") == NINJA_TTL_ECONOMY
+
+    def test_empty_category_falls_back_to_economy(self, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        assert ninja_cache.ttl_for_category("") == NINJA_TTL_ECONOMY
+
+
+class TestEnvOverrideEdgeCases:
+    def test_zero_string_means_never_fresh(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "0")
+        ninja_cache.write_cache(tmp_path, "test", {"v": 1})
+        assert not ninja_cache.is_fresh(tmp_path, "test", "index")
+        assert not ninja_cache.is_fresh(tmp_path, "test", "economy")
+
+    def test_invalid_integer_string_falls_back_to_default(self, monkeypatch, caplog):
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "not-a-number")
+        with caplog.at_level("WARNING", logger="poe.ninja.cache"):
+            assert ninja_cache.ttl_for_category("index") == NINJA_TTL_INDEX_STATE
+        assert any("not-a-number" in r.message for r in caplog.records)
+
+    def test_float_string_falls_back_to_default(self, monkeypatch, caplog):
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "10.5")
+        with caplog.at_level("WARNING", logger="poe.ninja.cache"):
+            assert ninja_cache.ttl_for_category("index") == NINJA_TTL_INDEX_STATE
+        assert any("10.5" in r.message for r in caplog.records)
+
+    def test_empty_string_uses_default(self, monkeypatch):
+        # Empty string is falsy; override path is skipped.
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "")
+        assert ninja_cache.ttl_for_category("index") == NINJA_TTL_INDEX_STATE
+
+    def test_negative_override_returns_negative(self, monkeypatch):
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "-100")
+        assert ninja_cache.ttl_for_category("index") == -100
+
+    def test_zero_override_disables_freshness_for_all_categories(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("POE_NINJA_CACHE_TTL", "0")
+        ninja_cache.write_cache(tmp_path, "test", {"v": 1}, "index")
+        assert ninja_cache.is_fresh(tmp_path, "test", "index") is False
+        assert ninja_cache.is_fresh(tmp_path, "test", "dictionary") is False
+
+
+class TestIsFreshDictionaryBoundary:
+    def test_dictionary_fresh_within_max_age(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        ninja_cache.write_cache(tmp_path, "dict_key", {"v": 1}, "dictionary")
+        assert ninja_cache.is_fresh(tmp_path, "dict_key", "dictionary") is True
+
+    def test_no_file_returns_false(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        assert ninja_cache.is_fresh(tmp_path, "dict_key", "dictionary") is False
+
+    def test_dictionary_stale_past_max_age(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        ninja_cache.write_cache(tmp_path, "dict_key", {"v": 1}, "dictionary")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "dict_key", "dictionary"))
+        old_time = (datetime.now(UTC) - timedelta(days=365)).isoformat()
+        mf.write_text(
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
+        )
+        assert ninja_cache.is_fresh(tmp_path, "dict_key", "dictionary") is False
+
+
+class TestIsFreshMissingFetchedAtKey:
+    def test_meta_file_missing_fetched_at(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "broken", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "broken", "index"))
+        mf.write_text(json.dumps({"other_key": "value"}))
+        assert ninja_cache.is_fresh(tmp_path, "broken", "index") is False
+
+    def test_meta_file_invalid_iso_timestamp(self, tmp_path):
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        ninja_cache.write_cache(tmp_path, "broken", {"data": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "broken", "index"))
+        mf.write_text(
+            json.dumps(
+                {
+                    "fetched_at": "not-a-timestamp",
+                    "schema_version": NINJA_CACHE_SCHEMA_VERSION,
+                }
+            )
+        )
+        assert ninja_cache.is_fresh(tmp_path, "broken", "index") is False
+
+
+class TestCacheInvariants:
+    def test_round_trip_preserves_dict(self, tmp_path):
+        original = {"a": 1, "b": [1, 2, 3], "c": {"nested": True}}
+        ninja_cache.write_cache(tmp_path, "rt", original, "index")
+        loaded = ninja_cache.read_cache(tmp_path, "rt", "index")
+        assert loaded == original
+
+    def test_round_trip_preserves_list(self, tmp_path):
+        original = [1, 2, 3, "four", {"five": 5}]
+        ninja_cache.write_cache(tmp_path, "rt_list", original, "index")
+        loaded = ninja_cache.read_cache(tmp_path, "rt_list", "index")
+        assert loaded == original
+
+    def test_bytes_round_trip_preserves_exact_bytes(self, tmp_path):
+        payload = bytes(range(256))
+        ninja_cache.write_cache_bytes(tmp_path, "exact", payload, "dictionary")
+        loaded = ninja_cache.read_cache_bytes(tmp_path, "exact", "dictionary")
+        assert loaded == payload
+        assert len(loaded) == 256
+
+    def test_write_creates_meta_file(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "with_meta", {"a": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "with_meta", "index"))
+        assert mf.exists()
+        info = json.loads(mf.read_text())
+        assert "fetched_at" in info
+        assert "schema_version" in info
+        datetime.fromisoformat(info["fetched_at"])
+
+    def test_write_bytes_creates_meta_file(self, tmp_path):
+        ninja_cache.write_cache_bytes(tmp_path, "bin_meta", b"\x01\x02", "dictionary")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "bin_meta", "dictionary"))
+        assert mf.exists()
+
+    def test_empty_dict_writes_and_reads(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "empty", {}, "index")
+        assert ninja_cache.read_cache(tmp_path, "empty", "index") == {}
+
+    def test_overwrites_previous_data(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "k", {"v": 1}, "index")
+        ninja_cache.write_cache(tmp_path, "k", {"v": 2}, "index")
+        assert ninja_cache.read_cache(tmp_path, "k", "index") == {"v": 2}
+
+
+class TestGetFreshnessAdditionalBoundaries:
+    def test_dictionary_with_zero_age_is_not_stale(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "dictv", {}, "dictionary")
+        f = ninja_cache.get_freshness(tmp_path, "dictv", "dictionary")
+        assert f["is_stale"] is False
+        assert f["fetched_at"] is not None
+
+    def test_meta_missing_fetched_at_treated_as_stale(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "x", {"a": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "x", "index"))
+        mf.write_text(json.dumps({"unrelated": True}))
+        f = ninja_cache.get_freshness(tmp_path, "x", "index")
+        assert f["is_stale"] is True
+        assert f["fetched_at"] is None
+
+    def test_just_at_ttl_boundary_is_stale(self, tmp_path, monkeypatch):
+        from poe.services.ninja.constants import NINJA_CACHE_SCHEMA_VERSION
+
+        monkeypatch.delenv("POE_NINJA_CACHE_TTL", raising=False)
+        ninja_cache.write_cache(tmp_path, "edge", {"a": 1}, "index")
+        mf = ninja_cache.meta_path(ninja_cache.cache_file(tmp_path, "edge", "index"))
+        ttl = NINJA_TTL_INDEX_STATE
+        old_time = (datetime.now(UTC) - timedelta(seconds=ttl + 5)).isoformat()
+        mf.write_text(
+            json.dumps({"fetched_at": old_time, "schema_version": NINJA_CACHE_SCHEMA_VERSION})
+        )
+        f = ninja_cache.get_freshness(tmp_path, "edge", "index")
+        assert f["is_stale"] is True
+
+
+class TestCacheFileSanitization:
+    @pytest.mark.parametrize(
+        ("key", "must_not_contain"),
+        [
+            ("a/b", ["/"]),
+            ("a?b", ["?"]),
+            ("a&b", ["&"]),
+            ("nested/path/with?q=1&x=2", ["/", "?", "&"]),
+        ],
+    )
+    def test_sanitizes_path_chars(self, tmp_path, key, must_not_contain):
+        cf = ninja_cache.cache_file(tmp_path, key, "index")
+        for ch in must_not_contain:
+            assert ch not in cf.name
+
+
+class TestInvalidateAllAdditional:
+    def test_recurses_into_category_subdirs(self, tmp_path):
+        # invalidate_all now recurses to clear category-namespaced subdirs.
+        ninja_cache.write_cache(tmp_path, "a", {"v": 1}, "index")
+        ninja_cache.write_cache(tmp_path, "b", {"v": 2}, "economy")
+        ninja_cache.invalidate_all(tmp_path)
+        assert ninja_cache.read_cache(tmp_path, "a", "index") is None
+        assert ninja_cache.read_cache(tmp_path, "b", "economy") is None
+
+    def test_removes_meta_files_too(self, tmp_path):
+        ninja_cache.write_cache(tmp_path, "k", {"v": 1}, "index")
+        cf = ninja_cache.cache_file(tmp_path, "k", "index")
+        mf = ninja_cache.meta_path(cf)
+        assert mf.exists()
+        ninja_cache.invalidate_all(tmp_path)
+        assert not cf.exists()
+        assert not mf.exists()

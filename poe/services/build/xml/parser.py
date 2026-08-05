@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import contextlib
+import functools
+import json
+import logging
+import math
+import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from defusedxml import ElementTree as SafeET
 
+from poe.constants import ITEM_INT_FIELD_BOUNDS, VERSION_PATTERN
 from poe.models.build.build import BuildDocument
 from poe.models.build.config import BuildConfig, ConfigEntry
 from poe.models.build.gems import Gem, GemGroup
@@ -13,17 +20,22 @@ from poe.models.build.items import Item, ItemMod, ItemSet, ItemSlot
 from poe.models.build.stats import StatEntry
 from poe.models.build.tree import MasteryMapping, TreeOverride, TreeSocket, TreeSpec
 from poe.services.build.constants import (
+    AFFIX_NO_MATCH,
+    FLASK_BASE_RE,
     INFLUENCE_LINES,
+    MAGIC_SUFFIX_RE,
     METADATA_PREFIXES,
+    MIN_KEYWORD_LENGTH,
+    MOD_KEYWORD_NOISE,
     PREFIX_RE,
     SLOT_MOD_RE,
     SUFFIX_RE,
 )
 
 if TYPE_CHECKING:
-    import re
-    from pathlib import Path
     from xml.etree.ElementTree import Element
+
+_logger = logging.getLogger("poe.parser")
 
 
 def _safe_int(val: str, default: int = 0) -> int:
@@ -32,6 +44,17 @@ def _safe_int(val: str, default: int = 0) -> int:
         return int(val)
     except (ValueError, TypeError):
         return default
+
+
+def _clamp_int(val: int, *, lo: int, hi: int | None, field: str, context: str) -> int:
+    """Clamp val to [lo, hi]. Logs a warning when clamped. hi=None means no upper bound."""
+    if val < lo:
+        _logger.warning("%s: %s=%d below minimum %d, clamping", context, field, val, lo)
+        return lo
+    if hi is not None and val > hi:
+        _logger.warning("%s: %s=%d above maximum %d, clamping", context, field, val, hi)
+        return hi
+    return val
 
 
 def parse_build_file(path: Path, *, skill_set_id: int | None = None) -> BuildDocument:
@@ -65,20 +88,32 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
 
     build.class_name = el.get("className", "")
     build.ascend_class_name = el.get("ascendClassName", "")
-    build.level = int(el.get("level", "1"))
-    build.bandit = el.get("bandit", "None")
+    raw_level = _safe_int(el.get("level", "1"), 1)
+    build.level = _clamp_int(raw_level, lo=1, hi=100, field="level", context="build")
+    raw_bandit = el.get("bandit", "")
+    build.bandit = raw_bandit if raw_bandit and raw_bandit != "None" else None
     build.view_mode = el.get("viewMode", "TREE")
-    build.target_version = el.get("targetVersion", "3_0")
-    build.main_socket_group = int(el.get("mainSocketGroup", "1"))
+    raw_target = el.get("targetVersion", "3_0")
+    if raw_target and not VERSION_PATTERN.match(raw_target):
+        _logger.warning(
+            "targetVersion=%r does not match X_Y format, defaulting to '3_0'", raw_target
+        )
+        raw_target = "3_0"
+    build.target_version = raw_target or "3_0"
+    build.main_socket_group = _safe_int(el.get("mainSocketGroup", "1"), 1)
     build.pantheon_major = el.get("pantheonMajorGod", "")
     build.pantheon_minor = el.get("pantheonMinorGod", "")
     build.character_level_auto_mode = el.get("characterLevelAutoMode", "false").casefold() == "true"
 
     for stat_el in el.findall("PlayerStat"):
-        build.player_stats.append(_parse_stat_element(stat_el))
+        stat = _parse_stat_element(stat_el)
+        if stat is not None:
+            build.player_stats.append(stat)
 
     for stat_el in el.findall("MinionStat"):
-        build.minion_stats.append(_parse_stat_element(stat_el))
+        stat = _parse_stat_element(stat_el)
+        if stat is not None:
+            build.minion_stats.append(stat)
 
     for spectre_el in el.findall("Spectre"):
         spectre_id = spectre_el.get("id", "")
@@ -88,27 +123,46 @@ def _parse_build_section(root: Element, build: BuildDocument) -> None:
     for dps_el in el.findall("FullDPSSkill"):
         entry = dict(dps_el.attrib.items())
         if entry:
+            if "value" in entry:
+                with contextlib.suppress(ValueError):
+                    entry["value"] = float(entry["value"])
             build.full_dps_skills.append(entry)
 
     timeless_el = el.find("TimelessData")
     if timeless_el is not None:
+        # Attributes go into the top dict; child elements live under a
+        # "children" subdict keyed by tag. Without this namespacing, a
+        # child tag matching an attribute name (e.g. <TimelessData
+        # SearchResult="42"><SearchResult node="100"/></TimelessData>)
+        # silently dropped the child because the attribute was already
+        # set as a string and the isinstance(list) guard skipped append.
         build.timeless_data = dict(timeless_el.attrib.items())
+        children: dict[str, list[dict]] = {}
         for child in timeless_el:
-            tag = child.tag
-            if tag not in build.timeless_data:
-                build.timeless_data[tag] = []
-            if isinstance(build.timeless_data[tag], list):
-                build.timeless_data[tag].append(dict(child.attrib.items()))
+            children.setdefault(child.tag, []).append(dict(child.attrib.items()))
+        if children:
+            build.timeless_data["children"] = children
 
 
-def _parse_stat_element(stat_el: Element) -> StatEntry:
-    """Parse a <PlayerStat> or <MinionStat> element."""
+def _parse_stat_element(stat_el: Element) -> StatEntry | None:
+    """Parse a <PlayerStat>/<MinionStat>. Returns None on empty stat or non-finite value.
+
+    PoB writes inf for capped stats (over-cap, infinite recoup) and nan for
+    divide-by-zero. Both cases warn and skip rather than crashing the parse.
+    """
     name = stat_el.get("stat", "")
+    if not name:
+        _logger.warning("stat element missing 'stat' attribute, skipping")
+        return None
     val_str = stat_el.get("value", "0")
     try:
         val = float(val_str)
     except ValueError:
-        val = 0.0
+        _logger.warning("stat %r: non-numeric value %r, skipping", name, val_str)
+        return None
+    if not math.isfinite(val):
+        _logger.warning("stat %r: non-finite value %r, skipping", name, val_str)
+        return None
     return StatEntry(stat=name, value=val)
 
 
@@ -118,19 +172,39 @@ def _parse_tree_section(root: Element, build: BuildDocument) -> None:
     if tree_el is None:
         return
 
-    build.active_spec = int(tree_el.get("activeSpec", "1"))
+    raw_active = _safe_int(tree_el.get("activeSpec", "1"), 1)
+    build.active_spec = _clamp_int(raw_active, lo=1, hi=None, field="activeSpec", context="tree")
 
     for spec_el in tree_el.findall("Spec"):
         spec = TreeSpec()
         spec.title = spec_el.get("title", "")
         spec.tree_version = spec_el.get("treeVersion", "")
-        spec.class_id = int(spec_el.get("classId", "0"))
-        spec.ascend_class_id = int(spec_el.get("ascendClassId", "0"))
+        raw_class = _safe_int(spec_el.get("classId", "0"), 0)
+        spec.class_id = _clamp_int(
+            raw_class, lo=0, hi=None, field="classId", context=f"spec {spec.title!r}"
+        )
+        raw_ascend = _safe_int(spec_el.get("ascendClassId", "0"), 0)
+        spec.ascend_class_id = _clamp_int(
+            raw_ascend, lo=0, hi=None, field="ascendClassId", context=f"spec {spec.title!r}"
+        )
         spec.secondary_ascend_class_id = _safe_int(spec_el.get("secondaryAscendClassId", "0"))
 
         nodes_str = spec_el.get("nodes", "")
         if nodes_str:
-            spec.nodes = [int(n) for n in nodes_str.split(",") if n.strip()]
+            raw_nodes = [_safe_int(n, 0) for n in nodes_str.split(",") if n.strip()]
+            seen: set[int] = set()
+            deduped: list[int] = []
+            for n in raw_nodes:
+                if n in seen:
+                    _logger.warning(
+                        "spec %r: duplicate node id %d, dropping duplicate",
+                        spec.title,
+                        n,
+                    )
+                    continue
+                seen.add(n)
+                deduped.append(n)
+            spec.nodes = deduped
 
         # Parse mastery effects: "{nodeId,effectId},{nodeId,effectId}"
         mastery_str = spec_el.get("masteryEffects", "")
@@ -144,10 +218,13 @@ def _parse_tree_section(root: Element, build: BuildDocument) -> None:
         sockets_el = spec_el.find("Sockets")
         if sockets_el is not None:
             for sock_el in sockets_el.findall("Socket"):
+                # Bare `int()` raises ValueError on `"nil"`/empty/garbage,
+                # crashing the whole build parse. _safe_int matches the
+                # coerce-and-warn boundary discipline used elsewhere.
                 spec.sockets.append(
                     TreeSocket(
-                        node_id=int(sock_el.get("nodeId", "0")),
-                        item_id=int(sock_el.get("itemId", "0")),
+                        node_id=_safe_int(sock_el.get("nodeId", "0")),
+                        item_id=_safe_int(sock_el.get("itemId", "0")),
                     )
                 )
 
@@ -156,10 +233,14 @@ def _parse_tree_section(root: Element, build: BuildDocument) -> None:
             for ov_el in overrides_el.findall("Override"):
                 spec.overrides.append(
                     TreeOverride(
-                        node_id=int(ov_el.get("nodeId", "0")),
+                        node_id=_safe_int(ov_el.get("nodeId", "0")),
                         name=ov_el.get("dn", ""),
                         icon=ov_el.get("icon", ""),
-                        text=(ov_el.text or "").strip(),
+                        # Preserve tab-separated stat lines verbatim so cluster
+                        # jewel notable text (e.g. "Runegraft of the Fortress"
+                        # with two stats) doesn't collapse into one slash-
+                        # joined string that loses line semantics on writeback.
+                        text=(ov_el.text or ""),
                         effect_image=ov_el.get("activeEffectImage", ""),
                     )
                 )
@@ -241,12 +322,16 @@ def _parse_skill_elements(parent) -> list[GemGroup]:
     """Parse <Skill> elements from a parent element."""
     groups = []
     for skill_el in parent.findall("Skill"):
+        raw_main = _safe_int(skill_el.get("mainActiveSkill", "1"), 1)
+        main_active_skill = _clamp_int(
+            raw_main, lo=1, hi=None, field="main_active_skill", context="skill group"
+        )
         group = GemGroup(
             slot=skill_el.get("slot", ""),
             label=skill_el.get("label", ""),
             enabled=skill_el.get("enabled", "true").casefold() == "true",
             include_in_full_dps=skill_el.get("includeInFullDPS", "false").casefold() == "true",
-            main_active_skill=_safe_int(skill_el.get("mainActiveSkill", "1"), 1),
+            main_active_skill=main_active_skill,
             main_active_skill_calcs=_safe_int(skill_el.get("mainActiveSkillCalcs", "0")),
             group_count=_safe_int(skill_el.get("groupCount", "0")),
             source=skill_el.get("source", ""),
@@ -254,7 +339,8 @@ def _parse_skill_elements(parent) -> list[GemGroup]:
 
         for gem_el in skill_el.findall("Gem"):
             gem = _parse_gem_element(gem_el)
-            group.gems.append(gem)
+            if gem is not None:
+                group.gems.append(gem)
 
         groups.append(group)
     return groups
@@ -279,22 +365,36 @@ _GEM_STR_ATTRS = (
 )
 
 
-def _parse_gem_element(gem_el: Element) -> Gem:
-    """Parse a single <Gem> XML element."""
+def _parse_gem_element(gem_el: Element) -> Gem | None:
+    """Parse a single <Gem>. Returns None and warns if nameSpec is empty."""
+    name_spec = gem_el.get("nameSpec", "Unknown")
+    if not name_spec:
+        _logger.warning("gem element has empty nameSpec, skipping")
+        return None
+
     str_fields = {}
     for xml_attr, field in _GEM_STR_ATTRS:
         val = gem_el.get(xml_attr, "")
         if val:
             str_fields[field] = val
 
+    raw_level = _safe_int(gem_el.get("level", "20"), 20)
+    level = _clamp_int(raw_level, lo=1, hi=40, field="gem level", context=f"gem {name_spec!r}")
+    raw_quality = _safe_int(gem_el.get("quality", "0"), 0)
+    quality = _clamp_int(
+        raw_quality, lo=0, hi=30, field="gem quality", context=f"gem {name_spec!r}"
+    )
+    raw_count = _safe_int(gem_el.get("count", "1"), 1)
+    count = _clamp_int(raw_count, lo=1, hi=None, field="gem count", context=f"gem {name_spec!r}")
+
     return Gem(
-        name_spec=gem_el.get("nameSpec", "Unknown"),
-        level=_safe_int(gem_el.get("level", "20"), 20),
-        quality=_safe_int(gem_el.get("quality", "0"), 0),
+        name_spec=name_spec,
+        level=level,
+        quality=quality,
         enabled=gem_el.get("enabled", "true").casefold() == "true",
         enable_global1=gem_el.get("enableGlobal1", "true").casefold() != "false",
         enable_global2=gem_el.get("enableGlobal2", "true").casefold() != "false",
-        count=_safe_int(gem_el.get("count", "1"), 1),
+        count=count,
         **str_fields,
     )
 
@@ -315,31 +415,45 @@ def _parse_items_section(root: Element, build: BuildDocument) -> None:
 
     for item_el in items_el.findall("Item"):
         item = _parse_item_element(item_el)
-        build.items.append(item)
+        if item is not None:
+            build.items.append(item)
 
     for set_el in items_el.findall("ItemSet"):
+        raw_id = set_el.get("id", "1")
+        if not raw_id:
+            _logger.warning("item set missing 'id' attribute, defaulting to '1'")
+            raw_id = "1"
         item_set = ItemSet(
-            id=set_el.get("id", "1"),
+            id=raw_id,
             title=set_el.get("title", ""),
             use_second_weapon_set=set_el.get("useSecondWeaponSet", "false").casefold() == "true",
         )
 
         for slot_el in set_el.findall("Slot"):
-            item_id = int(slot_el.get("itemId", "0"))
-            if item_id > 0:
-                slot = ItemSlot(
-                    name=slot_el.get("name", ""),
+            item_id = _safe_int(slot_el.get("itemId", "0"), 0)
+            slot_name = slot_el.get("name", "")
+            if item_id <= 0:
+                continue
+            if not slot_name:
+                _logger.warning(
+                    "slot with item_id=%d has empty name, skipping",
+                    item_id,
+                )
+                continue
+            item_set.slots.append(
+                ItemSlot(
+                    name=slot_name,
                     item_id=item_id,
                     active=slot_el.get("active", "true").casefold() != "false",
                     item_pb_url=slot_el.get("itemPbURL", ""),
                 )
-                item_set.slots.append(slot)
+            )
 
         for sock_el in set_el.findall("SocketIdURL"):
             item_set.socket_id_urls.append(
                 TreeSocket(
-                    node_id=int(sock_el.get("nodeId", "0")),
-                    item_id=int(sock_el.get("itemId", "0") if sock_el.get("itemId") else "0"),
+                    node_id=_safe_int(sock_el.get("nodeId", "0")),
+                    item_id=_safe_int(sock_el.get("itemId", "0")),
                 )
             )
 
@@ -356,9 +470,12 @@ _VARIANT_ALT_FIELDS = (
 )
 
 
-def _parse_item_element(item_el: Element) -> Item:
-    """Parse a single <Item> XML element into an Item model."""
-    item_id = int(item_el.get("id", "0"))
+def _parse_item_element(item_el: Element) -> Item | None:
+    """Parse one <Item>. Returns None + warns when 'id' is missing or non-positive."""
+    item_id = _safe_int(item_el.get("id", "0"), 0)
+    if item_id <= 0:
+        _logger.warning("item element has missing or non-positive id=%d, skipping", item_id)
+        return None
     text = (item_el.text or "").strip()
     variant = item_el.get("variant", "")
 
@@ -381,14 +498,14 @@ def _parse_item_element(item_el: Element) -> Item:
     return item
 
 
-def _parse_affix_slot(line: str, pattern: re.Pattern[str]) -> str | None:
-    """Parse a Prefix:/Suffix: line, returning the slot name or None if no match."""
+def _parse_affix_slot(line: str, pattern: re.Pattern[str]) -> str | None | object:
+    """Parse a Prefix:/Suffix: line. Returns AFFIX_NO_MATCH if not a match, None for empty slot."""
     match = pattern.match(line)
     if not match:
-        return None
+        return AFFIX_NO_MATCH
     slot_val = match.group(1).strip()
     if slot_val == "None":
-        return "None"
+        return None
     slot_mod = SLOT_MOD_RE.match(slot_val)
     return slot_mod.group(2) if slot_mod else slot_val
 
@@ -410,7 +527,12 @@ def _parse_metadata_line(item: Item, line: str) -> bool:
     }
     for prefix, field in int_fields.items():
         if line.startswith(prefix):
-            setattr(item, field, _safe_int(line.split(prefix, 1)[1]))
+            raw = _safe_int(line.split(prefix, 1)[1])
+            bounds = ITEM_INT_FIELD_BOUNDS.get(field)
+            if bounds is not None:
+                lo, hi = bounds
+                raw = _clamp_int(raw, lo=lo, hi=hi, field=field, context=f"item id={item.id}")
+            setattr(item, field, raw)
             return True
 
     str_fields = {
@@ -432,12 +554,33 @@ def _parse_metadata_line(item: Item, line: str) -> bool:
     if line.startswith("Foil Unique"):
         item.foil_type = line.strip()
         return True
-    return line.startswith(("Variant: ", "League: ")) or "BasePercentile:" in line
+    return (
+        line.startswith(
+            (
+                "Variant: ",
+                "League: ",
+                "Has Variant: ",
+                "Has Alt Variant",
+                "Selected Alt Variant",
+                "AltVariant: ",
+                "Source: ",
+            )
+        )
+        or "BasePercentile:" in line
+    )
 
 
 def _is_content_line(line: str) -> bool:
     """Check if a line is item content (not metadata/influence/markers)."""
     return not any(line.startswith(p) for p in METADATA_PREFIXES) and line not in INFLUENCE_LINES
+
+
+def _strip_magic_affixes(name: str) -> str:
+    """Strip prefix and 'of ...' suffix from a magic flask name to get the base type."""
+    match = FLASK_BASE_RE.search(name)
+    if match:
+        return match.group(1)
+    return MAGIC_SUFFIX_RE.sub("", name)
 
 
 def _parse_header_line(item: Item, line: str, lines: list[str], index: int) -> bool:
@@ -448,12 +591,20 @@ def _parse_header_line(item: Item, line: str, lines: list[str], index: int) -> b
             item.name = lines[index + 1]
         if index + 2 < len(lines) and _is_content_line(lines[index + 2]):
             item.base_type = lines[index + 2]
+        elif item.rarity == "MAGIC" and item.name:
+            if "Flask" in item.name:
+                item.base_type = _strip_magic_affixes(item.name)
+            else:
+                item.base_type = MAGIC_SUFFIX_RE.sub("", item.name)
+        elif item.rarity == "NORMAL" and item.name:
+            item.base_type = item.name
         return True
     if line in INFLUENCE_LINES:
         item.influences.append(INFLUENCE_LINES[line])
         return True
     state_lines = {
         "Synthesised Item": "is_synthesised",
+        "Fractured Item": "is_fractured",
         "Crafted: true": "is_crafted",
         "Corrupted": "is_corrupted",
         "Mirrored": "is_mirrored",
@@ -479,11 +630,11 @@ def _parse_item_text(item: Item) -> None:
             continue
 
         prefix_slot = _parse_affix_slot(line, PREFIX_RE)
-        if prefix_slot is not None:
+        if prefix_slot is not AFFIX_NO_MATCH:
             item.prefix_slots.append(prefix_slot)
             continue
         suffix_slot = _parse_affix_slot(line, SUFFIX_RE)
-        if suffix_slot is not None:
+        if suffix_slot is not AFFIX_NO_MATCH:
             item.suffix_slots.append(suffix_slot)
             continue
 
@@ -501,6 +652,9 @@ def _parse_item_text(item: Item) -> None:
         if mod is None:
             continue
 
+        if mod.variant and mod.text in (item.name, item.base_type):
+            continue
+
         if in_implicits and implicits_seen < implicit_count:
             mod.is_implicit = True
             item.implicits.append(mod)
@@ -512,6 +666,124 @@ def _parse_item_text(item: Item) -> None:
 
     if item.name == "New Item" and item.base_type:
         item.name = item.base_type
+
+    _assign_affix_metadata(item)
+
+
+@functools.cache
+def _get_mod_keywords() -> dict[str, list[str]]:
+    data_dir = Path(__file__).resolve().parent.parent.parent.parent / "data" / "repoe"
+    mods_path = data_dir / "mods.json"
+    trans_path = data_dir / "stat_translations.json"
+    if not mods_path.exists():
+        return {}
+
+    mods = json.loads(mods_path.read_text(encoding="utf-8"))
+    translations: dict = {}
+    if trans_path.exists():
+        translations = json.loads(trans_path.read_text(encoding="utf-8"))
+
+    def _templates_for(stat_id: str) -> list[str]:
+        # Pipeline emits dict[str, list[str]] of all sign-variant templates;
+        # an older bundle (or test fixture) may still carry dict[str, str].
+        # Accept both so a half-migrated cache doesn't crash the parser.
+        value = translations.get(stat_id)
+        if isinstance(value, list):
+            return [t for t in value if isinstance(t, str) and t]
+        if isinstance(value, str) and value:
+            return [value]
+        return []
+
+    cache: dict[str, list[str]] = {}
+    for mod_id, entry in mods.items():
+        keywords: list[str] = []
+        for stat in entry.get("stats", []):
+            stat_id = stat.get("id", "")
+            templates = _templates_for(stat_id)
+            if templates:
+                for template in templates:
+                    keywords.extend(re.findall(r"[a-zA-Z]{3,}", template.lower()))
+            else:
+                parts = stat_id.replace("+", "").replace("%", "").split("_")
+                keywords.extend(
+                    p.lower()
+                    for p in parts
+                    if len(p) >= MIN_KEYWORD_LENGTH and p.lower() not in MOD_KEYWORD_NOISE
+                )
+        cache[mod_id] = keywords
+    return cache
+
+
+def _score_mod_match(mod_text: str, keywords: list[str]) -> int:
+    text_lower = mod_text.lower()
+    return sum(1 for kw in keywords if kw in text_lower)
+
+
+def _assign_affix_metadata(item: Item) -> None:
+    """Tag explicits as prefix/suffix and assign mod_ids from slot data.
+
+    Uses keyword matching from stat translations to correctly pair
+    slot mod_ids with their corresponding explicit text lines.
+    """
+    filled_prefixes = [s for s in item.prefix_slots if s is not None]
+    filled_suffixes = [s for s in item.suffix_slots if s is not None]
+    if not filled_prefixes and not filled_suffixes:
+        return
+
+    regular = [
+        m for m in item.explicits if not m.is_crafted and not m.is_fractured and not m.is_custom
+    ]
+    if not regular:
+        return
+
+    kw_cache = _get_mod_keywords()
+    slots: list[tuple[str, bool]] = [(s, True) for s in filled_prefixes] + [
+        (s, False) for s in filled_suffixes
+    ]
+
+    has_keywords = any(kw_cache.get(mod_id) for mod_id, _ in slots)
+    if not has_keywords:
+        prefix_count = len(filled_prefixes)
+        for i, mod in enumerate(regular):
+            if i < prefix_count:
+                _set_affix(mod, is_prefix=True)
+                mod.mod_id = filled_prefixes[i]
+            elif i - prefix_count < len(filled_suffixes):
+                _set_affix(mod, is_prefix=False)
+                mod.mod_id = filled_suffixes[i - prefix_count]
+        return
+
+    claimed_mods: set[int] = set()
+    for mod_id, is_prefix in slots:
+        keywords = kw_cache.get(mod_id, [])
+        if not keywords:
+            continue
+        best_score = 0
+        best_idx = -1
+        for i, mod in enumerate(regular):
+            if i in claimed_mods:
+                continue
+            score = _score_mod_match(mod.text, keywords)
+            if score > best_score:
+                best_score = score
+                best_idx = i
+        if best_idx >= 0:
+            claimed_mods.add(best_idx)
+            regular[best_idx].mod_id = mod_id
+            _set_affix(regular[best_idx], is_prefix=is_prefix)
+
+
+def _set_affix(mod: ItemMod, *, is_prefix: bool) -> None:
+    """Atomically assign prefix/suffix flag.
+
+    Clears both first to avoid the transient (True, True) state that
+    `_check_affix_exclusive` would reject if a mod is being reassigned
+    from suffix to prefix or vice versa. Today no caller does that, but
+    setattr ordering is one logic edit away from triggering the validator.
+    """
+    mod.is_suffix = False
+    mod.is_prefix = is_prefix
+    mod.is_suffix = not is_prefix
 
 
 _BOOL_MARKERS = frozenset(
@@ -549,8 +821,19 @@ def _parse_mod_line(line: str) -> ItemMod | None:
         elif marker_content.startswith("tags:"):
             tags = [t.strip() for t in marker_content[5:].split(",") if t.strip()]
         elif marker_content.startswith("range:"):
-            with contextlib.suppress(ValueError):
-                range_value = float(marker_content[6:])
+            try:
+                raw_range = float(marker_content[6:])
+            except ValueError:
+                pass
+            else:
+                if raw_range < 0.0:
+                    _logger.warning("mod range %r below 0.0, clamping", raw_range)
+                    range_value = 0.0
+                elif raw_range > 1.0:
+                    _logger.warning("mod range %r above 1.0, clamping", raw_range)
+                    range_value = 1.0
+                else:
+                    range_value = raw_range
         elif marker_content.startswith("variant:"):
             variant = marker_content[8:]
         line = line[marker_end:]
@@ -579,28 +862,43 @@ def _parse_config_section(root: Element, build: BuildDocument) -> None:
     config_set_elements = config_el.findall("ConfigSet")
     if config_set_elements:
         for set_el in config_set_elements:
+            raw_id = set_el.get("id", "1")
+            if not raw_id:
+                _logger.warning("config set missing 'id' attribute, defaulting to '1'")
+                raw_id = "1"
             config_set = BuildConfig(
-                id=set_el.get("id", "1"),
+                id=raw_id,
                 title=set_el.get("title", "Default"),
             )
             for input_el in set_el.findall("Input"):
-                config_set.inputs.append(_parse_config_input(input_el))
+                entry = _parse_config_input(input_el)
+                if entry is not None:
+                    config_set.inputs.append(entry)
             for ph_el in set_el.findall("Placeholder"):
-                config_set.placeholders.append(_parse_config_input(ph_el))
+                entry = _parse_config_input(ph_el)
+                if entry is not None:
+                    config_set.placeholders.append(entry)
             build.config_sets.append(config_set)
     else:
         legacy = BuildConfig(id="1", title="Default")
         for input_el in config_el.findall("Input"):
-            legacy.inputs.append(_parse_config_input(input_el))
+            entry = _parse_config_input(input_el)
+            if entry is not None:
+                legacy.inputs.append(entry)
         for ph_el in config_el.findall("Placeholder"):
-            legacy.placeholders.append(_parse_config_input(ph_el))
+            entry = _parse_config_input(ph_el)
+            if entry is not None:
+                legacy.placeholders.append(entry)
         if legacy.inputs or legacy.placeholders:
             build.config_sets.append(legacy)
 
 
-def _parse_config_input(el) -> ConfigEntry:
-    """Parse an <Input> or <Placeholder> element."""
+def _parse_config_input(el) -> ConfigEntry | None:
+    """Parse an <Input> or <Placeholder>. Returns None and warns on empty name."""
     name = el.get("name", "")
+    if not name:
+        _logger.warning("config input missing 'name' attribute, skipping")
+        return None
     if el.get("boolean") is not None:
         return ConfigEntry(name=name, value=el.get("boolean") == "true", input_type="boolean")
     if el.get("number") is not None:
@@ -615,7 +913,13 @@ def _parse_config_input(el) -> ConfigEntry:
 
 
 def _parse_notes(root: Element, build: BuildDocument) -> None:
-    """Parse the <Notes> section."""
+    """Parse the <Notes> section, preserving PoB color codes and whitespace.
+
+    Both stripping color codes and stripping whitespace at parse time were
+    silent data loss on round-trip (parse → write → parse). PoB writes notes
+    wrapped in newline/tab framing; trimming destroys that. notes_get() is
+    the consumer that strips for display; the writer round-trips raw bytes.
+    """
     notes_el = root.find("Notes")
     if notes_el is not None:
         build.notes = notes_el.text or ""
@@ -632,7 +936,11 @@ def _parse_import(root: Element, build: BuildDocument) -> None:
         build.import_export_party = import_el.get("exportParty", "")
 
 
-_PASSTHROUGH_TAGS = frozenset({"Party", "Calcs", "TreeView", "TradeSearchWeights"})
+# Tuple, not frozenset — frozenset iteration order depends on the per-process
+# hash seed (PYTHONHASHSEED), so two consecutive saves of the same input
+# produced different child ordering in the output XML, breaking idempotent
+# saves and adding git-diff churn.
+_PASSTHROUGH_TAGS: tuple[str, ...] = ("Party", "Calcs", "TreeView", "TradeSearchWeights")
 
 
 def _parse_passthrough_sections(root: Element, build: BuildDocument) -> None:

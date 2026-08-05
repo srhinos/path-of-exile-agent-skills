@@ -1,0 +1,16 @@
+name: ninja-to-local-analysis
+category: cross-system
+goal: >
+  Find a Necromancer build on poe.ninja. Import it. Then check: what minion
+  gems does it use? What auras? Does it have enough life to survive?
+  Run validate on it.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build gems list"
+    - "poe build validate"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -353,6 +353,10 @@ REPOE_DATA = {
             "bench_tier": 1,
         },
     ],
+    "stat_translations": {
+        "base_maximum_life": "{0} to maximum Life",
+        "cold_damage_resistance_%": "{0}% to Cold Resistance",
+    },
 }
 
 REPOE_PRICES_DATA = {

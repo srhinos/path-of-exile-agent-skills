@@ -341,3 +341,316 @@ class TestItemsCompare:
         svc = ItemsService()
         diffs = svc.compare_items("ignored", "Helmet", file_path=str(rich_build))
         assert isinstance(diffs, list)
+
+
+class TestItemsListExcludesFlasks:
+    def test_list_items_excludes_flask_slots(self, builds_dir):
+        svc = ItemsService()
+        items = svc.list_items("TestBuild")
+        flask_slots = {"Flask 1", "Flask 2", "Flask 3", "Flask 4", "Flask 5"}
+        for item in items:
+            assert item.slot not in flask_slots, f"Flask slot {item.slot} in items list"
+
+
+class TestSlotMatchesIndividualNames:
+    def test_matches_helmet(self):
+        assert _slot_matches_type("Helmet", "Helmet")
+
+    def test_matches_helmet_case_insensitive(self):
+        assert _slot_matches_type("Helmet", "helmet")
+
+    def test_matches_ring_1(self):
+        assert _slot_matches_type("Ring 1", "Ring 1")
+
+    def test_category_still_works(self):
+        assert _slot_matches_type("Helmet", "armour")
+        assert _slot_matches_type("Ring 1", "jewellery")
+
+
+class TestItemsServiceAddItemEnumCoverage:
+    @pytest.mark.parametrize(
+        "slot",
+        [
+            "Helmet",
+            "Body Armour",
+            "Gloves",
+            "Boots",
+            "Amulet",
+            "Ring 1",
+            "Ring 2",
+            "Belt",
+        ],
+    )
+    def test_add_item_each_gear_slot(self, rich_build, slot):
+        svc = ItemsService()
+        result = svc.add_item(
+            "ignored",
+            slot=slot,
+            base="Coral Ring",
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+        assert result.slot == slot
+
+    @pytest.mark.parametrize("rarity", ["NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"])
+    def test_add_item_each_rarity_via_default(self, rich_build, rarity):
+        svc = ItemsService()
+        result = svc.add_item(
+            "ignored",
+            slot="Ring 1",
+            base="Coral Ring",
+            rarity=rarity,
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    def test_add_item_unknown_slot_raises(self, rich_build):
+        svc = ItemsService()
+        with pytest.raises(SlotError, match="Unknown slot"):
+            svc.add_item(
+                "ignored",
+                slot="ZZZ Garbage Slot",
+                base="Coral Ring",
+                file_path=str(rich_build),
+            )
+
+
+class TestEditItemRarityCoverage:
+    @pytest.mark.parametrize("rarity", ["NORMAL", "MAGIC", "RARE", "UNIQUE", "RELIC"])
+    def test_edit_set_rarity_valid(self, rich_build, rarity):
+        svc = ItemsService()
+        result = svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_rarity=rarity,
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    @pytest.mark.parametrize(
+        "lower",
+        ["normal", "magic", "rare", "unique", "Rare", "RArE"],
+    )
+    def test_edit_set_rarity_case_insensitive(self, rich_build, lower):
+        """Service-level rarity check now normalizes case before rejecting."""
+        svc = ItemsService()
+        result = svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_rarity=lower,
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    @pytest.mark.parametrize("bad", ["RAREE", "Mythic", "EPIC", "garbage"])
+    def test_edit_set_rarity_invalid(self, rich_build, bad):
+        svc = ItemsService()
+        with pytest.raises(BuildValidationError, match=r"rarity|Invalid"):
+            svc.edit_item(
+                "ignored",
+                slot="Helmet",
+                set_rarity=bad,
+                file_path=str(rich_build),
+            )
+
+    def test_edit_set_rarity_empty_string_should_fail(self, rich_build):
+        svc = ItemsService()
+        with pytest.raises(BuildValidationError):
+            svc.edit_item(
+                "ignored",
+                slot="Helmet",
+                set_rarity="",
+                file_path=str(rich_build),
+            )
+
+
+class TestEditItemInfluenceCoverage:
+    @pytest.mark.parametrize(
+        "influence",
+        [
+            "Shaper",
+            "Elder",
+            "Crusader",
+            "Hunter",
+            "Redeemer",
+            "Warlord",
+            "Searing Exarch",
+            "Eater of Worlds",
+        ],
+    )
+    def test_each_canonical_influence_accepted(self, rich_build, influence):
+        svc = ItemsService()
+        result = svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_influences=[influence],
+            file_path=str(rich_build),
+        )
+        assert result.status == "ok"
+
+    def test_set_influences_replaces_existing(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_influences=["Shaper"],
+            file_path=str(rich_build),
+        )
+        svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_influences=["Elder"],
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        helmet = next(i for i in build.items if i.base_type == "Hubris Circlet")
+        assert helmet.influences == ["Elder"]
+
+    def test_set_influences_to_empty(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_influences=["Shaper", "Elder"],
+            file_path=str(rich_build),
+        )
+        svc.edit_item(
+            "ignored",
+            slot="Helmet",
+            set_influences=[],
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        helmet = next(i for i in build.items if i.base_type == "Hubris Circlet")
+        assert helmet.influences == []
+
+
+class TestItemsAddItemInvariants:
+    def test_unique_id_assigned(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        _, before = BuildService().load("ignored", file_path=str(rich_build))
+        before_ids = {i.id for i in before.items}
+        result = svc.add_item(
+            "ignored",
+            slot="Gloves",
+            base="Sorcerer Gloves",
+            file_path=str(rich_build),
+        )
+        assert result.item_id not in before_ids
+        _, after = BuildService().load("ignored", file_path=str(rich_build))
+        assert result.item_id in {i.id for i in after.items}
+
+    def test_add_replaces_slot_in_active_set_only(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        svc.add_item(
+            "ignored",
+            slot="Ring 1",
+            base="Coral Ring",
+            file_path=str(rich_build),
+        )
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        active = next((s for s in build.item_sets if s.id == build.active_item_set), None)
+        if active is None:
+            active = build.item_sets[0]
+        ring1_slots = [s for s in active.slots if s.name == "Ring 1"]
+        assert len(ring1_slots) == 1
+
+
+class TestItemsRemoveInvariants:
+    def test_remove_clears_item_and_all_slot_refs(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        result = svc.remove_item("ignored", slot="Helmet", file_path=str(rich_build))
+        assert result.status == "ok"
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        assert not any(i.id == result.removed_id for i in build.items)
+        for iset in build.item_sets:
+            assert not any(s.item_id == result.removed_id for s in iset.slots)
+
+
+class TestItemsAddSetInvariant:
+    def test_added_set_has_unique_id(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        result = svc.add_set("ignored", file_path=str(rich_build))
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        ids = [s.id for s in build.item_sets]
+        assert len(ids) == len(set(ids))
+        assert result.new_set_id in ids
+
+    def test_set_active_propagates(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        svc.add_set("ignored", file_path=str(rich_build))
+        svc.set_active("ignored", "2", file_path=str(rich_build))
+        _, build = BuildService().load("ignored", file_path=str(rich_build))
+        assert build.active_item_set == "2"
+
+
+class TestItemSearchCaseInsensitive:
+    def test_search_rarity_case_insensitive(self, rich_build):
+        svc = ItemsService()
+        upper = svc.search("ignored", rarity="RARE", file_path=str(rich_build))
+        lower = svc.search("ignored", rarity="rare", file_path=str(rich_build))
+        mixed = svc.search("ignored", rarity="Rare", file_path=str(rich_build))
+        assert {i.slot for i in upper} == {i.slot for i in lower} == {i.slot for i in mixed}
+
+
+class TestItemPydanticInvariants:
+    def test_item_rarity_rejects_invalid(self):
+        from pydantic import ValidationError
+
+        from poe.models.build.items import Item
+
+        with pytest.raises(ValidationError):
+            Item(id=1, text="", rarity="HEROIC")
+
+    def test_item_influences_rejects_unknown(self):
+        from pydantic import ValidationError
+
+        from poe.models.build.items import Item
+
+        with pytest.raises(ValidationError):
+            Item(id=1, text="", influences=["NotAnInfluence"])
+
+
+class TestSwapItemsInvariants:
+    def test_swap_round_trip(self, rich_build):
+        from poe.services.build.build_service import BuildService
+
+        svc = ItemsService()
+        _, before = BuildService().load("ignored", file_path=str(rich_build))
+        active_before = next(
+            (s for s in before.item_sets if s.id == before.active_item_set),
+            before.item_sets[0],
+        )
+        ring1_id_before = next(s.item_id for s in active_before.slots if s.name == "Ring 1")
+        ring2_id_before = next(s.item_id for s in active_before.slots if s.name == "Ring 2")
+        svc.swap_items("ignored", slot1="Ring 1", slot2="Ring 2", file_path=str(rich_build))
+        _, after = BuildService().load("ignored", file_path=str(rich_build))
+        active_after = next(
+            (s for s in after.item_sets if s.id == after.active_item_set),
+            after.item_sets[0],
+        )
+        ring1_id_after = next(s.item_id for s in active_after.slots if s.name == "Ring 1")
+        ring2_id_after = next(s.item_id for s in active_after.slots if s.name == "Ring 2")
+        assert ring1_id_after == ring2_id_before
+        assert ring2_id_after == ring1_id_before
+
+
+class TestEditItemNotFound:
+    def test_edit_no_item_in_slot(self, rich_build):
+        svc = ItemsService()
+        with pytest.raises(SlotError, match="No item"):
+            svc.edit_item("ignored", slot="Body Armour", file_path=str(rich_build))

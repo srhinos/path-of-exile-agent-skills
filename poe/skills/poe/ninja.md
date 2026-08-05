@@ -1,6 +1,6 @@
 # poe.ninja Integration
 
-The `poe ninja` CLI provides live economy data, build exploration, and meta analysis from poe.ninja. All commands output JSON by default. Add `--human` for readable output. Use Bash to run commands.
+The `poe ninja` CLI provides live economy data, build exploration, and meta analysis from poe.ninja. All commands output human-readable text by default. Add `--json` for machine-readable JSON. Use Bash to run commands.
 
 ## Quick Start
 
@@ -22,6 +22,7 @@ Basic price lookups and meta overview. No build context needed.
 | `poe ninja meta summary` | Top class/skill combos with trends |
 | `poe ninja league-info` | Available leagues and snapshots |
 | `poe ninja cache-status` | Cache freshness report |
+| `poe ninja cache-clear` | Clear all cached ninja responses |
 
 ## Tier 2 — Build Inspection
 
@@ -42,12 +43,12 @@ Advanced queries across the full build/economy dataset.
 
 | Command | Purpose |
 |---------|---------|
-| `poe ninja builds search --class X --skill Y` | Filter builds by class, skill, item, keystone, etc. |
+| `poe ninja builds search --class X --skill Y` | Filter builds by class, skill, item, keystone. Returns character listings with names, accounts, skills, keystones. Works with both PoE1 and PoE2 classes. |
 | `poe ninja builds heatmap --class X` | Passive tree allocation frequency |
 | `poe ninja price history "<item>" <type>` | 366-day trend with spike/crash detection |
 | `poe ninja price craft` | All crafting material prices |
 | `poe ninja price fossil-recommend <mod>` | Fossils matching a mod tag, sorted by cost |
-| `poe ninja atlas search --mechanic X` | Atlas tree search (also: `--travel`, `--blockers`, `--scarab-specializations`, `--keystones`) |
+| `poe ninja atlas search --mechanics X` | Atlas tree search (also: `--travel`, `--blockers`, `--scarab-specializations`, `--keystones`, `--beacons`) |
 | `poe ninja atlas recommend --top-n 10` | Most popular atlas nodes (configurable count) |
 | `poe ninja atlas profit` | Scarab spawn chance x price = expected value |
 | `poe ninja meta trend` | Build evolution across leagues |
@@ -68,13 +69,13 @@ Multi-step agent workflows that combine services. Call from Python, not CLI.
 ## Type Reference
 
 **PoE1 Stash Currency**: `Currency`, `Fragment`
-**PoE1 Stash Items**: `BaseType`, `Beast`, `BlightedMap`, `BlightRavagedMap`, `ClusterJewel`, `ForbiddenJewel`, `Incubator`, `IncursionTemple`, `Invitation`, `Map`, `Memory`, `SkillGem`, `UniqueAccessory`, `UniqueArmour`, `UniqueFlask`, `UniqueJewel`, `UniqueMap`, `UniqueRelic`, `UniqueTincture`, `UniqueWeapon`, `ValdoMap`, `Vial`, `Wombgift`
+**PoE1 Stash Items**: `BaseType`, `Beast`, `BlightedMap`, `BlightRavagedMap`, `ClusterJewel`, `ForbiddenJewel`, `Incubator`, `IncursionTemple`, `Invitation`, `Map`, `Memory`, `ShrineBelt`, `SkillGem`, `UniqueAccessory`, `UniqueArmour`, `UniqueFlask`, `UniqueJewel`, `UniqueMap`, `UniqueRelic`, `UniqueTincture`, `UniqueWeapon`, `ValdoMap`, `Vial`, `Wombgift`
 **PoE1 Exchange**: `AllflameEmber`, `Artifact`, `Astrolabe`, `Currency`, `DeliriumOrb`, `DivinationCard`, `DjinnCoin`, `Essence`, `Fossil`, `Fragment`, `Oil`, `Omen`, `Resonator`, `Runegraft`, `Scarab`, `Tattoo`
 **PoE2 Exchange**: `Abyss`, `Breach`, `Currency`, `Delirium`, `Essences`, `Expedition`, `Fragments`, `Idols`, `LineageSupportGems`, `Ritual`, `Runes`, `SoulCores`, `UncutGems`
 
 ## Global Options
 
-`--game poe1|poe2` (default poe1), `--league <name>` (default current), `--language <code>` (en/de/fr/es/pt/ru/ja/zh), `--human/--no-human`
+`--game poe1|poe2` (default poe1), `--league <name>` (default current), `--language <code>` (en/de/fr/es/pt/ru/ja/zh), `--json` (machine-readable JSON output), `--no-cache` (bypass cached responses and fetch fresh data)
 
 ## Search Filters (PoE1)
 

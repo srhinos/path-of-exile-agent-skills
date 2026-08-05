@@ -1,7 +1,27 @@
 from __future__ import annotations
 
+import re
+
+from poe.types import CraftMethod, Rarity
+
 DEFAULT_ILVL = 84
 DEFAULT_ITERATIONS = 10000
+DEFAULT_MAX_ATTEMPTS = 1000
+DEFAULT_WORKERS = 4
+
+# Game ilvl ceiling. RePoE mod required_level fields cap at 100 in practice;
+# anything past is meaningless (no mod has required_level > 100), and a
+# negative ilvl produces empty mod pools that surface as "No mods found"
+# without telling the user the input was wrong.
+MIN_ILVL = 1
+MAX_ILVL = 100
+
+# Pre-compiled regexes used by data._normalize_stat_template to collapse
+# stat-translation templates and user queries into the same comparable key.
+STAT_TEMPLATE_PLACEHOLDER_RE = re.compile(r"\{\d+\}")
+STAT_TEMPLATE_NUMERIC_RE = re.compile(r"-?\d+(?:\.\d+)?")
+STAT_TEMPLATE_NON_ALNUM_RE = re.compile(r"[^a-z0-9# ]+")
+STAT_TEMPLATE_WHITESPACE_RE = re.compile(r"\s+")
 
 ESSENCE_TIER_PREFIXES: dict[str, int] = {
     "whispering": 1,
@@ -30,6 +50,39 @@ INFLUENCE_TAG_MAP: dict[str, str] = {
     "adjudicator": "Warlord",
     "basilisk": "Hunter",
     "eyrie": "Redeemer",
+}
+
+# Eldritch influences (Searing Exarch, Eater of Worlds) are added via
+# eldritch implicits, not via spawn-weight tags. They are valid Influence
+# enum values but get_mod_pool() must skip them — there are no
+# {tag}_searing_exarch spawn-weight entries in mods.json.
+ELDRITCH_INFLUENCES: frozenset[str] = frozenset({"Searing Exarch", "Eater of Worlds"})
+
+# Game rule: items can carry at most two influences, and certain conqueror
+# pairs are mutually exclusive (Shaper+Elder, Crusader+Warlord,
+# Hunter+Redeemer cannot coexist). Used by both CraftingEngine.conqueror_exalt
+# and CraftableItem.check_invariants.
+MAX_INFLUENCES = 2
+CONQUEROR_EXCLUSIONS: dict[str, str] = {
+    "Shaper": "Elder",
+    "Elder": "Shaper",
+    "Crusader": "Warlord",
+    "Warlord": "Crusader",
+    "Hunter": "Redeemer",
+    "Redeemer": "Hunter",
+}
+
+# RePoE base_items.json tags 2h axes only as ("axe", "two_hand_weapon", ...),
+# but mods.json spawn-weights use "2h_axe_shaper" etc. The pipeline strips
+# the influence suffix and looks up the residual in base_tags — without
+# these derivations the four namespaces below never resolve onto bases,
+# making conqueror-influence weapon mods unrollable on their intended
+# weapon types (700+ mod/base pairs).
+WEAPON_CLASS_DERIVED_TAGS: dict[str, tuple[str, ...]] = {
+    "Two Hand Axe": ("2h_axe",),
+    "Two Hand Mace": ("2h_mace",),
+    "Two Hand Sword": ("2h_sword",),
+    "Rune Dagger": ("rune_dagger",),
 }
 
 MAX_PREFIXES_BY_CLASS: dict[str, int] = {
@@ -66,8 +119,101 @@ CURRENCY_PATH_NAMES: dict[str, str] = {
     "Metadata/Items/Currency/CurrencyFlaskQuality": "Glassblower's Bauble",
     "Metadata/Items/Currency/CurrencyMapQuality": "Cartographer's Chisel",
     "Metadata/Items/Currency/CurrencyPassiveRefund": "Orb of Regret",
+    "Metadata/Items/Currency/CurrencyAddModToMagic": "Orb of Augmentation",
+    "Metadata/Items/Currency/CurrencyArmourQuality": "Armourer's Scrap",
+    "Metadata/Items/Currency/CurrencyModValues": "Divine Orb",
 }
+
+# Method → rarity-it-produces. Values use the Rarity enum (uppercase) so
+# this dict and the multistep gate share a single namespace with the
+# rest of the codebase. A future refactor that swaps a comparison to use
+# Rarity.RARE would silently break a free-form lowercase namespace.
+RARITY_PRODUCED: dict[str, Rarity] = {
+    "chaos": Rarity.RARE,
+    "alchemy": Rarity.RARE,
+    "fossil": Rarity.RARE,
+    "harvest": Rarity.RARE,
+    "alt": Rarity.MAGIC,
+    "transmutation": Rarity.MAGIC,
+    "scour": Rarity.NORMAL,
+}
+
+RARITY_REQUIRED: dict[str, Rarity] = {
+    "regal": Rarity.MAGIC,
+    "augmentation": Rarity.MAGIC,
+    "exalt": Rarity.RARE,
+}
+
+MOD_DOMAIN_FOR_BASE_DOMAIN: dict[str, frozenset[str]] = {
+    "item": frozenset({"item", "crafted", "unveiled", "delve"}),
+    "flask": frozenset({"flask"}),
+    "abyss_jewel": frozenset({"abyss_jewel"}),
+    "affliction_jewel": frozenset({"affliction_jewel", "misc"}),
+    "misc": frozenset({"misc"}),
+}
+
+# `get_mod_pool` strips these from the base-domain allowed set so callers
+# get only the always-rollable pool by default. Fossil sims add "delve",
+# veiled-chaos / aisling_bench add "unveiled" via `extra_domains`. Without
+# this strip, every chaos/exalt/alch carries ~20% delve+unveiled weight
+# leak — verified bias on regular sims in earlier audit rounds.
+OPT_IN_MOD_DOMAINS: frozenset[str] = frozenset({"delve", "unveiled"})
 
 RECOMBINATOR_TRANSFER_CHANCE = 0.5
 TAINTED_OUTCOME_CHANCE = 0.5
 VALUE_RANGE_LENGTH = 2
+
+# `simulate_multistep` boundary-validates step methods against this subset
+# of CraftMethod. The single-step `simulate()` covers more methods than
+# multistep does — validating against the full enum let unsupported
+# values past the gate only to raise "Unknown step method" mid-loop.
+MULTISTEP_SUPPORTED_METHODS: frozenset[str] = frozenset(
+    {
+        CraftMethod.CHAOS.value,
+        CraftMethod.ALT.value,
+        CraftMethod.REGAL.value,
+        CraftMethod.EXALT.value,
+        CraftMethod.ANNUL.value,
+        CraftMethod.SCOUR.value,
+        CraftMethod.ALCHEMY.value,
+        CraftMethod.TRANSMUTATION.value,
+        CraftMethod.AUGMENTATION.value,
+        CraftMethod.DIVINE.value,
+        CraftMethod.BLESSED.value,
+        CraftMethod.VEILED_CHAOS.value,
+        CraftMethod.VAAL.value,
+        CraftMethod.FRACTURE.value,
+        CraftMethod.TAINTED_DIVINE.value,
+        CraftMethod.FOSSIL.value,
+        CraftMethod.ESSENCE.value,
+        CraftMethod.HARVEST.value,
+        CraftMethod.CONQUEROR_EXALT.value,
+    }
+)
+
+PLAYER_ITEM_DOMAINS = frozenset(
+    {
+        "item",
+        "crafted",
+        "flask",
+        "abyss_jewel",
+        "affliction_jewel",
+        "misc",
+        "unveiled",
+        "delve",
+        "watchstone",
+        "heist_trinket",
+    }
+)
+
+INFLUENCE_SUFFIXES: frozenset[str] = frozenset(INFLUENCE_TAG_MAP)
+
+BASE_ITEM_DOMAINS = frozenset(
+    {
+        "item",
+        "flask",
+        "abyss_jewel",
+        "affliction_jewel",
+        "misc",
+    }
+)

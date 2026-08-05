@@ -1,0 +1,17 @@
+name: build-crud-lifecycle
+category: local-build
+goal: >
+  Create a new Witch Occultist build called "Test Lifecycle". Duplicate it
+  to "Test Copy". Rename the copy to "Test Renamed". Then delete the
+  original. Verify the renamed copy still exists in the build list.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build create"
+    - "poe build duplicate"
+    - "poe build rename"
+    - "poe build delete"
+    - "poe build list"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -27,7 +27,7 @@ class TestBuildService:
 
     def test_create_exists(self, build_file):
         svc = BuildService()
-        with pytest.raises(FileExistsError):
+        with pytest.raises(BuildValidationError):
             svc.create("test", file_path=str(build_file))
 
     def test_analyze(self, builds_dir):
@@ -47,6 +47,17 @@ class TestBuildService:
         assert "TotalDPS" in off.stats
         assert "Life" not in off.stats
 
+    def test_stats_rejects_invalid_category(self, builds_dir):
+        svc = BuildService()
+        with pytest.raises(BuildValidationError, match="Unknown stat category"):
+            svc.stats("TestBuild", category="invalid")
+
+    def test_stats_accepts_full_category_names(self, builds_dir):
+        svc = BuildService()
+        for alias in ("defence", "defense", "offence", "offense"):
+            result = svc.stats("TestBuild", category=alias)
+            assert result is not None
+
     def test_notes_get(self, build_file):
         svc = BuildService()
         result = svc.notes_get("ignored", file_path=str(build_file))
@@ -57,6 +68,27 @@ class TestBuildService:
         result = svc.notes_set("ignored", "new notes", file_path=str(build_file))
         assert result.status == "ok"
         assert result.notes == "new notes"
+
+    def test_notes_get_preserves_color_codes_and_exposes_display(self, tmp_path):
+        from tests.conftest import PoBXmlBuilder
+
+        builder = PoBXmlBuilder(tmp_path)
+        builder.with_class("Witch", "Necromancer", level=90)
+        builder.with_notes("^xE05030Red text^7 and ^1numbered color")
+        build_file = builder.write()
+        svc = BuildService()
+        result = svc.notes_get("ignored", file_path=str(build_file))
+        # Raw `notes` keeps color codes so a round-trip read-mutate-write
+        # preserves the build's on-disk formatting.
+        assert "^xE05030" in result.notes
+        assert "^7" in result.notes
+        assert "^1" in result.notes
+        # `notes_display` is the color-stripped variant for UIs.
+        assert "^x" not in result.notes_display
+        assert "^7" not in result.notes_display
+        assert "^1" not in result.notes_display
+        assert "Red text" in result.notes_display
+        assert "numbered color" in result.notes_display
 
     def test_validate(self, builds_dir):
         svc = BuildService()
@@ -88,6 +120,13 @@ class TestBuildService:
 
 
 class TestBuildServiceCoverage:
+    def test_list_builds_includes_version(self, builds_dir):
+        svc = BuildService()
+        result = svc.list_builds()
+        matching = [b for b in result if b.name == "TestBuild"]
+        assert len(matching) == 1
+        assert matching[0].version == "3_0"
+
     def test_list_builds_with_corrupt(self, builds_env):
         (builds_env / "Bad.xml").write_text("not xml")
         svc = BuildService()
@@ -218,9 +257,18 @@ class TestBuildSetClass:
         assert result.status == "ok"
         assert result.class_name == "Ranger"
 
-    def test_set_ascendancy(self, rich_build):
+    def test_set_ascendancy_alone_rejects_class_mismatch(self, rich_build):
+        """Previous behavior silently re-classed the build when ascendancy
+        belonged to a different class. Now requires explicit --class."""
         svc = BuildService()
-        result = svc.set_class("ignored", ascendancy="Deadeye", file_path=str(rich_build))
+        with pytest.raises(BuildValidationError, match="does not belong"):
+            svc.set_class("ignored", ascendancy="Deadeye", file_path=str(rich_build))
+
+    def test_set_class_and_ascendancy_explicit(self, rich_build):
+        svc = BuildService()
+        result = svc.set_class(
+            "ignored", class_name="Ranger", ascendancy="Deadeye", file_path=str(rich_build)
+        )
         assert result.status == "ok"
         assert result.ascendancy == "Deadeye"
 
@@ -233,6 +281,13 @@ class TestBuildSetClass:
         svc = BuildService()
         with pytest.raises(BuildValidationError, match="Unknown ascendancy"):
             svc.set_class("ignored", ascendancy="FakeAscendancy", file_path=str(rich_build))
+
+
+class TestSetClassRequiresInput:
+    def test_no_args_raises(self, rich_build):
+        svc = BuildService()
+        with pytest.raises(BuildValidationError, match="at least one"):
+            svc.set_class("ignored", file_path=str(rich_build))
 
 
 class TestBuildSetBandit:
@@ -248,7 +303,7 @@ class TestBuildSetPantheon:
         svc = BuildService()
         result = svc.set_pantheon(
             "ignored",
-            major="Brine King",
+            major="TheBrineKing",
             minor="Garukhan",
             file_path=str(rich_build),
         )
@@ -265,19 +320,36 @@ class TestBuildSummary:
         assert "total_dps" in result
 
 
+class TestSummaryResistFallback:
+    def test_missing_resists_default_to_zero(self, tmp_path):
+        from tests.conftest import PoBXmlBuilder
+
+        builder = PoBXmlBuilder(tmp_path)
+        builder.with_class("Witch", "Necromancer", level=90)
+        builder.with_stat("Life", 5000)
+        build_file = builder.write()
+        svc = BuildService()
+        result = svc.summary("ignored", file_path=str(build_file))
+        assert result["fire_resist"] == 0
+        assert result["cold_resist"] == 0
+        assert result["lightning_resist"] == 0
+        assert result["chaos_resist"] == 0
+        assert result["fire_resist"] is not None
+
+
 class TestBuildNameValidation:
     def test_reject_windows_invalid_chars(self):
         from poe.paths import validate_build_name
 
         for char in ':*?"<>|':
-            with pytest.raises(ValueError, match="invalid characters"):
+            with pytest.raises(BuildValidationError, match="invalid characters"):
                 validate_build_name(f"test{char}build")
 
     def test_reject_reserved_words(self):
         from poe.paths import validate_build_name
 
         for word in ("CON", "NUL", "PRN", "COM1", "LPT3"):
-            with pytest.raises(ValueError, match="reserved word"):
+            with pytest.raises(BuildValidationError, match="reserved word"):
                 validate_build_name(word)
 
     def test_accept_valid_names(self):
@@ -285,6 +357,89 @@ class TestBuildNameValidation:
 
         for name in ("MyBuild", "test-build", "Build_v2", "über-build"):
             validate_build_name(name)
+
+
+class TestSummaryDps:
+    def test_summary_includes_combined_dps(self, rich_build):
+        svc = BuildService()
+        result = svc.summary("ignored", file_path=str(rich_build))
+        assert "combined_dps" in result
+        assert result["combined_dps"] >= result["total_dps"]
+
+
+class TestSetClassMismatch:
+    def test_rejects_mismatched_ascendancy(self, build_file):
+        svc = BuildService()
+        with pytest.raises(BuildValidationError, match="does not belong to"):
+            svc.set_class(
+                "ignored",
+                class_name="Marauder",
+                ascendancy="Necromancer",
+                file_path=str(build_file),
+            )
+
+    def test_accepts_matching_ascendancy(self, build_file):
+        svc = BuildService()
+        result = svc.set_class(
+            "ignored",
+            class_name="Witch",
+            ascendancy="Necromancer",
+            file_path=str(build_file),
+        )
+        assert result.class_name == "Witch"
+        assert result.ascendancy == "Necromancer"
+
+
+class TestSetBanditValidation:
+    def test_rejects_invalid(self, build_file):
+        svc = BuildService()
+        with pytest.raises(BuildValidationError, match="Unknown bandit"):
+            svc.set_bandit("ignored", "InvalidBandit", file_path=str(build_file))
+
+    def test_accepts_valid(self, build_file):
+        svc = BuildService()
+        for bandit in ("None", "Alira", "Kraityn", "Oak"):
+            result = svc.set_bandit("ignored", bandit, file_path=str(build_file))
+            assert result.bandit == bandit
+
+
+class TestSetPantheonValidation:
+    def test_rejects_invalid_major(self, build_file):
+        svc = BuildService()
+        with pytest.raises(BuildValidationError, match="Unknown major pantheon"):
+            svc.set_pantheon("ignored", major="InvalidGod", file_path=str(build_file))
+
+    def test_rejects_invalid_minor(self, build_file):
+        svc = BuildService()
+        with pytest.raises(BuildValidationError, match="Unknown minor pantheon"):
+            svc.set_pantheon("ignored", minor="InvalidMinor", file_path=str(build_file))
+
+    def test_accepts_valid_major(self, build_file):
+        svc = BuildService()
+        result = svc.set_pantheon("ignored", major="Lunaris", file_path=str(build_file))
+        assert result.pantheon_major == "Lunaris"
+
+
+class TestNewAscendancies:
+    def test_warden_in_ascendancy_ids(self):
+        from poe.services.build.constants import ASCENDANCY_IDS
+
+        assert "Warden" in ASCENDANCY_IDS
+
+    def test_reliquarian_in_ascendancy_ids(self):
+        from poe.services.build.constants import ASCENDANCY_IDS
+
+        assert "Reliquarian" in ASCENDANCY_IDS
+
+    def test_warden_is_ranger(self):
+        from poe.services.build.constants import ASCENDANCY_IDS, CLASS_IDS
+
+        assert ASCENDANCY_IDS["Warden"][0] == CLASS_IDS["Ranger"]
+
+    def test_reliquarian_is_witch(self):
+        from poe.services.build.constants import ASCENDANCY_IDS, CLASS_IDS
+
+        assert ASCENDANCY_IDS["Reliquarian"][0] == CLASS_IDS["Witch"]
 
 
 class TestUnicodeBuildNames:
@@ -295,3 +450,114 @@ class TestUnicodeBuildNames:
         svc = BuildService()
         result = svc.create("über-build", file_path=str(claude_dir / "über-build.xml"))
         assert result.status == "ok"
+
+
+class TestBuildNameValidationCharByChar:
+    @pytest.mark.parametrize("char", ["<", ">", ":", '"', "|", "?", "*"])
+    def test_each_windows_invalid_char_rejected(self, char):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(f"build{char}name")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        ],
+    )
+    def test_each_reserved_name_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError, match="reserved"):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["con", "Con", "cOn", "nul", "com1", "lpt9"],
+    )
+    def test_reserved_names_case_insensitive(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError, match="reserved"):
+            validate_build_name(name)
+
+    def test_reserved_with_xml_extension_still_rejected(self):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError, match="reserved"):
+            validate_build_name("CON.xml")
+
+    @pytest.mark.parametrize(
+        "name",
+        ["..", "../foo", "foo/..", "..\\foo"],
+    )
+    def test_path_traversal_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["sub/dir", "/abs", "a/b/c"],
+    )
+    def test_forward_slash_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["sub\\dir", "\\abs", "a\\b\\c"],
+    )
+    def test_backslash_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize("name", ["", "   ", "\t", "\n"])
+    def test_empty_or_whitespace_rejected(self, name):
+        from poe.paths import validate_build_name
+
+        with pytest.raises(BuildValidationError):
+            validate_build_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["MyBuild", "My Build With Spaces", "build-v2", "build_v2", "über-build", "build123"],
+    )
+    def test_valid_names_accepted(self, name):
+        from poe.paths import validate_build_name
+
+        validate_build_name(name)
+
+    def test_reserved_substring_allowed(self):
+        from poe.paths import validate_build_name
+
+        validate_build_name("CONqueror")
+        validate_build_name("PRNter")
+        validate_build_name("MyAUXBuild")

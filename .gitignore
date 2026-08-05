@@ -45,7 +45,7 @@ terraform.rc
 *.swo
 *~
 .claude/
-CLAUDE.md
+
 
 # Logs
 *.log

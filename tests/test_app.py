@@ -78,12 +78,17 @@ class TestCliReExports:
     def test_find_skill_source_reexport(self):
         from poe.commands.root import _find_skill_source
 
+        # Re-exports must actually be the real function — a renamed-away
+        # replacement with `lambda *a, **k: None` would still be callable
+        # but lose the proper signature.
         assert callable(_find_skill_source)
+        assert _find_skill_source.__qualname__ == "_find_skill_source"
 
     def test_install_skill_reexport(self):
         from poe.commands.root import install_skill
 
         assert callable(install_skill)
+        assert install_skill.__qualname__ == "install_skill"
 
     def test_unknown_attribute_raises(self):
         import poe.commands.build as cli_mod
@@ -106,6 +111,13 @@ class TestApp:
         assert result.exit_code == 0
 
 
+class TestVersion:
+    def test_version_shows_package_version(self):
+        result = invoke_cli(app, ["--version"])
+        assert result.exit_code == 0
+        assert "0.0.0" not in result.output or "poe-tools" not in result.output
+
+
 class TestRun:
     def test_run_catches_poe_error(self, capsys):
         with patch("poe.app.app", side_effect=PoeError("test error")):
@@ -118,3 +130,85 @@ class TestRun:
         with patch("poe.app.app", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
                 run()
+
+    def test_run_catches_validation_error(self, capsys, monkeypatch):
+        import json as _json
+
+        from pydantic import ValidationError
+
+        from poe.models.build.items import Item
+
+        monkeypatch.setattr("poe.app._check_skill_version", lambda: None)
+        try:
+            Item(id=1, text="", rarity="HEROIC")
+        except ValidationError as ve:
+            err = ve
+
+        with patch("poe.app.app", side_effect=err):
+            with pytest.raises(SystemExit) as exc_info:
+                run()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        parsed = _json.loads(captured.err.strip())
+        assert "Invalid data" in parsed["error"]
+        assert "rarity" in parsed["error"]
+
+
+# ── Error handler structure invariants (Pattern 4) ──────────────────────────
+
+
+class TestRunErrorHandlerSerialization:
+    def test_run_serializes_poe_error_as_json(self, capsys, monkeypatch):
+        import json as _json
+
+        monkeypatch.setattr("poe.app._check_skill_version", lambda: None)
+        with patch("poe.app.app", side_effect=PoeError("formatted error")):
+            with pytest.raises(SystemExit):
+                run()
+        captured = capsys.readouterr()
+        parsed = _json.loads(captured.err.strip())
+        assert parsed == {"error": "formatted error"}
+
+    @pytest.mark.parametrize(
+        "exc_class_name",
+        [
+            "PoeError",
+            "BuildNotFoundError",
+            "SlotError",
+            "SimDataError",
+            "BuildValidationError",
+            "CodecError",
+            "EngineNotAvailableError",
+        ],
+    )
+    def test_each_poe_error_subclass_caught(self, exc_class_name, capsys, monkeypatch):
+        import poe.exceptions as exc_mod
+
+        monkeypatch.setattr("poe.app._check_skill_version", lambda: None)
+        exc_class = getattr(exc_mod, exc_class_name)
+        with patch("poe.app.app", side_effect=exc_class("test message")):
+            with pytest.raises(SystemExit) as exc_info:
+                run()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert '"error"' in captured.err
+
+    def test_run_exit_code_is_1_for_poe_error(self):
+        with patch("poe.app.app", side_effect=PoeError("x")):
+            with pytest.raises(SystemExit) as exc_info:
+                run()
+        assert exc_info.value.code == 1
+
+
+class TestAppHelp:
+    @pytest.mark.parametrize(
+        "subcommand",
+        ["build", "dev", "sim", "ninja", "install-skill"],
+    )
+    def test_subcommand_help_succeeds(self, subcommand):
+        result = invoke_cli(app, [subcommand, "--help"])
+        assert result.exit_code == 0
+
+    def test_no_args_shows_help_or_error(self):
+        result = invoke_cli(app, [])
+        assert result.exit_code is not None

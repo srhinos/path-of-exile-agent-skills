@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from math import isfinite
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from poe.constants import PERCENTAGE_MAX
 
 
 class LeagueInfo(BaseModel):
     """League identity from index-state endpoints."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
-    name: str
-    url: str
+    name: str = Field(min_length=1)
+    url: str = Field(min_length=1)
     display_name: str | None = None
     hardcore: bool | None = None
     indexed: bool | None = None
@@ -18,7 +22,7 @@ class LeagueInfo(BaseModel):
 class Poe1Snapshot(BaseModel):
     """PoE1 snapshot version with time machine labels."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     url: str
     type: str
@@ -26,7 +30,7 @@ class Poe1Snapshot(BaseModel):
     time_machine_labels: list[str] = []
     version: str
     snapshot_name: str
-    overview_type: int = 0
+    overview_type: int = Field(default=0, ge=0)
     passive_tree: str = ""
     atlas_tree: str = ""
 
@@ -34,7 +38,7 @@ class Poe1Snapshot(BaseModel):
 class Poe2Snapshot(BaseModel):
     """PoE2 snapshot version with time machine labels."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     url: str
     name: str
@@ -48,7 +52,7 @@ class Poe2Snapshot(BaseModel):
 class Poe1IndexState(BaseModel):
     """PoE1 index-state response with leagues and snapshots."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     economy_leagues: list[LeagueInfo] = []
     old_economy_leagues: list[LeagueInfo] = []
@@ -60,7 +64,7 @@ class Poe1IndexState(BaseModel):
 class Poe2IndexState(BaseModel):
     """PoE2 index-state response with leagues and snapshots."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     economy_leagues: list[LeagueInfo] = []
     old_economy_leagues: list[LeagueInfo] = []
@@ -72,22 +76,31 @@ class Poe2IndexState(BaseModel):
 class BuildStat(BaseModel):
     """Top class/skill combo from build-index-state."""
 
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
-    class_name: str = Field(alias="class")
-    skill: str
+    class_name: str = Field(alias="class", min_length=1)
+    skill: str = ""
     percentage: float
     trend: int = 0
+
+    @field_validator("percentage")
+    @classmethod
+    def _validate_percentage(cls, v: float) -> float:
+        if not isfinite(v):
+            raise ValueError("percentage must be finite")
+        if v < 0 or v > PERCENTAGE_MAX:
+            raise ValueError(f"percentage must be in 0..{PERCENTAGE_MAX}, got {v}")
+        return v
 
 
 class LeagueBuild(BaseModel):
     """Per-league build summary from build-index-state."""
 
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True, validate_assignment=True)
 
     league_name: str
     league_url: str
-    total: int = 0
+    total: int = Field(default=0, ge=0)
     status: int = 0
     statistics: list[BuildStat] = []
 
@@ -95,7 +108,7 @@ class LeagueBuild(BaseModel):
 class BuildIndexState(BaseModel):
     """Build index-state response listing leagues and build counts."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     league_builds: list[LeagueBuild] = []
 
@@ -103,7 +116,7 @@ class BuildIndexState(BaseModel):
 class AtlasLeague(BaseModel):
     """League entry from atlas-tree-index-state."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     league_name: str
     league_url: str
@@ -112,17 +125,23 @@ class AtlasLeague(BaseModel):
 class AtlasSnapshot(BaseModel):
     """Atlas tree snapshot version."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
-    type: str
-    version: str
-    snapshot_name: str
+    url: str = ""
+    type: str = ""
+    name: str = ""
+    time_machine_labels: list[str] = []
+    version: str = ""
+    snapshot_name: str = ""
+    overview_type: int = 0
+    passive_tree: str = ""
+    atlas_tree: str = ""
 
 
 class AtlasTreeIndexState(BaseModel):
     """Atlas tree index-state response."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     leagues: list[AtlasLeague] = []
     old_leagues: list[AtlasLeague] = []
@@ -132,15 +151,30 @@ class AtlasTreeIndexState(BaseModel):
 class CacheStatusEntry(BaseModel):
     """Status of a single cache key."""
 
-    name: str
+    model_config = ConfigDict(validate_assignment=True)
+
+    name: str = Field(min_length=1)
     is_cached: bool = False
     is_fresh: bool = False
     age_seconds: float | None = None
     fetched_at: str | None = None
 
+    @field_validator("age_seconds")
+    @classmethod
+    def _validate_age(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not isfinite(v):
+            raise ValueError("age_seconds must be finite or None")
+        if v < 0:
+            raise ValueError(f"age_seconds must be non-negative, got {v}")
+        return v
+
 
 class CacheStatusReport(BaseModel):
     """Cache status summary across all ninja cache keys."""
 
-    cache_dir: str
+    model_config = ConfigDict(validate_assignment=True)
+
+    cache_dir: str = Field(min_length=1)
     entries: list[CacheStatusEntry] = []

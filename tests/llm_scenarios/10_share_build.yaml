@@ -1,0 +1,14 @@
+name: share-build
+category: local-build
+goal: >
+  I want to share my best build with a friend. Generate a sharing code and
+  also give me a quick human-readable summary I could paste in Discord —
+  class, level, main skill, key stats.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build share"
+    - "poe build summary"
+  must_not_find:
+    - "traceback"
+  blocked: false

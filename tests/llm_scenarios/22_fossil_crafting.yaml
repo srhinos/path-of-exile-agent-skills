@@ -1,0 +1,13 @@
+name: fossil-crafting
+category: crafting
+goal: >
+  I want to craft a life + resistance chest piece on a Vaal Regalia.
+  What fossils would help me target life mods? What about resistance mods?
+  What's the best fossil combo?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim fossils"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from poe.models.build.items import EquippedItem
 
@@ -12,8 +12,10 @@ class Jewel(BaseModel):
     only tracks the binding, not the full item data.
     """
 
-    node_id: int
-    item_id: int
+    model_config = ConfigDict(validate_assignment=True)
+
+    node_id: int = Field(ge=0)
+    item_id: int = Field(gt=0)
     name: str = ""
     base_type: str = ""
     rarity: str = ""
@@ -37,6 +39,8 @@ class JewelListResult(BaseModel):
     Regular jewels (Crimson, Viridian, Cobalt, Prismatic, etc.) are in
     jewels. Cluster jewels (Large/Medium/Small) are in cluster_jewels.
     """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     jewels: list[EquippedJewel] = []
     cluster_jewels: list[EquippedJewel] = []

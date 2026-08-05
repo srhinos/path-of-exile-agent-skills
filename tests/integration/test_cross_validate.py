@@ -42,7 +42,7 @@ class TestCrossValidation:
                         ilvl=84,
                         influences=item.influences,
                     )
-                    influences_in_pool = [m for m in mods if m.get("influence") is not None]
+                    influences_in_pool = [m for m in mods if m.influence is not None]
                     if influences_in_pool:
                         return
         pytest.skip("No influenced items with mod pools found")
@@ -102,7 +102,7 @@ class TestCrossValidation:
         for item in necro.items:
             if item.prefix_slots:
                 for slot in item.prefix_slots:
-                    if slot != "None":
+                    if slot is not None:
                         assert len(slot) > 0
                 return
         pytest.skip("No items with prefix slots found")

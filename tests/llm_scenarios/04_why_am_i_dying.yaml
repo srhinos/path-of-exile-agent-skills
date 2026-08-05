@@ -1,0 +1,14 @@
+name: why-am-i-dying
+category: local-build
+goal: >
+  My lowest level character keeps dying. Run a full diagnostic — validate
+  the build, check defenses, check resistances, and tell me everything
+  that's wrong. Be specific about what to fix.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build validate"
+  must_not_find:
+    - "traceback"
+    - "No issues found"
+  blocked: false

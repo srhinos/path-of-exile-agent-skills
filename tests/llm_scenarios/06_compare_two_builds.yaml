@@ -1,0 +1,13 @@
+name: compare-two-builds
+category: local-build
+goal: >
+  I have multiple builds locally. Pick two different ones and compare them.
+  What are the biggest DPS differences? How do their defenses compare?
+  Which one is tankier?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build compare"
+  must_not_find:
+    - "traceback"
+  blocked: false

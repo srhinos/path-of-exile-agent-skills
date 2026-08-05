@@ -1,0 +1,13 @@
+name: show-my-gear
+category: local-build
+goal: >
+  Pick any build from my local list and show me all the gear it's wearing.
+  I want to see slot names, item names, and the mods on each piece.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build items list"
+  must_not_find:
+    - "traceback"
+    - "Traceback"
+  blocked: false

@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING
 from poe.exceptions import BuildValidationError, SlotError
 from poe.models.build.build import MutationResult
 from poe.models.build.items import (
+    _INFLUENCE_BY_CASEFOLD,
+    _RARITY_BY_CASEFOLD,
+    VALID_RARITIES,
     EquippedItem,
     Item,
     ItemDiff,
@@ -13,9 +16,10 @@ from poe.models.build.items import (
     ItemSetList,
     ItemSetSummary,
     ItemSlot,
+    filter_to_active_variant,
 )
 from poe.services.build.build_service import BuildService
-from poe.services.build.constants import SLOT_TYPE_MAP, STALE_STATS_WARNING, VALID_RARITIES
+from poe.services.build.constants import SLOT_TYPE_MAP, STALE_STATS_WARNING
 from poe.services.build.xml.slots import normalize_slot
 
 if TYPE_CHECKING:
@@ -48,7 +52,12 @@ def _parse_item_text(text: str) -> dict:
 
 
 def _slot_matches_type(slot_name: str, slot_type: str) -> bool:
+    canonical = normalize_slot(slot_type)
+    if canonical and slot_name == canonical:
+        return True
     normalized = slot_type.casefold()
+    if slot_name.casefold() == normalized:
+        return True
     if normalized == "jewel":
         return slot_name.startswith("Jewel")
     mapped = SLOT_TYPE_MAP.get(normalized)
@@ -96,10 +105,21 @@ class ItemsService:
             ],
         )
 
-    def list_items(self, name: str, *, item_set: str | None = None) -> list[EquippedItem]:
-        _, build_obj = self._build.load(name)
+    def list_items(
+        self, name: str, *, item_set: str | None = None, file_path: str | None = None
+    ) -> list[EquippedItem]:
+        _, build_obj = self._build.load(name, file_path)
         equipped = build_obj.get_equipped_items(item_set_id=item_set)
-        return [EquippedItem(slot=slot_name, **item.model_dump()) for slot_name, item in equipped]
+        flask_slots = set(SLOT_TYPE_MAP["flask"])
+        # Filter multi-variant items to the active variant for display.
+        # Parser preserves all variants for round-trip safety; downstream
+        # consumers (open-slot counts, mod listings) expect only the
+        # active-variant mods.
+        return [
+            EquippedItem(slot=slot_name, **filter_to_active_variant(item).model_dump())
+            for slot_name, item in equipped
+            if slot_name not in flask_slots
+        ]
 
     def add_item(
         self,
@@ -123,6 +143,9 @@ class ItemsService:
         synthesised: bool = False,
         file_path: str | None = None,
     ) -> dict:
+        canonical_slot = normalize_slot(slot)
+        if not canonical_slot:
+            raise SlotError(f"Unknown slot: {slot!r}")
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         next_id = max((i.id for i in build_obj.items), default=0) + 1
         item = Item(
@@ -147,13 +170,12 @@ class ItemsService:
         build_obj.items.append(item)
         if build_obj.item_sets:
             target_set = _find_active_item_set(build_obj) or build_obj.item_sets[0]
-            canonical_slot = normalize_slot(slot) or slot
             target_set.slots = [s for s in target_set.slots if s.name != canonical_slot]
             target_set.slots.append(ItemSlot(name=canonical_slot, item_id=next_id))
         self._build.save(build_obj, path)
         return MutationResult(
             item_id=next_id,
-            slot=slot,
+            slot=canonical_slot,
             warning=STALE_STATS_WARNING,
             cloned_from=cloned_from,
             working_copy=str(path) if cloned_from else None,
@@ -220,10 +242,13 @@ class ItemsService:
         remove_explicit = remove_explicit or []
         add_implicit = add_implicit or []
         remove_implicit = remove_implicit or []
-        if set_rarity and set_rarity not in VALID_RARITIES:
-            raise BuildValidationError(
-                f"Invalid rarity: {set_rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
-            )
+        if set_rarity is not None:
+            normalized = _RARITY_BY_CASEFOLD.get(set_rarity.casefold(), set_rarity)
+            if normalized not in VALID_RARITIES:
+                raise BuildValidationError(
+                    f"Invalid rarity: {set_rarity!r}. Must be one of {sorted(VALID_RARITIES)}"
+                )
+            set_rarity = normalized
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         target_item = _find_item_in_slot(build_obj, slot)
         if target_item is None:
@@ -324,15 +349,37 @@ class ItemsService:
         rarity: str | None = None,
         file_path: str | None = None,
     ) -> list[EquippedItem]:
+        # Validate filters BEFORE loading the build so a typo'd --rarity or
+        # --influence raises a clear error instead of silently returning
+        # an empty list.
+        normalized_influence: str | None = None
+        if influence:
+            normalized_influence = _INFLUENCE_BY_CASEFOLD.get(influence.casefold())
+            if normalized_influence is None:
+                raise BuildValidationError(
+                    f"Unknown influence: {influence!r}. "
+                    f"Valid: {sorted(_INFLUENCE_BY_CASEFOLD.values())}"
+                )
+        normalized_rarity: str | None = None
+        if rarity:
+            normalized_rarity = _RARITY_BY_CASEFOLD.get(rarity.casefold())
+            if normalized_rarity is None:
+                raise BuildValidationError(
+                    f"Unknown rarity: {rarity!r}. Valid: {sorted(_RARITY_BY_CASEFOLD.values())}"
+                )
+
         _, build_obj = self._build.load(name, file_path)
         equipped = build_obj.get_equipped_items()
+        flask_slots = set(SLOT_TYPE_MAP["flask"])
         result = []
         for slot_name, item in equipped:
+            if slot_name in flask_slots:
+                continue
             if slot and not _slot_matches_type(slot_name, slot):
                 continue
-            if influence and influence not in item.influences:
+            if normalized_influence and normalized_influence not in item.influences:
                 continue
-            if rarity and item.rarity.casefold() != rarity.casefold():
+            if normalized_rarity and item.rarity != normalized_rarity:
                 continue
             if mod:
                 mod_lower = mod.casefold()
@@ -394,8 +441,12 @@ class ItemsService:
         active_set = _find_active_item_set(build_obj)
         if not active_set:
             raise BuildValidationError("No active item set")
-        from_canonical = normalize_slot(from_slot) or from_slot
-        to_canonical = normalize_slot(to_slot) or to_slot
+        from_canonical = normalize_slot(from_slot)
+        to_canonical = normalize_slot(to_slot)
+        if from_canonical is None:
+            raise SlotError(f"Unknown slot: {from_slot!r}")
+        if to_canonical is None:
+            raise SlotError(f"Unknown slot: {to_slot!r}")
         moved = False
         for slot in active_set.slots:
             if slot.name == from_canonical:
@@ -425,8 +476,12 @@ class ItemsService:
         active_set = _find_active_item_set(build_obj)
         if not active_set:
             raise BuildValidationError("No active item set")
-        s1 = normalize_slot(slot1) or slot1
-        s2 = normalize_slot(slot2) or slot2
+        s1 = normalize_slot(slot1)
+        s2 = normalize_slot(slot2)
+        if s1 is None:
+            raise SlotError(f"Unknown slot: {slot1!r}")
+        if s2 is None:
+            raise SlotError(f"Unknown slot: {slot2!r}")
         slot_a = slot_b = None
         for slot in active_set.slots:
             if slot.name == s1:
@@ -469,7 +524,9 @@ class ItemsService:
             explicits=[ItemMod(text=m) for m in explicits],
         )
         build_obj.items.append(item)
-        canonical_slot = normalize_slot(slot) or slot
+        canonical_slot = normalize_slot(slot)
+        if canonical_slot is None:
+            raise SlotError(f"Unknown slot: {slot!r}")
         active_set = _find_active_item_set(build_obj)
         if active_set:
             active_set.slots = [s for s in active_set.slots if s.name != canonical_slot]

@@ -1,0 +1,14 @@
+name: gem-links
+category: local-build
+goal: >
+  Pick the highest DPS build from my local list. What's the main skill gem
+  and what support gems is it linked with? Are there any disabled gems I
+  should know about?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build gems list"
+  must_not_find:
+    - "traceback"
+    - "Metadata/Items/Gems"
+  blocked: false

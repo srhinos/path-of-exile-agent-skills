@@ -1,0 +1,12 @@
+name: bench-crafts
+category: crafting
+goal: >
+  What bench crafts are available for a Titanium Spirit Shield?
+  I'm looking for ES or resistance crafts. What do they cost?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim bench"
+  must_not_find:
+    - "traceback"
+  blocked: false

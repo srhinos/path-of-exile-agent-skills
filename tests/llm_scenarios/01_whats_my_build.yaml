@@ -1,0 +1,18 @@
+name: whats-my-build
+category: local-build
+goal: >
+  I just opened Path of Building. What builds do I have available?
+  Pick the highest level one and give me a quick rundown — class, ascendancy,
+  main skill, DPS, life, and resistances.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build list"
+    - "poe build summary"
+  must_find:
+    - "level"
+    - "resist"
+  must_not_find:
+    - "traceback"
+    - "Traceback"
+  blocked: false

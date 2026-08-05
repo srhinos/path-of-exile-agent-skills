@@ -1,0 +1,12 @@
+name: currency-conversion
+category: ninja
+goal: >
+  I have 10 Divine Orbs. How much is that worth in Chaos? Also, how much
+  would 500 Chaos buy me in Divines?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja price convert"
+  must_not_find:
+    - "traceback"
+  blocked: false

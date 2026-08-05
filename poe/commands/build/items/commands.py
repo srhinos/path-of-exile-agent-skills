@@ -15,21 +15,23 @@ def _svc() -> ItemsService:
 
 
 @items_app.command(name="sets")
-def items_sets(name: str, *, human: bool = False) -> None:
+def items_sets(name: str, *, json: bool = False) -> None:
     """List all item sets in a build.
 
     Parameters
     ----------
     name
         Build name or unique prefix.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
-    _output(_svc().list_sets(name), human=human)
+    _output(_svc().list_sets(name), json_mode=json)
 
 
 @items_app.command(name="list")
-def items_list(name: str, *, item_set: str | None = None, human: bool = False) -> None:
+def items_list(
+    name: str, *, item_set: str | None = None, file: str | None = None, json: bool = False
+) -> None:
     """List equipped items in a build.
 
     Parameters
@@ -38,10 +40,12 @@ def items_list(name: str, *, item_set: str | None = None, human: bool = False) -
         Build name or unique prefix.
     item_set
         Item set ID.
-    human
-        Human-readable output.
+    file
+        Explicit file path.
+    json
+        Output raw JSON.
     """
-    _output(_svc().list_items(name, item_set=item_set), human=human)
+    _output(_svc().list_items(name, item_set=item_set, file_path=file), json_mode=json)
 
 
 @items_app.command(name="add")
@@ -65,6 +69,7 @@ def items_add(
     fractured_mod: list[str] | None = None,
     synthesised: bool = False,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Add an item to a build.
 
@@ -127,7 +132,7 @@ def items_add(
         synthesised=synthesised,
         file_path=file,
     )
-    _output(result)
+    _output(result, json_mode=json)
 
 
 @items_app.command(name="remove")
@@ -173,6 +178,7 @@ def items_edit(
     set_evasion: int | None = None,
     set_energy_shield: int | None = None,
     file: str | None = None,
+    json: bool = False,
 ) -> None:
     """Edit an existing item in a build.
 
@@ -219,7 +225,7 @@ def items_edit(
         set_energy_shield=set_energy_shield,
         file_path=file,
     )
-    _output(result)
+    _output(result, json_mode=json)
 
 
 @items_app.command(name="set-active")
@@ -336,7 +342,7 @@ def items_compare(
     name2: Annotated[str | None, cyclopts.Parameter(name="--build2")] = None,
     file: str | None = None,
     file2: str | None = None,
-    human: bool = False,
+    json: bool = False,
 ) -> None:
     """Compare items in a slot between builds or item sets.
 
@@ -352,12 +358,12 @@ def items_compare(
         Explicit file path.
     file2
         Explicit file path for second build.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
     _output(
         _svc().compare_items(name, slot, name2=name2, file_path=file, file_path2=file2),
-        human=human,
+        json_mode=json,
     )
 
 
@@ -370,7 +376,7 @@ def items_search(
     influence: str | None = None,
     rarity: str | None = None,
     file: str | None = None,
-    human: bool = False,
+    json: bool = False,
 ) -> None:
     """Search equipped items with filters.
 
@@ -388,8 +394,8 @@ def items_search(
         Filter by rarity.
     file
         Explicit file path.
-    human
-        Human-readable output.
+    json
+        Output raw JSON.
     """
     result = _svc().search(
         name,
@@ -399,4 +405,4 @@ def items_search(
         rarity=rarity,
         file_path=file,
     )
-    _output(result, human=human)
+    _output(result, json_mode=json)

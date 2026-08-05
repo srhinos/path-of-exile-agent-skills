@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from poe.services.ninja.protobuf import (
     decode_fields,
@@ -21,6 +21,8 @@ from poe.services.ninja.protobuf import (
 class DimensionCount(BaseModel):
     """A single key→count entry within a dimension."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     key: int = 0
     count: int = 0
 
@@ -32,6 +34,8 @@ class DimensionCount(BaseModel):
 
 class Dimension(BaseModel):
     """Categorical dimension with per-value counts and dictionary reference."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str = ""
     dictionary_id: str = ""
@@ -50,6 +54,8 @@ class Dimension(BaseModel):
 class IntegerDimension(BaseModel):
     """Numeric stat range (level, life, ES, etc.)."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = ""
     min_value: int = 0
     max_value: int = 0
@@ -67,6 +73,8 @@ class IntegerDimension(BaseModel):
 class PerformancePoint(BaseModel):
     """Server-side timing data."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str = ""
     ms: float = 0.0
 
@@ -78,6 +86,8 @@ class PerformancePoint(BaseModel):
 
 class SearchValue(BaseModel):
     """A single value in a per-character result array."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     str_val: str = ""
     number: int = 0
@@ -100,6 +110,8 @@ class SearchValue(BaseModel):
 class ValueList(BaseModel):
     """Per-character result array (names, accounts, stats)."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = ""
     values: list[SearchValue] = []
 
@@ -115,6 +127,8 @@ class ValueList(BaseModel):
 class DictionaryReference(BaseModel):
     """Hash reference for a string lookup table."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = ""
     hash: str = ""
 
@@ -126,6 +140,8 @@ class DictionaryReference(BaseModel):
 
 class SearchField(BaseModel):
     """UI column metadata from search response."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str = ""
     type: str = ""
@@ -160,6 +176,8 @@ class SearchField(BaseModel):
 class FieldDescriptor(BaseModel):
     """Column descriptor for UI rendering."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = ""
     name: str = ""
     optional: bool = False
@@ -183,6 +201,8 @@ class FieldDescriptor(BaseModel):
 class Section(BaseModel):
     """UI section metadata."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = ""
     type: str = ""
     name: str = ""
@@ -203,6 +223,8 @@ class Section(BaseModel):
 
 class SearchResult(BaseModel):
     """Full decoded builds/atlas search response."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     total: int = 0
     dimensions: list[Dimension] = []
@@ -235,6 +257,8 @@ class SearchResult(BaseModel):
 class NinjaSearchResult(BaseModel):
     """Top-level wrapper for builds/atlas search protobuf responses."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     result: SearchResult | None = None
 
     @classmethod
@@ -249,6 +273,8 @@ class NinjaSearchResult(BaseModel):
 class DictionaryProperty(BaseModel):
     """Per-value metadata column in a dictionary (e.g., color, type)."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = ""
     values: list[str] = []
 
@@ -260,6 +286,8 @@ class DictionaryProperty(BaseModel):
 
 class Dictionary(BaseModel):
     """String lookup table fetched by hash, used to resolve dimension keys."""
+
+    model_config = ConfigDict(validate_assignment=True)
 
     id: str = ""
     values: list[str] = []

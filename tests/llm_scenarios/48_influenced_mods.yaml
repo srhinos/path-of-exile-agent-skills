@@ -1,0 +1,15 @@
+name: influenced-mod-search
+category: crafting
+goal: >
+  I have a Shaper Hubris Circlet. What special Shaper mods can roll on it
+  that wouldn't roll on a non-influenced version? Show me the Shaper-only
+  mods.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim mods"
+  must_find:
+    - "shaper"
+  must_not_find:
+    - "traceback"
+  blocked: false

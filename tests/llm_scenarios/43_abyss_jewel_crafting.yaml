@@ -1,0 +1,13 @@
+name: abyss-jewel-crafting
+category: crafting
+goal: >
+  What mods can I roll on a Murderous Eye Jewel (abyss jewel)? I want
+  flat life and flat physical damage. Are those available?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim mods"
+  must_not_find:
+    - "traceback"
+    - "not found"
+  blocked: false

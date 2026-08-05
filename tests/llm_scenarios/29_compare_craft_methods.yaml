@@ -1,0 +1,16 @@
+name: compare-craft-methods
+category: crafting
+goal: >
+  I want to hit IncreasedLife on a Hubris Circlet. Compare chaos spam vs
+  alt spam — which method is cheaper on average?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim"
+  must_find:
+    - "chaos"
+    - "alt"
+  must_not_find:
+    - "traceback"
+    - "Infinity"
+  blocked: false

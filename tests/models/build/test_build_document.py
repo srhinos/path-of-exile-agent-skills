@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from poe.models.build import (
     BuildConfig,
     BuildDocument,
@@ -15,11 +17,11 @@ from poe.models.build import (
 
 class TestItemSlots:
     def test_open_prefixes_all_open(self):
-        item = Item(id=1, text="", prefix_slots=["None", "None", "None"])
+        item = Item(id=1, text="", prefix_slots=[None, None, None])
         assert item.open_prefixes == 3
 
     def test_open_prefixes_some_filled(self):
-        item = Item(id=1, text="", prefix_slots=["IncreasedLife6", "None", "SpellDamage3"])
+        item = Item(id=1, text="", prefix_slots=["IncreasedLife6", None, "SpellDamage3"])
         assert item.open_prefixes == 1
 
     def test_open_prefixes_none_open(self):
@@ -27,19 +29,19 @@ class TestItemSlots:
         assert item.open_prefixes == 0
 
     def test_open_suffixes_all_open(self):
-        item = Item(id=1, text="", suffix_slots=["None", "None", "None"])
+        item = Item(id=1, text="", suffix_slots=[None, None, None])
         assert item.open_suffixes == 3
 
     def test_open_suffixes_mixed(self):
-        item = Item(id=1, text="", suffix_slots=["ColdRes5", "None"])
+        item = Item(id=1, text="", suffix_slots=["ColdRes5", None])
         assert item.open_suffixes == 1
 
     def test_filled_prefixes(self):
-        item = Item(id=1, text="", prefix_slots=["IncreasedLife6", "None", "SpellDamage3"])
+        item = Item(id=1, text="", prefix_slots=["IncreasedLife6", None, "SpellDamage3"])
         assert item.filled_prefixes == 2
 
     def test_filled_suffixes(self):
-        item = Item(id=1, text="", suffix_slots=["ColdRes5", "LightRes4", "None"])
+        item = Item(id=1, text="", suffix_slots=["ColdRes5", "LightRes4", None])
         assert item.filled_suffixes == 2
 
     def test_empty_slots_lists(self):
@@ -160,3 +162,68 @@ class TestBuildGetEquippedItems:
         sets = [ItemSet(id="1", slots=[ItemSlot(name="Helmet", item_id=999)])]
         build = BuildDocument(items=[], item_sets=sets, active_item_set="1")
         assert build.get_equipped_items() == []
+
+
+# ── Pydantic semantic invariants for BuildDocument (Pattern 5) ─────────────
+
+
+class TestBuildDocumentInvariants:
+    def test_level_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(level=0)
+
+    def test_level_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(level=-5)
+
+    def test_level_rejects_above_100(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(level=999)
+
+    def test_active_spec_rejects_zero(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(active_spec=0)
+
+    def test_active_spec_rejects_negative(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(active_spec=-1)
+
+    def test_target_version_rejects_arbitrary_string(self):
+        with pytest.raises((ValueError, TypeError)):
+            BuildDocument(target_version="not_a_version!!")
+
+    def test_get_active_spec_returns_none_for_missing(self):
+        b = BuildDocument(active_spec=1, specs=[])
+        assert b.get_active_spec() is None
+
+    def test_get_stat_returns_none_for_missing(self):
+        b = BuildDocument()
+        assert b.get_stat("anything") is None
+
+
+class TestStatEntryInvariants:
+    def test_basic_construction(self):
+        s = StatEntry(stat="Life", value=4500)
+        assert s.value == 4500
+
+    def test_stat_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            StatEntry(stat="", value=1)
+
+    def test_value_rejects_nan(self):
+        with pytest.raises((ValueError, TypeError)):
+            StatEntry(stat="Life", value=float("nan"))
+
+    def test_value_rejects_inf(self):
+        with pytest.raises((ValueError, TypeError)):
+            StatEntry(stat="Life", value=float("inf"))
+
+
+class TestItemSetInvariants:
+    def test_default_id(self):
+        s = ItemSet()
+        assert s.id == "1"
+
+    def test_id_rejects_empty(self):
+        with pytest.raises((ValueError, TypeError)):
+            ItemSet(id="")

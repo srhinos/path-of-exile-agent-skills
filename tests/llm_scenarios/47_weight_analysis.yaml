@@ -1,0 +1,13 @@
+name: mod-weight-analysis
+category: crafting
+goal: >
+  Show me the mod weights for a Vaal Regalia at ilvl 86. What prefix has
+  the highest probability of rolling? What suffix? Which mods are hardest
+  to hit?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim weights"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -1,0 +1,14 @@
+name: meta-overview
+category: ninja
+goal: >
+  What's the current PoE1 meta? What are the most popular class/skill combos?
+  What builds are rising in popularity and which are declining?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja meta summary"
+  must_find:
+    - "percentage"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -1,0 +1,14 @@
+name: find-cheap-build
+category: ninja
+goal: >
+  I'm broke and just started the league. Search poe.ninja for a popular
+  build that's cheap to gear. Find a character, inspect their gear, and
+  tell me what the build does and roughly how much it costs.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds inspect"
+  must_not_find:
+    - "traceback"
+  blocked: false

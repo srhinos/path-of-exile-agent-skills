@@ -1,0 +1,12 @@
+name: unique-armour-prices
+category: ninja
+goal: >
+  What are the most expensive unique body armours right now? List the top 5
+  with their prices in both chaos and divine.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja price list"
+  must_not_find:
+    - "traceback"
+  blocked: false

@@ -1,0 +1,14 @@
+name: mirror-tier-crafting
+category: crafting
+goal: >
+  I want to craft a mirror-tier Vaal Regalia. I need T1 flat ES, T1 %ES,
+  and T1 %ES/Stun Recovery as prefixes. Show me the mod tiers for all three
+  and what ilvl I need. Then check if there are influenced mods I should
+  consider.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim mods"
+  must_not_find:
+    - "traceback"
+  blocked: false

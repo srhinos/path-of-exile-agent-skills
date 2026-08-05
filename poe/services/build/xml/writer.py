@@ -80,7 +80,7 @@ def _write_build_section(root: ET.Element, build: BuildDocument) -> None:
     el.set("level", str(build.level))
     el.set("className", build.class_name)
     el.set("ascendClassName", build.ascend_class_name)
-    el.set("bandit", build.bandit)
+    el.set("bandit", build.bandit or "None")
     el.set("viewMode", build.view_mode)
     el.set("targetVersion", build.target_version)
     el.set("mainSocketGroup", str(build.main_socket_group))
@@ -113,16 +113,38 @@ def _write_build_section(root: ET.Element, build: BuildDocument) -> None:
 
 
 def _write_timeless_data(parent: ET.Element, data: dict) -> None:
-    """Write <TimelessData> element with attributes and children."""
+    """Write <TimelessData> element with attributes and children.
+
+    Parser stores child elements under a "children" subdict so a child
+    tag matching an attribute name can't collide. The writer mirrors this:
+    attributes live in the top dict, children come from data["children"]
+    (a dict[str, list[dict[str, str]]]).
+    """
     td_el = ET.SubElement(parent, "TimelessData")
+    children = data.get("children") or {}
     for k, v in data.items():
+        if k == "children":
+            continue
+        # Legacy shape: list values at the top dict level were treated as
+        # children. Tolerate this on write so old-shape in-memory builds
+        # still serialize correctly.
         if isinstance(v, list):
             for child_attrs in v:
-                child_el = ET.SubElement(td_el, k)
-                for ck, cv in child_attrs.items():
-                    child_el.set(ck, str(cv))
+                if isinstance(child_attrs, dict):
+                    child_el = ET.SubElement(td_el, k)
+                    for ck, cv in child_attrs.items():
+                        child_el.set(ck, str(cv))
         else:
             td_el.set(k, str(v))
+    if isinstance(children, dict):
+        for tag, entries in children.items():
+            if not isinstance(entries, list):
+                continue
+            for child_attrs in entries:
+                if isinstance(child_attrs, dict):
+                    child_el = ET.SubElement(td_el, tag)
+                    for ck, cv in child_attrs.items():
+                        child_el.set(ck, str(cv))
 
 
 def _write_tree_section(root: ET.Element, build: BuildDocument) -> None:
@@ -355,6 +377,9 @@ def _item_to_text(item: Item) -> str:
     if item.is_synthesised:
         lines.append("Synthesised Item")
 
+    if item.is_fractured:
+        lines.append("Fractured Item")
+
     if item.is_crafted:
         lines.append("Crafted: true")
 
@@ -363,8 +388,8 @@ def _item_to_text(item: Item) -> str:
     lines.append(f"Implicits: {len(item.implicits)}")
     lines.extend(_mod_to_line(mod) for mod in item.implicits)
 
-    lines.extend(f"Prefix: {slot_val}" for slot_val in item.prefix_slots)
-    lines.extend(f"Suffix: {slot_val}" for slot_val in item.suffix_slots)
+    lines.extend(f"Prefix: {s if s is not None else 'None'}" for s in item.prefix_slots)
+    lines.extend(f"Suffix: {s if s is not None else 'None'}" for s in item.suffix_slots)
 
     lines.extend(_mod_to_line(mod) for mod in item.explicits)
 

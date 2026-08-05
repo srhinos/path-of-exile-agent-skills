@@ -11,35 +11,39 @@ meta_app = cyclopts.App(name="meta", help="Meta overview and trends.")
 
 
 @meta_app.command(name="summary")
-def meta_summary(game: str = "poe1", *, human: bool = False) -> None:
+def meta_summary(game: str = "poe1", *, no_cache: bool = False, json: bool = False) -> None:
     """Get meta build summary from poe.ninja.
 
     Parameters
     ----------
     game
         poe1 or poe2.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         svc = BuildsService(client, discovery)
         result = svc.get_meta_summary(game=game)
-        render(result, human=human)
+        render(result, json_mode=json)
 
 
 @meta_app.command(name="trend")
-def meta_trend(game: str = "poe1", *, human: bool = False) -> None:
+def meta_trend(game: str = "poe1", *, no_cache: bool = False, json: bool = False) -> None:
     """Get build popularity trends across leagues.
 
     Parameters
     ----------
     game
         poe1 or poe2.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         state = discovery.get_build_index_state(game=game)
 
@@ -60,4 +64,4 @@ def meta_trend(game: str = "poe1", *, human: bool = False) -> None:
             }
             for lb in state.league_builds
         ]
-        render(trends, human=human)
+        render(trends, json_mode=json)

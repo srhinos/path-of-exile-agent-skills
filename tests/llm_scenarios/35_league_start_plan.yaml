@@ -1,0 +1,14 @@
+name: league-start-planning
+category: cross-system
+goal: >
+  New league starts soon. Check what builds are trending up in the meta.
+  Then create a new build file for me — pick a trending class, set the
+  ascendancy and level 1. What would be a good starter setup?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja meta"
+    - "poe build create"
+  must_not_find:
+    - "traceback"
+  blocked: false

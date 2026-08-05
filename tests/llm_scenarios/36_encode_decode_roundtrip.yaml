@@ -1,0 +1,14 @@
+name: encode-decode-roundtrip
+category: local-build
+goal: >
+  Pick any local build. Encode it to a sharing code. Then decode that code
+  back and verify it produces valid XML. Does the roundtrip work?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build encode"
+    - "poe build decode"
+  must_not_find:
+    - "traceback"
+    - "Failed"
+  blocked: false

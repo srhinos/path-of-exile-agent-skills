@@ -1,0 +1,15 @@
+name: guardian-aura-support
+category: cross-system
+goal: >
+  Search poe.ninja for a Guardian build (aura support). Import it.
+  Check what aura gems it runs — a support build should have many auras.
+  How many reservation skills does it have?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe ninja builds search"
+    - "poe ninja builds import"
+    - "poe build gems list"
+  must_not_find:
+    - "traceback"
+  blocked: false

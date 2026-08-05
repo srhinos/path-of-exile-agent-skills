@@ -3,10 +3,28 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from poe.models.ninja.analysis import BuildCost, SlotCost, UpgradeSuggestion
+from poe.services.ninja.errors import NinjaError
 
 if TYPE_CHECKING:
-    from poe.models.ninja.builds import CharacterResponse
+    from poe.models.ninja.builds import CharacterItem, CharacterJewel, CharacterResponse
     from poe.services.ninja.economy import EconomyService
+
+
+def _item_name(item: CharacterItem) -> str:
+    return item.item_data.get("name", "")
+
+
+def _item_type_line(item: CharacterItem) -> str:
+    return item.item_data.get("typeLine", "")
+
+
+def _item_rarity(item: CharacterItem | CharacterJewel) -> str:
+    frame = item.item_data.get("frameType", 0)
+    return {0: "normal", 1: "magic", 2: "rare", 3: "unique"}.get(frame, "")
+
+
+def _item_slot(item: CharacterItem) -> str:
+    return item.item_data.get("inventoryId", "") or "Unknown"
 
 
 def cost_build(
@@ -19,40 +37,43 @@ def cost_build(
     slots: list[SlotCost] = []
 
     for item in character.items:
-        if not item.name:
+        name = _item_name(item) or _item_type_line(item)
+        if not name:
             continue
-        price = _lookup_item_price(item.name, economy, league, game=game)
+        price = _lookup_item_price(name, economy, league, game=game)
         slots.append(
             SlotCost(
-                slot=item.inventory_id or "Unknown",
-                item_name=item.name,
+                slot=_item_slot(item),
+                item_name=name,
                 chaos_value=price,
-                is_unique=item.rarity == "unique",
+                is_unique=_item_rarity(item) == "unique",
             ),
         )
 
     for flask in character.flasks:
-        if not flask.name:
+        name = flask.item_data.get("name", "") or flask.item_data.get("typeLine", "")
+        if not name:
             continue
-        price = _lookup_item_price(flask.name, economy, league, game=game)
+        price = _lookup_item_price(name, economy, league, game=game)
         slots.append(
             SlotCost(
                 slot="Flask",
-                item_name=flask.name,
+                item_name=name,
                 chaos_value=price,
             ),
         )
 
     for jewel in character.jewels:
-        if not jewel.name:
+        name = jewel.item_data.get("name", "") or jewel.item_data.get("typeLine", "")
+        if not name:
             continue
-        price = _lookup_item_price(jewel.name, economy, league, game=game)
+        price = _lookup_item_price(name, economy, league, game=game)
         slots.append(
             SlotCost(
                 slot="Jewel",
-                item_name=jewel.name,
+                item_name=name,
                 chaos_value=price,
-                is_unique=True,
+                is_unique=_item_rarity(jewel) == "unique",
             ),
         )
 
@@ -85,7 +106,10 @@ def find_budget_alternatives(
             prices = economy.get_prices(league, item_type, game=game)
             for p in prices:
                 all_prices[p.name.lower()] = p.chaos_value
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, NinjaError):
+            # NinjaError covers transient 5xx that survived client retries
+            # plus schema mismatches; without it the workflow fails on the
+            # first bad type instead of skipping it and continuing.
             continue
 
     for slot in build_cost.slots:
@@ -139,6 +163,6 @@ def _lookup_item_price(
             match = next((p for p in prices if p.name.lower() == name_lower), None)
             if match:
                 return match.chaos_value
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, NinjaError):
             continue
     return 0.0

@@ -4,7 +4,15 @@ from poe.exceptions import BuildValidationError, SlotError
 from poe.models.build.build import MutationResult
 from poe.models.build.items import EquippedItem, Item, ItemMod, ItemSlot
 from poe.services.build.build_service import BuildService
-from poe.services.build.constants import FLASK_SLOT_NAMES, STALE_STATS_WARNING
+from poe.services.build.constants import (
+    FLASK_SLOT_BY_CASEFOLD,
+    FLASK_SLOT_NAMES,
+    STALE_STATS_WARNING,
+)
+
+
+def _normalize_flask_slot(slot: str) -> str | None:
+    return FLASK_SLOT_BY_CASEFOLD.get(slot.casefold())
 
 
 class FlasksService:
@@ -37,10 +45,10 @@ class FlasksService:
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         equipped = build_obj.get_equipped_items()
         occupied = {s for s, _ in equipped if s.startswith("Flask")}
-        if slot:
-            if slot not in FLASK_SLOT_NAMES:
+        if slot is not None:
+            target_slot = _normalize_flask_slot(slot)
+            if target_slot is None:
                 raise SlotError(f"Invalid flask slot: {slot!r}")
-            target_slot = slot
         else:
             target_slot = next((s for s in FLASK_SLOT_NAMES if s not in occupied), None)
             if not target_slot:
@@ -80,8 +88,10 @@ class FlasksService:
         slot: str,
         file_path: str | None = None,
     ) -> MutationResult:
-        if slot not in FLASK_SLOT_NAMES:
+        canonical = _normalize_flask_slot(slot)
+        if canonical is None:
             raise SlotError(f"Invalid flask slot: {slot!r}")
+        slot = canonical
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         removed_id = None
         for iset in build_obj.item_sets:
@@ -115,8 +125,10 @@ class FlasksService:
         remove_explicit: list[int] | None = None,
         file_path: str | None = None,
     ) -> MutationResult:
-        if slot not in FLASK_SLOT_NAMES:
+        canonical = _normalize_flask_slot(slot)
+        if canonical is None:
             raise SlotError(f"Invalid flask slot: {slot!r}")
+        slot = canonical
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         item_map = {i.id: i for i in build_obj.items}
         target = None
@@ -156,11 +168,15 @@ class FlasksService:
         order: list[str],
         file_path: str | None = None,
     ) -> MutationResult:
-        if len(order) != len(set(order)):
-            raise BuildValidationError("Duplicate flask slots in order")
+        normalized_order: list[str] = []
         for s in order:
-            if s not in FLASK_SLOT_NAMES:
+            canonical = _normalize_flask_slot(s)
+            if canonical is None:
                 raise SlotError(f"Invalid flask slot: {s!r}")
+            normalized_order.append(canonical)
+        if len(normalized_order) != len(set(normalized_order)):
+            raise BuildValidationError("Duplicate flask slots in order")
+        order = normalized_order
         path, build_obj, cloned_from = self._build.load_for_write(name, file_path)
         active_set = None
         for iset in build_obj.item_sets:

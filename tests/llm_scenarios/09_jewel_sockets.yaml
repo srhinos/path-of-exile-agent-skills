@@ -1,0 +1,12 @@
+name: jewel-sockets
+category: local-build
+goal: >
+  Check if any of my builds have jewels socketed in the passive tree.
+  What jewels are they and which tree nodes are they in?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe build jewels list"
+  must_not_find:
+    - "traceback"
+  blocked: false

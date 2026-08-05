@@ -8,17 +8,26 @@ from poe.services.ninja.client import NinjaClient
 from poe.services.ninja.costing import cost_build
 from poe.services.ninja.discovery import DiscoveryService
 from poe.services.ninja.economy import EconomyService
+from poe.services.ninja.errors import NinjaError
 from poe.services.ninja.history import HistoryService
+from poe.services.repoe.sim_service import SimService
 
 price_app = cyclopts.App(name="price", help="Price checking and currency conversion.")
 
 
 def _resolve_league(svc: DiscoveryService, league: str | None, game: str) -> str:
+    # Strip whitespace before validating — a paste with trailing newline
+    # would otherwise URL-encode and 404 against the league endpoint.
     if league:
-        return league
+        cleaned = league.strip()
+        if not cleaned:
+            raise NinjaError("--league is empty after stripping whitespace")
+        return cleaned
     current = svc.get_current_league(game=game)
     if not current:
-        raise ValueError(f"No current league found for {game}")
+        # NinjaError is a PoeError subclass, so app.run() catches it and emits
+        # a clean JSON error instead of a raw traceback.
+        raise NinjaError(f"No current league found for {game}")
     return current.name
 
 
@@ -30,7 +39,8 @@ def price_check(
     league: str | None = None,
     language: str = "en",
     *,
-    human: bool = False,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """Look up a single item price.
 
@@ -46,18 +56,19 @@ def price_check(
         League name.
     language
         Language code.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         economy = EconomyService(client)
         result = economy.price_check(resolved_league, item, item_type, game=game, language=language)
         if result is None:
-            render({"error": f"'{item}' not found in {item_type}"}, human=human)
-            return
-        render(result, human=human)
+            raise NinjaError(f"'{item}' not found in {item_type}")
+        render(result, json_mode=json)
 
 
 @price_app.command(name="list")
@@ -73,7 +84,8 @@ def price_list(
     gem_level: int | None = None,
     gem_quality: int | None = None,
     map_tier: int | None = None,
-    human: bool = False,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """List prices for an item type with optional filters.
 
@@ -99,10 +111,12 @@ def price_list(
         Gem quality filter.
     map_tier
         Map tier filter.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         economy = EconomyService(client)
@@ -118,7 +132,7 @@ def price_list(
             gem_quality=gem_quality,
             map_tier=map_tier,
         )
-        render(results, human=human)
+        render(results, json_mode=json)
 
 
 @price_app.command(name="convert")
@@ -129,7 +143,8 @@ def price_convert(
     game: str = "poe1",
     league: str | None = None,
     *,
-    human: bool = False,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """Convert between currencies at current rates.
 
@@ -145,10 +160,12 @@ def price_convert(
         poe1 or poe2.
     league
         League name.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         economy = EconomyService(client)
@@ -163,7 +180,7 @@ def price_convert(
                 "result": round(result, 4),
                 "league": resolved_league,
             },
-            human=human,
+            json_mode=json,
         )
 
 
@@ -175,7 +192,8 @@ def price_history(
     league: str | None = None,
     language: str = "en",
     *,
-    human: bool = False,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """Get price history for an item.
 
@@ -191,19 +209,21 @@ def price_history(
         League name.
     language
         Language code.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         economy = EconomyService(client)
         history = HistoryService(client, economy)
         result = history.get_price_history(resolved_league, item, item_type, language=language)
         if result is None:
-            render({"error": f"No history for '{item}' in {item_type}"}, human=human)
+            render({"error": f"No history for '{item}' in {item_type}"}, json_mode=json)
             return
-        render(result, human=human)
+        render(result, json_mode=json)
 
 
 @price_app.command(name="build")
@@ -214,7 +234,8 @@ def price_build(
     league: str | None = None,
     snapshot_type: str = "exp",
     *,
-    human: bool = False,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """Price a character's gear from poe.ninja.
 
@@ -228,25 +249,32 @@ def price_build(
         poe1 or poe2.
     league
         League name.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         builds = BuildsService(client, discovery)
         char = builds.get_character(account, character, game=game, snapshot_type=snapshot_type)
         if char is None:
-            render({"error": f"Character '{character}' not found"}, human=human)
+            render({"error": f"Character '{character}' not found"}, json_mode=json)
             return
         economy = EconomyService(client)
         result = cost_build(char, economy, resolved_league, game=game)
-        render(result, human=human)
+        render(result, json_mode=json)
 
 
 @price_app.command(name="craft")
 def price_craft(
-    game: str = "poe1", league: str | None = None, language: str = "en", *, human: bool = False
+    game: str = "poe1",
+    league: str | None = None,
+    language: str = "en",
+    *,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """Get current crafting material prices.
 
@@ -256,20 +284,27 @@ def price_craft(
         poe1 or poe2.
     league
         League name.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         economy = EconomyService(client)
         result = economy.get_crafting_prices(resolved_league, language=language)
-        render(result, human=human)
+        render(result, json_mode=json)
 
 
 @price_app.command(name="fossil-recommend")
 def price_fossil_recommend(
-    mod: str, game: str = "poe1", league: str | None = None, *, human: bool = False
+    mod: str,
+    game: str = "poe1",
+    league: str | None = None,
+    *,
+    no_cache: bool = False,
+    json: bool = False,
 ) -> None:
     """Find fossils that boost a specific mod tag.
 
@@ -281,21 +316,36 @@ def price_fossil_recommend(
         poe1 or poe2.
     league
         League name.
-    human
-        Human-readable output.
+    no_cache
+        Bypass cache and fetch fresh data.
+    json
+        Output raw JSON.
     """
-    with NinjaClient() as client:
+    sim = SimService()
+    optimizer_results = sim.fossil_optimizer(mod)
+
+    with NinjaClient(no_cache=no_cache) as client:
         discovery = DiscoveryService(client)
         resolved_league = _resolve_league(discovery, league, game)
         economy = EconomyService(client)
-        prices = economy.get_prices(resolved_league, "Fossil", game=game)
-        matching = [
-            {
-                "name": p.name,
-                "chaos_value": p.chaos_value,
-            }
-            for p in prices
-            if mod.lower() in p.name.lower()
-        ]
-        matching.sort(key=lambda f: f["chaos_value"])
-        render(matching, human=human)
+        try:
+            prices = economy.get_prices(resolved_league, "Fossil", game=game)
+            price_map = {p.name.lower(): p.chaos_value for p in prices}
+        except NinjaError:
+            price_map = {}
+
+    results = []
+    for entry in optimizer_results:
+        if entry["effect"] == "boost":
+            chaos_value = price_map.get(entry["fossil"].lower(), 0.0)
+            results.append(
+                {
+                    "name": entry["fossil"],
+                    "tag": entry["tag"],
+                    "multiplier": entry["multiplier"],
+                    "chaos_value": chaos_value,
+                }
+            )
+
+    results.sort(key=lambda f: f["multiplier"], reverse=True)
+    render(results, json_mode=json)

@@ -1,0 +1,13 @@
+name: jewel-crafting
+category: crafting
+goal: >
+  What mods can roll on a Cobalt Jewel? I want to see the prefix and suffix
+  options. Are there any life mods available?
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim mods"
+  must_not_find:
+    - "traceback"
+    - "not found"
+  blocked: false

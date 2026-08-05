@@ -1,0 +1,15 @@
+name: simulate-chaos-spam
+category: crafting
+goal: >
+  How many chaos orbs would it take on average to hit +life and cold resistance
+  on a Hubris Circlet at ilvl 86? Simulate it for me.
+expected:
+  must_succeed: true
+  commands_must_include:
+    - "poe sim simulate"
+  must_find:
+    - "hit_rate"
+  must_not_find:
+    - "traceback"
+    - "not found in mod pool"
+  blocked: false

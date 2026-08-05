@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import contextlib
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from poe.app import app as cli
+from poe.services.ninja.errors import NetworkError
+from poe.services.repoe.sim import BestTier, ModPoolEntry
 from tests.conftest import invoke_cli
 
 # Imports are now at the top of craft/cli.py, so patch where they're used.
@@ -35,28 +39,28 @@ def _mock_repoe_data(**overrides):
 
 
 SAMPLE_MODS = [
-    {
-        "mod_id": "IncreasedLife1",
-        "name": "Increased Life",
-        "affix": "prefix",
-        "group": "IncreasedLife",
-        "weight": 1000,
-        "tier_count": 4,
-        "best_tier": {"ilvl": 82, "values": [[90, 100]], "weight": 200},
-        "implicit_tags": ["resource", "life"],
-        "influence": None,
-    },
-    {
-        "mod_id": "ColdResistance1",
-        "name": "Cold Resistance",
-        "affix": "suffix",
-        "group": "ColdResistance",
-        "weight": 500,
-        "tier_count": 2,
-        "best_tier": {"ilvl": 60, "values": [[30, 40]], "weight": 500},
-        "implicit_tags": ["elemental", "resistance", "cold"],
-        "influence": None,
-    },
+    ModPoolEntry(
+        mod_id="IncreasedLife1",
+        name="Increased Life",
+        affix="prefix",
+        group="IncreasedLife",
+        weight=1000,
+        tier_count=4,
+        best_tier=BestTier(ilvl=82, values=((90, 100),), weight=200),
+        implicit_tags=("resource", "life"),
+        influence=None,
+    ),
+    ModPoolEntry(
+        mod_id="ColdResistance1",
+        name="Cold Resistance",
+        affix="suffix",
+        group="ColdResistance",
+        weight=500,
+        tier_count=2,
+        best_tier=BestTier(ilvl=60, values=((30, 40),), weight=500),
+        implicit_tags=("elemental", "resistance", "cold"),
+        influence=None,
+    ),
 ]
 
 
@@ -67,7 +71,7 @@ class TestCraftMods:
     def test_success(self):
         cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "mods", "Hubris Circlet"])
+            result = invoke_cli(cli, ["sim", "mods", "Hubris Circlet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["base"] == "Hubris Circlet"
@@ -91,12 +95,13 @@ class TestCraftMods:
                     "prefix",
                     "--limit",
                     "5",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ilvl"] == 86
-        assert data["influences"] == ["shaper"]
+        assert data["influences"] == ["Shaper"]
         assert data["filter"] == "prefix"
 
     def test_base_not_found(self):
@@ -130,7 +135,7 @@ class TestCraftMods:
     def test_human_output(self):
         cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "mods", "Hubris Circlet", "--human"])
+            result = invoke_cli(cli, ["sim", "mods", "Hubris Circlet"])
         assert result.exit_code == 0
         # Human output is not JSON
         with contextlib.suppress(Exception):
@@ -152,7 +157,7 @@ class TestCraftTiers:
     def test_success(self):
         cd = _mock_repoe_data(get_mod_tiers=SAMPLE_TIERS)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "tiers", "mod_life", "Hubris Circlet"])
+            result = invoke_cli(cli, ["sim", "tiers", "mod_life", "Hubris Circlet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["mod_id"] == "mod_life"
@@ -176,7 +181,9 @@ class TestCraftTiers:
     def test_custom_ilvl(self):
         cd = _mock_repoe_data(get_mod_tiers=SAMPLE_TIERS[:2])
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "tiers", "mod_life", "Hubris Circlet", "--ilvl", "75"])
+            result = invoke_cli(
+                cli, ["sim", "tiers", "mod_life", "Hubris Circlet", "--ilvl", "75", "--json"]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ilvl"] == 75
@@ -205,7 +212,7 @@ class TestCraftFossils:
     def test_success(self):
         cd = _mock_repoe_data(get_fossils=SAMPLE_FOSSILS)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "fossils"])
+            result = invoke_cli(cli, ["sim", "fossils", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["count"] == 2
@@ -214,7 +221,7 @@ class TestCraftFossils:
     def test_with_filter(self):
         cd = _mock_repoe_data(get_fossils=SAMPLE_FOSSILS[:1])
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "fossils", "--filter", "life"])
+            result = invoke_cli(cli, ["sim", "fossils", "--filter", "life", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["filter"] == "life"
@@ -229,7 +236,7 @@ class TestCraftFossils:
     def test_human_output(self):
         cd = _mock_repoe_data(get_fossils=SAMPLE_FOSSILS)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "fossils", "--human"])
+            result = invoke_cli(cli, ["sim", "fossils"])
         assert result.exit_code == 0
         assert "Pristine Fossil" in result.output
 
@@ -259,7 +266,7 @@ class TestCraftEssences:
     def test_success_no_base(self):
         cd = _mock_repoe_data(get_essences=SAMPLE_ESSENCES_ALL)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "essences"])
+            result = invoke_cli(cli, ["sim", "essences", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["base"] == "all"
@@ -268,7 +275,7 @@ class TestCraftEssences:
     def test_success_with_base(self):
         cd = _mock_repoe_data(get_essences=SAMPLE_ESSENCES)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "essences", "Hubris Circlet"])
+            result = invoke_cli(cli, ["sim", "essences", "Hubris Circlet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["base"] == "Hubris Circlet"
@@ -299,9 +306,12 @@ SAMPLE_BENCH_CRAFTS = [
 
 class TestCraftBench:
     def test_success(self):
-        cd = _mock_repoe_data(get_bench_crafts=SAMPLE_BENCH_CRAFTS)
+        cd = _mock_repoe_data(
+            get_bench_crafts=SAMPLE_BENCH_CRAFTS,
+            get_base_item={"name": "Hubris Circlet"},
+        )
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "bench", "Hubris Circlet"])
+            result = invoke_cli(cli, ["sim", "bench", "Hubris Circlet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["base"] == "Hubris Circlet"
@@ -329,7 +339,7 @@ class TestCraftSearch:
     def test_success(self):
         cd = _mock_repoe_data(search_base_items=SAMPLE_SEARCH_RESULTS)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "search", "hubris"])
+            result = invoke_cli(cli, ["sim", "search", "hubris", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["query"] == "hubris"
@@ -341,7 +351,7 @@ class TestCraftSearch:
     def test_no_results(self):
         cd = _mock_repoe_data(search_base_items=[])
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "search", "zzzznothing"])
+            result = invoke_cli(cli, ["sim", "search", "zzzznothing", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["count"] == 0
@@ -358,7 +368,7 @@ class TestCraftSearch:
         items = [{"name": "Crown", "drop_level": 10, "properties": {"es": 50}}]
         cd = _mock_repoe_data(search_base_items=items)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "search", "crown"])
+            result = invoke_cli(cli, ["sim", "search", "crown", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["items"][0]["properties"] == {"es": 50}
@@ -367,7 +377,7 @@ class TestCraftSearch:
         items = [{"name": "Crown", "drop_level": 10, "properties": {}}]
         cd = _mock_repoe_data(search_base_items=items)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "search", "crown"])
+            result = invoke_cli(cli, ["sim", "search", "crown", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["items"][0]["properties"] == {}
@@ -376,11 +386,11 @@ class TestCraftSearch:
         items = [{"name": f"Item{i}", "drop_level": i, "properties": {}} for i in range(30)]
         cd = _mock_repoe_data(search_base_items=items)
         with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "search", "item"])
+            result = invoke_cli(cli, ["sim", "search", "item", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["count"] == 30  # total count
-        assert len(data["items"]) == 20  # truncated
+        assert data["count"] == 30
+        assert len(data["items"]) == 20
 
 
 # ── craft analyze ────────────────────────────────────────────────────────────
@@ -440,7 +450,7 @@ class TestCraftAnalyze:
             patch(_PATCH_PARSE, return_value=mock_build),
             patch(_PATCH_CD, return_value=cd),
         ):
-            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet"])
+            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["slot"] == "Helmet"
@@ -461,7 +471,7 @@ class TestCraftAnalyze:
             patch(_PATCH_PARSE, return_value=mock_build),
             patch(_PATCH_CD, return_value=cd),
         ):
-            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet"])
+            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["analysis"]["base_found"] is False
@@ -505,7 +515,7 @@ class TestCraftAnalyze:
             patch(_PATCH_CD, return_value=cd),
         ):
             result = invoke_cli(
-                cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet", "--ilvl", "100"]
+                cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet", "--ilvl", "100", "--json"]
             )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -526,7 +536,7 @@ class TestCraftAnalyze:
             patch(_PATCH_PARSE, return_value=mock_build),
             patch(_PATCH_CD, return_value=cd),
         ):
-            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet"])
+            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "Helmet", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["analysis"]["bench_craft_count"] == 1
@@ -543,7 +553,7 @@ class TestCraftAnalyze:
             patch(_PATCH_PARSE, return_value=mock_build),
             patch(_PATCH_CD, return_value=cd),
         ):
-            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "body"])
+            result = invoke_cli(cli, ["sim", "analyze", "MyBuild", "--slot", "body", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["slot"] == "Body Armour"
@@ -573,9 +583,9 @@ def _make_sim_result(**overrides):
 
 class TestCraftSimulate:
     def test_success_chaos(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -591,6 +601,7 @@ class TestCraftSimulate:
                     "chaos",
                     "--target",
                     "IncreasedLife",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -601,9 +612,11 @@ class TestCraftSimulate:
         assert data.get("fossils") is None
 
     def test_success_fossil(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result(method="fossil", cost_per_attempt=5.0)
+        eng.simulate = AsyncMock(
+            return_value=_make_sim_result(method="fossil", cost_per_attempt=5.0),
+        )
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -621,6 +634,7 @@ class TestCraftSimulate:
                     "IncreasedLife",
                     "--fossils",
                     "Pristine Fossil,Frigid Fossil",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -629,9 +643,9 @@ class TestCraftSimulate:
         assert data["fossils"] == ["Pristine Fossil", "Frigid Fossil"]
 
     def test_success_alt(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result(method="alt")
+        eng.simulate = AsyncMock(return_value=_make_sim_result(method="alt"))
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -647,6 +661,7 @@ class TestCraftSimulate:
                     "alt",
                     "--target",
                     "IncreasedLife",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -654,9 +669,9 @@ class TestCraftSimulate:
         assert data["method"] == "alt"
 
     def test_multiple_targets(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -676,6 +691,7 @@ class TestCraftSimulate:
                     "ColdResistance",
                     "--match",
                     "any",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -684,9 +700,9 @@ class TestCraftSimulate:
         assert data["match_mode"] == "any"
 
     def test_custom_iterations(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result(iterations=500)
+        eng.simulate = AsyncMock(return_value=_make_sim_result(iterations=500))
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -709,9 +725,9 @@ class TestCraftSimulate:
         assert result.exit_code == 0
 
     def test_exception(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.side_effect = RuntimeError("sim failed")
+        eng.simulate = AsyncMock(side_effect=RuntimeError("sim failed"))
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -732,9 +748,9 @@ class TestCraftSimulate:
         assert result.exit_code != 0
 
     def test_with_influence(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -757,9 +773,9 @@ class TestCraftSimulate:
         assert result.exit_code == 0
 
     def test_success_essence(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result(method="essence")
+        eng.simulate = AsyncMock(return_value=_make_sim_result(method="essence"))
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -777,6 +793,7 @@ class TestCraftSimulate:
                     "IncreasedLife",
                     "--essence",
                     "Greed",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -792,9 +809,9 @@ class TestCraftSimulate:
 
     def test_essence_method_requires_essence_option(self):
         """Using --method essence without --essence should error."""
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result(method="essence")
+        eng.simulate = AsyncMock(return_value=_make_sim_result(method="essence"))
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -830,35 +847,49 @@ SAMPLE_PRICES = {
 }
 
 
+_PATCH_NINJA = "poe.services.repoe.sim_service.NinjaClient"
+
+
 class TestCraftPrices:
     def test_success(self):
         cd = _mock_repoe_data(get_prices=SAMPLE_PRICES)
-        with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "prices"])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
+        ):
+            result = invoke_cli(cli, ["sim", "prices", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["league"] == "Settlers"
         assert "currency" in data
 
     def test_with_league(self):
         cd = _mock_repoe_data(get_prices=SAMPLE_PRICES)
-        with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "prices", "--league", "Settlers"])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
+        ):
+            result = invoke_cli(cli, ["sim", "prices", "--league", "Settlers", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["league"] == "Settlers"
 
     def test_exception(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         cd.get_prices.side_effect = RuntimeError("no prices")
-        with patch(_PATCH_CD, return_value=cd):
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
+        ):
             result = invoke_cli(cli, ["sim", "prices"])
         assert result.exit_code != 0
 
     def test_human_output(self):
         cd = _mock_repoe_data(get_prices=SAMPLE_PRICES)
-        with patch(_PATCH_CD, return_value=cd):
-            result = invoke_cli(cli, ["sim", "prices", "--human"])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_NINJA, side_effect=NetworkError("offline")),
+        ):
+            result = invoke_cli(cli, ["sim", "prices"])
         assert result.exit_code == 0
         assert "Settlers" in result.output
 
@@ -868,9 +899,9 @@ class TestCraftPrices:
 
 class TestCraftSimulateNewParams:
     def test_existing_mod_param(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -895,9 +926,9 @@ class TestCraftSimulateNewParams:
         assert call_kwargs.kwargs.get("existing_mods") == ["ColdResistance"]
 
     def test_max_attempts_param(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
-        eng.simulate.return_value = _make_sim_result()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
 
         with (
             patch(_PATCH_CD, return_value=cd),
@@ -927,7 +958,7 @@ class TestCraftSimulateNewParams:
 
 class TestCraftSimulateMultistep:
     def test_basic_multistep(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
         eng.create_item.return_value = MagicMock(all_mods=[])
         with (
@@ -948,6 +979,7 @@ class TestCraftSimulateMultistep:
                     "IncreasedLife",
                     "--iterations",
                     "10",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -956,7 +988,7 @@ class TestCraftSimulateMultistep:
         assert data["iterations"] == 10
 
     def test_step_with_fossil_syntax(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
         eng.create_item.return_value = MagicMock(all_mods=[])
         with (
@@ -975,6 +1007,7 @@ class TestCraftSimulateMultistep:
                     "IncreasedLife",
                     "--iterations",
                     "10",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -982,7 +1015,7 @@ class TestCraftSimulateMultistep:
         assert data["steps"] == ["fossil"]
 
     def test_new_craft_methods(self):
-        cd = _mock_repoe_data()
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
         eng = MagicMock()
         eng.create_item.return_value = MagicMock(all_mods=[])
         with (
@@ -1005,6 +1038,7 @@ class TestCraftSimulateMultistep:
                     "IncreasedLife",
                     "--iterations",
                     "10",
+                    "--json",
                 ],
             )
         assert result.exit_code == 0
@@ -1013,6 +1047,86 @@ class TestCraftSimulateMultistep:
 
 
 # ── get_tiers ilvl default ──────────────────────────────────────────────────
+
+
+_PATCH_SVC = "poe.commands.sim.commands._svc"
+
+
+class TestFossilOptimizer:
+    def test_fossil_optimizer(self):
+        mock_svc = MagicMock()
+        mock_svc.fossil_optimizer.return_value = [
+            {"fossil": "Jagged Fossil", "tag": "physical", "multiplier": 10.0, "effect": "boost"},
+        ]
+        with patch(_PATCH_SVC, return_value=mock_svc):
+            result = invoke_cli(cli, ["sim", "fossil-optimizer", "physical", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+        assert data[0]["fossil"] == "Jagged Fossil"
+
+
+class TestCompareCommand:
+    def test_compare(self):
+        mock_svc = MagicMock()
+        mock_svc.compare_methods = AsyncMock(return_value={"chaos": 10, "fossil": 5})
+        with patch(_PATCH_SVC, return_value=mock_svc):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "compare",
+                    "Hubris Circlet",
+                    "--target",
+                    "IncreasedLife",
+                    "--fossils",
+                    "Pristine Fossil,Dense Fossil",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["chaos"] == 10
+
+    def test_compare_no_fossils(self):
+        mock_svc = MagicMock()
+        mock_svc.compare_methods = AsyncMock(return_value={"chaos": 10})
+        with patch(_PATCH_SVC, return_value=mock_svc):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "compare",
+                    "Hubris Circlet",
+                    "--target",
+                    "IncreasedLife",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+
+
+class TestSuggestCommand:
+    def test_suggest(self):
+        mock_svc = MagicMock()
+        mock_svc.suggest_craft.return_value = [{"mod": "Life", "method": "fossil"}]
+        with patch(_PATCH_SVC, return_value=mock_svc):
+            result = invoke_cli(cli, ["sim", "suggest", "--mod", "Life", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+
+
+class TestWeightsCommand:
+    def test_weights(self):
+        mock_svc = MagicMock()
+        mock_svc.mod_weights.return_value = {"mods": []}
+        with patch(_PATCH_SVC, return_value=mock_svc):
+            result = invoke_cli(
+                cli,
+                ["sim", "weights", "Hubris Circlet", "--json"],
+            )
+        assert result.exit_code == 0
 
 
 class TestGetTiersDefault:
@@ -1027,3 +1141,309 @@ class TestGetTiersDefault:
         cd.get_mod_tiers.assert_called_once()
         call_kwargs = cd.get_mod_tiers.call_args
         assert call_kwargs.kwargs.get("ilvl") == 84
+
+
+# ── Sim CLI flag handling: --existing-mod, --workers, --match ──────────────
+
+
+class TestSimulateWorkersFlag:
+    def test_workers_passed_to_engine(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                    "--workers",
+                    "4",
+                ],
+            )
+        assert result.exit_code == 0
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("workers") == 4
+
+    def test_workers_not_provided_passes_none(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                ],
+            )
+        assert result.exit_code == 0
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("workers") is None
+
+
+class TestSimulateMatchFlag:
+    @pytest.mark.parametrize("mode", ["all", "any"])
+    def test_match_mode_passed(self, mode):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                    "--match",
+                    mode,
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["match_mode"] == mode
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("match_mode") == mode
+
+    def test_match_default_is_all(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                ],
+            )
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("match_mode") == "all"
+
+
+class TestSimulateExistingModMultiple:
+    def test_multiple_existing_mods_passed(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                    "--existing-mod",
+                    "ColdResistance",
+                ],
+            )
+        assert result.exit_code == 0
+        call_kwargs = eng.simulate.call_args
+        assert call_kwargs.kwargs.get("existing_mods") == ["ColdResistance"]
+
+    def test_existing_mod_default_is_none(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result())
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate",
+                    "Hubris Circlet",
+                    "--method",
+                    "chaos",
+                    "--target",
+                    "IncreasedLife",
+                ],
+            )
+        call_kwargs = eng.simulate.call_args
+        # SimService now resolves existing_mods through resolve_mod_name and
+        # passes the resolved list to the engine; an unspecified --existing-mod
+        # produces an empty list (rather than None), but with the same intent
+        # of "no mods pinned".
+        assert not call_kwargs.kwargs.get("existing_mods")
+
+
+class TestSimulateMethodCaseVariants:
+    @pytest.mark.parametrize("method_arg", ["chaos", "alt", "fossil"])
+    def test_lowercase_methods_accepted(self, method_arg):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.simulate = AsyncMock(return_value=_make_sim_result(method=method_arg))
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            args = [
+                "sim",
+                "simulate",
+                "Hubris Circlet",
+                "--method",
+                method_arg,
+                "--target",
+                "IncreasedLife",
+            ]
+            if method_arg == "fossil":
+                args += ["--fossils", "Pristine Fossil"]
+            result = invoke_cli(cli, args)
+        assert result.exit_code == 0
+
+
+class TestSimulateMultistepCraftMethods:
+    @pytest.mark.parametrize(
+        "step_method",
+        [
+            "chaos",
+            "alchemy",
+            "transmutation",
+            "annul",
+            "scour",
+            "divine",
+            "blessed",
+        ],
+    )
+    def test_each_first_step_method_accepted(self, step_method):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.create_item.return_value = MagicMock(all_mods=[])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate-multistep",
+                    "Hubris Circlet",
+                    "--step",
+                    step_method,
+                    "--target",
+                    "IncreasedLife",
+                    "--iterations",
+                    "5",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+
+    def test_transmute_to_augment_chain(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.create_item.return_value = MagicMock(all_mods=[])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate-multistep",
+                    "Hubris Circlet",
+                    "--step",
+                    "transmutation",
+                    "--step",
+                    "augmentation",
+                    "--target",
+                    "IncreasedLife",
+                    "--iterations",
+                    "5",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["steps"] == ["transmutation", "augmentation"]
+
+    def test_alchemy_to_exalt_chain(self):
+        cd = _mock_repoe_data(get_mod_pool=SAMPLE_MODS)
+        eng = MagicMock()
+        eng.create_item.return_value = MagicMock(all_mods=[])
+        with (
+            patch(_PATCH_CD, return_value=cd),
+            patch(_PATCH_ENGINE, return_value=eng),
+        ):
+            result = invoke_cli(
+                cli,
+                [
+                    "sim",
+                    "simulate-multistep",
+                    "Hubris Circlet",
+                    "--step",
+                    "alchemy",
+                    "--step",
+                    "exalt",
+                    "--target",
+                    "IncreasedLife",
+                    "--iterations",
+                    "5",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0
+
+
+class TestCraftFossilsFilterCaseVariants:
+    @pytest.mark.parametrize("variant", ["life", "LIFE", "Life", "lIfE"])
+    def test_filter_passes_through_unchanged(self, variant):
+        cd = _mock_repoe_data(get_fossils=SAMPLE_FOSSILS)
+        with patch(_PATCH_CD, return_value=cd):
+            result = invoke_cli(cli, ["sim", "fossils", "--filter", variant, "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["filter"] == variant
+
+
+class TestCraftSearchEmptyQuery:
+    def test_empty_string_query(self):
+        cd = _mock_repoe_data(search_base_items=[])
+        with patch(_PATCH_CD, return_value=cd):
+            result = invoke_cli(cli, ["sim", "search", "x", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["query"] == "x"

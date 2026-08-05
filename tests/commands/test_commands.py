@@ -31,6 +31,25 @@ requires_symlinks = pytest.mark.skipif(
 )
 
 
+class TestGetPackageVersion:
+    def test_returns_version_when_installed(self, monkeypatch):
+        from poe.commands.root import _get_package_version
+
+        monkeypatch.setattr("poe.commands.root._pkg_version", lambda _name: "1.2.3")
+        assert _get_package_version() == "1.2.3"
+
+    def test_returns_none_when_not_installed(self, monkeypatch):
+        from importlib.metadata import PackageNotFoundError
+
+        from poe.commands.root import _get_package_version
+
+        def _raise(_name):
+            raise PackageNotFoundError("not found")
+
+        monkeypatch.setattr("poe.commands.root._pkg_version", _raise)
+        assert _get_package_version() is None
+
+
 class TestFindSkillSource:
     def test_finds_skill_in_package(self, tmp_path):
         poe_dir = tmp_path / "poe"
@@ -62,7 +81,7 @@ class TestFindSkillSource:
 class TestInstallFlow:
     def test_install_source_not_found(self, monkeypatch):
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: None)
-        result = invoke_cli(cli, ["install-skill"])
+        result = invoke_cli(cli, ["install-skill", "--json"])
         assert result.exit_code != 0
 
     def test_install_target_exists_no_force(self, tmp_path, monkeypatch):
@@ -77,7 +96,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: tmp_path / "home")
 
-        result = invoke_cli(cli, ["install-skill"])
+        result = invoke_cli(cli, ["install-skill", "--json"])
         assert result.exit_code != 0
 
     def test_install_default_copy(self, tmp_path, monkeypatch):
@@ -89,7 +108,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill"])
+        result = invoke_cli(cli, ["install-skill", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output.strip())
         assert data["action"] == "copied"
@@ -108,7 +127,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--symlink"])
+        result = invoke_cli(cli, ["install-skill", "--symlink", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output.strip())
         assert data["action"] == "symlinked"
@@ -129,7 +148,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--force"])
+        result = invoke_cli(cli, ["install-skill", "--force", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output.strip())
         assert data["action"] == "copied"
@@ -152,7 +171,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--force"])
+        result = invoke_cli(cli, ["install-skill", "--force", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output.strip())
         assert data["action"] == "copied"
@@ -169,7 +188,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
         monkeypatch.setattr("poe.commands.root._get_package_version", lambda: "1.2.3")
 
-        result = invoke_cli(cli, ["install-skill"])
+        result = invoke_cli(cli, ["install-skill", "--json"])
         assert result.exit_code == 0
         target = home / ".claude" / "skills" / "poe"
         assert (target / "version.md").read_text() == "1.2.3"
@@ -184,7 +203,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
         monkeypatch.setattr("poe.commands.root._get_package_version", lambda: None)
 
-        result = invoke_cli(cli, ["install-skill"])
+        result = invoke_cli(cli, ["install-skill", "--json"])
         assert result.exit_code == 0
         target = home / ".claude" / "skills" / "poe"
         assert not (target / "version.md").exists()
@@ -200,7 +219,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
         monkeypatch.setattr("poe.commands.root._get_package_version", lambda: "1.0.0")
 
-        result = invoke_cli(cli, ["install-skill", "--symlink"])
+        result = invoke_cli(cli, ["install-skill", "--symlink", "--json"])
         assert result.exit_code == 0
         target = home / ".claude" / "skills" / "poe"
         assert not (target / "version.md").exists()
@@ -215,7 +234,7 @@ class TestInstallFlow:
         monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--symlink"])
+        result = invoke_cli(cli, ["install-skill", "--symlink", "--json"])
         assert result.exit_code != 0
 
 
@@ -233,7 +252,7 @@ class TestUninstallFlow:
 
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--uninstall"])
+        result = invoke_cli(cli, ["install-skill", "--uninstall", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output.strip())
         assert data["action"] == "uninstalled"
@@ -248,7 +267,7 @@ class TestUninstallFlow:
 
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--uninstall"])
+        result = invoke_cli(cli, ["install-skill", "--uninstall", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output.strip())
         assert data["action"] == "uninstalled"
@@ -261,5 +280,58 @@ class TestUninstallFlow:
 
         monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
 
-        result = invoke_cli(cli, ["install-skill", "--uninstall"])
+        result = invoke_cli(cli, ["install-skill", "--uninstall", "--json"])
         assert result.exit_code != 0
+
+
+# ── install-skill JSON output structure invariants ──────────────────────────
+
+
+class TestInstallSkillJSONOutput:
+    def test_install_output_has_action_field(self, tmp_path, monkeypatch):
+        source_dir = tmp_path / "source"
+        source_dir.mkdir(parents=True)
+        (source_dir / "SKILL.md").write_text("# skill")
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
+        monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
+
+        result = invoke_cli(cli, ["install-skill", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert "action" in data
+        assert isinstance(data["action"], str)
+
+    def test_uninstall_output_has_action_field(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        target = home / ".claude" / "skills" / "poe"
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text("# skill")
+
+        monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
+
+        result = invoke_cli(cli, ["install-skill", "--uninstall", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert data["action"] == "uninstalled"
+
+
+class TestInstallSkillIdempotence:
+    def test_install_then_force_install_succeeds(self, tmp_path, monkeypatch):
+        source_dir = tmp_path / "source"
+        source_dir.mkdir(parents=True)
+        (source_dir / "SKILL.md").write_text("# v1")
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("poe.commands.root._find_skill_source", lambda: source_dir)
+        monkeypatch.setattr("poe.commands.root.Path.home", lambda: home)
+
+        result1 = invoke_cli(cli, ["install-skill", "--json"])
+        assert result1.exit_code == 0
+
+        (source_dir / "SKILL.md").write_text("# v2")
+        result2 = invoke_cli(cli, ["install-skill", "--force", "--json"])
+        assert result2.exit_code == 0
+        target = home / ".claude" / "skills" / "poe"
+        assert (target / "SKILL.md").read_text() == "# v2"
